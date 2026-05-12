@@ -33,7 +33,7 @@ Cloudflare WorkersおよびR2を使用したファイルアップローダーの
 ## Endpoints
 - `/upload/:fileId` - Resumable Uploads for HTTP用。アップロードはこのエンドポイントに対して行う。
 - `/d/:bucketName/:filePath` - `GET`でファイルのダウンロード。`/`で終わったらディレクトリなのでインデックスを返す。`DELETE`でファイルを削除。
-  tar.gzの場合、`?list`クエリでインデックスを返す。`?file=path/to/file`クエリで中身の特定ファイルをダウンロード。
+  tar.gzの場合、`?list`/`?list=path/to/dir`クエリでインデックスを返す。`?file=path/to/file`クエリで中身の特定ファイルをダウンロード。
 - `/api` - 各種操作 全てJSONデータの`POST`
   * **bucket関連**
     * `/api/buckets/create` - バケットを作成するためのエンドポイント。バケット名を指定してバケットIDを生成して返す。
