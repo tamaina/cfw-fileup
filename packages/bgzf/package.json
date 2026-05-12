@@ -1,0 +1,10 @@
+{
+  "name": "bgzf",
+  "type": "module",
+  "scripts": {
+  },
+  "dependencies": {
+  },
+  "devDependencies": {
+  }
+}

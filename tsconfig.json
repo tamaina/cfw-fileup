@@ -1,14 +1,8 @@
 {
-  "compilerOptions": {
-    "target": "ESNext",
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "strict": true,
-    "skipLibCheck": true,
-    "lib": [
-      "ESNext"
-    ],
-    "jsx": "react-jsx",
-    "jsxImportSource": "hono/jsx"
-  },
+  "include": [],
+  "references": [
+    { "path": "packages/app/tsconfig.json" },
+    { "path": "packages/app/vite/tsconfig.json" },
+    { "path": "packages/app/vite/tsconfig.node.json" }
+  ]
 }
