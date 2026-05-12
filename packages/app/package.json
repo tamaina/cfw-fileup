@@ -2,18 +2,20 @@
   "name": "app",
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy --minify",
-    "cf-typegen": "wrangler types --env-interface CloudflareBindings"
+    "dev": "vite dev",
+    "deploy": "wrangler deploy --minify"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.36.3",
     "@cloudflare/workers-types": "^4.20260511.1",
+    "@eslint/eslintrc": "^3.3.5",
+    "@eslint/js": "^9.39.4",
     "@misskey-dev/eslint-plugin": "^2.2.0",
     "@types/node": "^25.7.0",
     "@typescript-eslint/parser": "^8.59.3",
     "@vitejs/plugin-vue": "^6.0.6",
-    "eslint": "^10.3.0",
+    "eslint": "^9.39.4",
+    "eslint-plugin-vue": "^10.9.1",
     "hono": "^4.12.18",
     "nanoid": "^5.1.11",
     "vite": "^8.0.12",
