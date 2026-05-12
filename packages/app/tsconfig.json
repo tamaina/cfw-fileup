@@ -1,13 +1,6 @@
 {
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "target": "ESNext",
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "strict": true,
-		"strictNullChecks": true,
-    "skipLibCheck": true,
-    "verbatimModuleSyntax": true,
-    "allowSyntheticDefaultImports": true,
     "lib": [
       "ESNext",
       "WebWorker"
