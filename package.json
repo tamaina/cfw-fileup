@@ -3,7 +3,8 @@
   "type": "module",
   "scripts": {
     "dev": "pnpm run --filter app dev",
-    "deploy": "wrangler deploy --minify"
+    "build": "pnpm run --filter app build",
+    "deploy": "pnpm run --filter app deploy"
   },
   "dependencies": {
     "hono": "^4.12.18"

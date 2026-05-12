@@ -2,7 +2,7 @@
   "include": [],
   "references": [
     { "path": "packages/app/tsconfig.json" },
-    { "path": "packages/app/vite/tsconfig.json" },
-    { "path": "packages/app/vite/tsconfig.node.json" }
+    { "path": "packages/app/src/client/tsconfig.json" },
+    { "path": "packages/app/src/client/tsconfig.node.json" }
   ]
 }

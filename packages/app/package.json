@@ -3,7 +3,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev",
-    "deploy": "wrangler deploy --minify"
+    "build": "vite build",
+    "preview": "vite preview",
+    "deploy": "vite build && wrangler deploy"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.36.3",

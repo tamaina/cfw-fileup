@@ -1,7 +1,7 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "cfw-fileup",
-  "main": "worker/index.ts",
+  "main": "src/worker/index.ts",
   "compatibility_date": "2026-05-11"
   // "compatibility_flags": [
   //   "nodejs_compat"
