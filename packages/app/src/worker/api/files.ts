@@ -1,8 +1,9 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import { eq, and, gte, lte } from 'drizzle-orm';
+import { eq, and, gte } from 'drizzle-orm';
 import { buckets, files, targzFiles } from '../scheme/index';
 import { getDb } from '../utils/db';
+import { getQuotaForUser } from '../utils/rate-limit';
 import { authMiddleware } from '../middleware/auth';
 import { genEaidx } from '../../shared/eaid-x';
 import type { Schema, SchemaType } from './schema-type';
@@ -92,36 +93,30 @@ app.post('/create/open', async (c) => {
 		throw new HTTPException(409, { message: 'File already exists' });
 	}
 
-	const maxFilesStr = c.env.MAX_FILES_PER_BUCKET;
-	if (maxFilesStr) {
-		const maxFiles = parseInt(maxFilesStr, 10);
-		if (!Number.isNaN(maxFiles)) {
-			const fileCount = await db
-				.select()
-				.from(files)
-				.where(eq(files.bucketId, bucket.id))
-				.then((result) => result.length);
+	const quota = await getQuotaForUser(c.env, user.id);
 
-			if (fileCount >= maxFiles) {
-				throw new HTTPException(429, { message: 'File limit exceeded' });
-			}
+	if (quota.maxFilesPerBucket !== null) {
+		const fileCount = await db
+			.select()
+			.from(files)
+			.where(eq(files.bucketId, bucket.id))
+			.then((result) => result.length);
+
+		if (fileCount >= quota.maxFilesPerBucket) {
+			throw new HTTPException(429, { message: 'File limit exceeded' });
 		}
 	}
 
-	const maxUploadsStr = c.env.MAX_DAILY_UPLOADS;
-	if (maxUploadsStr) {
-		const maxUploads = parseInt(maxUploadsStr, 10);
-		if (!Number.isNaN(maxUploads)) {
-			const dayStart = Date.now() - 24 * 60 * 60 * 1000;
-			const dailyUploadCount = await db
-				.select()
-				.from(files)
-				.where(and(eq(files.bucketId, bucket.id), gte(files.createdAt, dayStart)))
-				.then((result) => result.length);
+	if (quota.maxDailyUploads !== null) {
+		const dayStart = Date.now() - 24 * 60 * 60 * 1000;
+		const dailyUploadCount = await db
+			.select()
+			.from(files)
+			.where(and(eq(files.bucketId, bucket.id), gte(files.createdAt, dayStart)))
+			.then((result) => result.length);
 
-			if (dailyUploadCount >= maxUploads) {
-				throw new HTTPException(429, { message: 'Daily upload limit exceeded' });
-			}
+		if (dailyUploadCount >= quota.maxDailyUploads) {
+			throw new HTTPException(429, { message: 'Daily upload limit exceeded' });
 		}
 	}
 
@@ -224,22 +219,19 @@ app.post('/create/close', async (c) => {
 		throw new HTTPException(410, { message: 'Upload expired' });
 	}
 
+	const quota = await getQuotaForUser(c.env, user.id);
 	const r2Object = await c.env.R2.head(file.r2Key);
 
 	if (!r2Object) {
 		throw new HTTPException(400, { message: 'Upload has not been completed' });
 	}
 
-	const maxBucketSizeStr = c.env.MAX_BUCKET_SIZE_BYTES;
-	if (maxBucketSizeStr) {
-		const maxBucketSize = parseInt(maxBucketSizeStr, 10);
-		if (!Number.isNaN(maxBucketSize)) {
-			const bucketFiles = await db.select().from(files).where(eq(files.bucketId, bucket.id));
-			const totalSize = bucketFiles.reduce((sum, f) => sum + (f.size ?? 0), 0) + (r2Object.size ?? 0);
+	if (quota.maxBucketSizeBytes !== null) {
+		const bucketFiles = await db.select().from(files).where(eq(files.bucketId, bucket.id));
+		const totalSize = bucketFiles.reduce((sum, f) => sum + (f.size ?? 0), 0) + (r2Object.size ?? 0);
 
-			if (totalSize > maxBucketSize) {
-				throw new HTTPException(429, { message: 'Bucket size limit exceeded' });
-			}
+		if (totalSize > quota.maxBucketSizeBytes) {
+			throw new HTTPException(429, { message: 'Bucket size limit exceeded' });
 		}
 	}
 

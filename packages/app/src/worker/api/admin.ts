@@ -1,8 +1,9 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { eq } from 'drizzle-orm';
-import { users, tokens, files, buckets, appSettings } from '../scheme/index';
+import { users, tokens, files, buckets, appSettings, userQuotas, globalQuotas } from '../scheme/index';
 import { getDb } from '../utils/db';
+import { getQuotaForUser, getGlobalQuota } from '../utils/rate-limit';
 import { authMiddleware, adminMiddleware } from '../middleware/auth';
 import type { Schema, SchemaType } from './schema-type';
 
@@ -138,6 +139,99 @@ app.post('/toggle-registration', async (c) => {
 			target: appSettings.key,
 			set: { value },
 		});
+
+	return c.json({ ok: true });
+});
+
+app.post('/set-user-quota', async (c) => {
+	const db = getDb(c.env);
+	const body = (await c.req.json()) as Record<string, unknown>;
+
+	const userId = body.userId as string;
+	if (!userId) {
+		throw new HTTPException(400, { message: 'userId is required' });
+	}
+
+	const user = await db.select().from(users).where(eq(users.id, userId)).get();
+	if (!user) {
+		throw new HTTPException(404, { message: 'User not found' });
+	}
+
+	const now = Date.now();
+
+	await db
+		.insert(userQuotas)
+		.values({
+			userId,
+			maxBuckets: body.maxBuckets ? Number(body.maxBuckets) : null,
+			maxBucketSizeBytes: body.maxBucketSizeBytes ? Number(body.maxBucketSizeBytes) : null,
+			maxFilesPerBucket: body.maxFilesPerBucket ? Number(body.maxFilesPerBucket) : null,
+			maxDailyUploads: body.maxDailyUploads ? Number(body.maxDailyUploads) : null,
+			updatedAt: now,
+		})
+		.onConflictDoUpdate({
+			target: userQuotas.userId,
+			set: {
+				maxBuckets: body.maxBuckets ? Number(body.maxBuckets) : null,
+				maxBucketSizeBytes: body.maxBucketSizeBytes ? Number(body.maxBucketSizeBytes) : null,
+				maxFilesPerBucket: body.maxFilesPerBucket ? Number(body.maxFilesPerBucket) : null,
+				maxDailyUploads: body.maxDailyUploads ? Number(body.maxDailyUploads) : null,
+				updatedAt: now,
+			},
+		});
+
+	return c.json({ ok: true });
+});
+
+app.post('/set-global-quota', async (c) => {
+	const db = getDb(c.env);
+	const body = (await c.req.json()) as Record<string, unknown>;
+
+	await db
+		.insert(globalQuotas)
+		.values({
+			key: 'default',
+			maxBuckets: body.maxBuckets ? Number(body.maxBuckets) : null,
+			maxBucketSizeBytes: body.maxBucketSizeBytes ? Number(body.maxBucketSizeBytes) : null,
+			maxFilesPerBucket: body.maxFilesPerBucket ? Number(body.maxFilesPerBucket) : null,
+			maxDailyUploads: body.maxDailyUploads ? Number(body.maxDailyUploads) : null,
+		})
+		.onConflictDoUpdate({
+			target: globalQuotas.key,
+			set: {
+				maxBuckets: body.maxBuckets ? Number(body.maxBuckets) : null,
+				maxBucketSizeBytes: body.maxBucketSizeBytes ? Number(body.maxBucketSizeBytes) : null,
+				maxFilesPerBucket: body.maxFilesPerBucket ? Number(body.maxFilesPerBucket) : null,
+				maxDailyUploads: body.maxDailyUploads ? Number(body.maxDailyUploads) : null,
+			},
+		});
+
+	return c.json({ ok: true });
+});
+
+app.get('/get-user-quota/:userId', async (c) => {
+	const userId = c.req.param('userId');
+	const quota = await getQuotaForUser(c.env, userId);
+
+	return c.json(quota);
+});
+
+app.get('/get-global-quota', async (c) => {
+	const quota = await getGlobalQuota(c.env);
+
+	return c.json(quota);
+});
+
+app.post('/delete-user-quota/:userId', async (c) => {
+	const db = getDb(c.env);
+	const userId = c.req.param('userId');
+
+	const user = await db.select().from(users).where(eq(users.id, userId)).get();
+	if (!user) {
+		throw new HTTPException(404, { message: 'User not found' });
+	}
+
+	await db.delete(userQuotas).where(eq(userQuotas.userId, userId));
 
 	return c.json({ ok: true });
 });

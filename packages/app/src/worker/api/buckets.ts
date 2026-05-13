@@ -1,8 +1,9 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import { eq, and } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { buckets, files } from '../scheme/index';
 import { getDb } from '../utils/db';
+import { getQuotaForUser } from '../utils/rate-limit';
 import { authMiddleware } from '../middleware/auth';
 import { genEaidx } from '../../shared/eaid-x';
 import type { Schema, SchemaType } from './schema-type';
@@ -36,17 +37,14 @@ app.post('/create', async (c) => {
 		throw new HTTPException(400, { message: 'bucketName is required' });
 	}
 
-	const maxBucketsStr = c.env.MAX_BUCKETS_PER_USER;
-	if (maxBucketsStr) {
-		const maxBuckets = parseInt(maxBucketsStr, 10);
-		if (!Number.isNaN(maxBuckets)) {
-			const userBucketCount = await db.query.buckets
-				.findMany({ where: eq(buckets.userId, user.id) })
-				.then((result) => result.length);
+	const quota = await getQuotaForUser(c.env, user.id);
+	if (quota.maxBuckets !== null) {
+		const userBucketCount = await db.query.buckets
+			.findMany({ where: eq(buckets.userId, user.id) })
+			.then((result) => result.length);
 
-			if (userBucketCount >= maxBuckets) {
-				throw new HTTPException(429, { message: 'Bucket limit exceeded' });
-			}
+		if (userBucketCount >= quota.maxBuckets) {
+			throw new HTTPException(429, { message: 'Bucket limit exceeded' });
 		}
 	}
 
