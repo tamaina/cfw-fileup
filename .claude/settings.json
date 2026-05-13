@@ -3,7 +3,7 @@
     "cloudflare@claude-plugins-official": true
   },
   "attribution": {
-    "commit": "Generated with AI\n\nCo-Authored-By: AI <ai@example.com>",
+    "commit": "Generated with Claude Code\n\nCo-Authored-By: Claude <noreply@anthropic.com>",
     "pr": ""
   }
 }
