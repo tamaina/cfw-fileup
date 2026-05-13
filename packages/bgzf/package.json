@@ -1,10 +1,13 @@
 {
   "name": "bgzf",
+  "version": "0.0.1",
   "type": "module",
-  "scripts": {
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
   },
-  "dependencies": {
-  },
-  "devDependencies": {
-  }
+  "scripts": {},
+  "dependencies": {},
+  "devDependencies": {}
 }
+
