@@ -13,6 +13,6 @@ export default defineConfig({
     cloudflare({
       configPath: "./wrangler.jsonc",
     }),
-    vue()
+    vue(),
   ],
 });
