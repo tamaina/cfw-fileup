@@ -3,6 +3,7 @@ import { HTTPException } from 'hono/http-exception';
 import { eq, and } from 'drizzle-orm';
 import { buckets, files, targzFiles } from '../scheme/index';
 import { getDb } from '../utils/db';
+import { authMiddleware } from '../middleware/auth';
 import { createBgzfBlock } from 'bgzf';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -203,14 +204,9 @@ app.get('/d/:bucketName/*', async (c) => {
 	});
 });
 
-app.delete('/d/:bucketName/*', async (c) => {
+app.delete('/d/:bucketName/*', authMiddleware, async (c) => {
 	const db = getDb(c.env);
-	const authorization = c.req.header('Authorization');
-
-	if (!authorization?.startsWith('Bearer ')) {
-		throw new HTTPException(401, { message: 'Unauthorized' });
-	}
-
+	const user = c.get('user');
 	const bucketName = c.req.param('bucketName');
 	const filePath = c.req.path.replace(`/d/${bucketName}/`, '');
 
@@ -218,6 +214,10 @@ app.delete('/d/:bucketName/*', async (c) => {
 
 	if (!bucket) {
 		throw new HTTPException(404, { message: 'Bucket not found' });
+	}
+
+	if (bucket.userId !== user.id && !user.isAdmin) {
+		throw new HTTPException(403, { message: 'Forbidden' });
 	}
 
 	const file = await db

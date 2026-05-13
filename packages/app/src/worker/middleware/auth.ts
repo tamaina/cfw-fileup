@@ -42,6 +42,10 @@ export const authMiddleware = createMiddleware<{ Bindings: Env }>(async (c, next
 		throw new HTTPException(401, { message: 'Unauthorized' });
 	}
 
+	if (tokenRecord.isSuspended) {
+		throw new HTTPException(403, { message: 'Account is suspended' });
+	}
+
 	c.set('user', {
 		id: tokenRecord.userId,
 		username: tokenRecord.username,

@@ -1,20 +1,29 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { eq } from 'drizzle-orm';
-import { files, uploadParts } from '../scheme/index';
+import { buckets, files, uploadParts } from '../scheme/index';
 import { getDb } from '../utils/db';
+import { authMiddleware } from '../middleware/auth';
 import { genEaidx } from '../../shared/eaid-x';
 
 const app = new Hono<{ Bindings: Env }>();
 
+app.use('/upload/*', authMiddleware);
+
 app.get('/upload/:fileId', async (c) => {
 	const db = getDb(c.env);
+	const user = c.get('user');
 	const fileId = c.req.param('fileId');
 
 	const file = await db.select().from(files).where(eq(files.id, fileId)).get();
 
 	if (!file) {
 		throw new HTTPException(404, { message: 'File not found' });
+	}
+
+	const bucket = await db.select().from(buckets).where(eq(buckets.id, file.bucketId)).get();
+	if (!bucket || (bucket.userId !== user.id && !user.isAdmin)) {
+		throw new HTTPException(403, { message: 'Forbidden' });
 	}
 
 	if (file.uploadExpiresAt < Date.now()) {
@@ -35,6 +44,7 @@ app.get('/upload/:fileId', async (c) => {
 
 app.patch('/upload/:fileId', async (c) => {
 	const db = getDb(c.env);
+	const user = c.get('user');
 	const fileId = c.req.param('fileId');
 	const uploadOffset = c.req.header('Upload-Offset');
 
@@ -46,6 +56,11 @@ app.patch('/upload/:fileId', async (c) => {
 
 	if (!file) {
 		throw new HTTPException(404, { message: 'File not found' });
+	}
+
+	const bucket = await db.select().from(buckets).where(eq(buckets.id, file.bucketId)).get();
+	if (!bucket || (bucket.userId !== user.id && !user.isAdmin)) {
+		throw new HTTPException(403, { message: 'Forbidden' });
 	}
 
 	if (file.uploadExpiresAt < Date.now()) {

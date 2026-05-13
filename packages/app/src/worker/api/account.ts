@@ -21,6 +21,15 @@ const app = new Hono<{ Bindings: Env }>();
 
 app.use(authMiddleware);
 
+app.get('/me', (c) => {
+	const user = c.get('user');
+	return c.json({
+		id: user.id,
+		username: user.username,
+		isAdmin: user.isAdmin,
+	});
+});
+
 app.post('/update', async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
