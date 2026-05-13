@@ -9,6 +9,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `packages/app` — The main application: a Hono-based Worker backend + Vue 3 SPA frontend
 - `packages/bgzf` — Planned library for BGZF-format compression (for random-access into tar.gz files)
 
+このプロジェクトは開発初期段階です。README.mdに書かれているタスクやエンドポイントを実装ていきます。実装が終わったらチェックボックスをオン(`[ ] → [x]`)にします。
+
+## pnpm
+pnpm workspacesを使っています。cdを使わずとも、`--filter <package name>`で特定のパッケージに絞ってコマンドを実行します。
+
+```
+pnpm --filter app dev
+```
+
 ## Commands
 
 All commands should be run from the repo root using pnpm:
@@ -55,9 +64,7 @@ Schema is defined under `src/worker/scheme/`. Currently only `file.ts` exists (a
 
 ### Shared code
 
-`src/shared/` contains code used by both Worker and client. Currently includes:
-
-- **`eaid-x.ts`** — EAID-X ID generator: a sortable, base36 ID (0 replaced by `-`) structured as `[9-char time since 2000]-[4-char nodeId]-[2-char nodeId2][2-char counter]`. Derived from Misskey's AIDX format. Use `genEaidx(Date.now())` to create IDs, `parseEaidx(id)` to extract the date.
+`src/shared/` contains code used by both Worker and client.
 
 ### Client (Vue 3 SPA)
 
