@@ -14,7 +14,7 @@ export default [
 		},
 	},
 	{
-		files: ['**/*.ts', '**/*.tsx'],
+		files: ['*.ts', '*.tsx'],
 		languageOptions: {
 			parserOptions: {
 				ecmaVersion: 'latest',
@@ -25,7 +25,16 @@ export default [
 			},
 		},
 	},
-  globalIgnores([
-    './vite.config.ts',
-  ]),
+	{
+		files: ['src/workers/**/*.ts', 'src/workers/**/*.tsx'],
+		languageOptions: {
+			parserOptions: {
+				ecmaVersion: 'latest',
+				parser: tsParser,
+				project: ['./tsconfig.worker.json'],
+				sourceType: 'module',
+				tsconfigRootDir: import.meta.dirname,
+			},
+		},
+	},
 ];
