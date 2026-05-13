@@ -17,10 +17,12 @@ export const aidxRegExp = /^[-1-9a-z]{9}-[-1-9a-z]{4}-[-1-9a-z]{4}$/;
 const TIME2000 = 946684800000;
 const TIME_LENGTH = 9;
 const NODE_LENGTH = 4;
-const NOISE_LENGTH = 4;
-const AIDX_LENGTH = TIME_LENGTH + 1 + NODE_LENGTH + 1 + NOISE_LENGTH;
+const NODE2_LENGTH = 2;
+const NOISE_LENGTH = 2;
+const AIDX_LENGTH = TIME_LENGTH + 1 + NODE_LENGTH + 1 + NODE2_LENGTH + NOISE_LENGTH;
 
 const nodeId = customAlphabet('-123456789abcdefghijklmnopqrstuvwxyz', NODE_LENGTH)();
+const nodeId2 = customAlphabet('-123456789abcdefghijklmnopqrstuvwxyz', NODE2_LENGTH)();
 let counter = 0;
 
 export function parseBigInt36(str: string): bigint {
@@ -57,7 +59,7 @@ function getNoise(): string {
 export function genEaidx(t: number): string {
 	if (isNaN(t)) throw new Error('Failed to create AIDX: Invalid Date');
 	counter++;
-	return `${getTime(t)}-${nodeId}-${getNoise()}`;
+	return `${getTime(t)}-${nodeId}-${nodeId2}${getNoise()}`;
 }
 
 export function parseEaidx(id: string): { date: Date; } {
