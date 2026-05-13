@@ -16,6 +16,8 @@
     "@types/node": "^25.7.0",
     "@typescript-eslint/parser": "^8.59.3",
     "@vitejs/plugin-vue": "^6.0.6",
+    "drizzle-kit": "^0.31.10",
+    "drizzle-orm": "^0.45.2",
     "eslint": "^9.39.4",
     "eslint-plugin-vue": "^10.9.1",
     "hono": "^4.12.18",
