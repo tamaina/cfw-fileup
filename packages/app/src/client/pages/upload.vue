@@ -199,7 +199,7 @@ async function startUpload(): Promise<void> {
 		const entries: TarFileEntry[] = [];
 		for await (const { path, handle } of walkDirectory(selectedDir.value)) {
 			const file = await handle.getFile();
-			const data = new Uint8Array(await file.arrayBuffer());
+			const data = new Uint8Array(await file.arrayBuffer() as ArrayBuffer);
 			const mimeType = file.type || 'application/octet-stream';
 			entries.push({ path, data, mimeType, mtime: file.lastModified });
 		}

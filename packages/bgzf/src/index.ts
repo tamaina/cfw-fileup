@@ -182,7 +182,7 @@ export function createTarHeader(name: string, size: number, mtime: number, type:
 
 export interface TarFileEntry {
 	path: string;
-	data: Uint8Array;
+	data: Uint8Array<ArrayBuffer>;
 	mimeType: string;
 	mtime?: number;
 }

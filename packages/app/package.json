@@ -7,6 +7,7 @@
     "preview": "vite preview",
     "deploy": "vite build && wrangler deploy",
     "typecheck:worker": "tsc -p ./tsconfig.json --noEmit",
+    "typecheck:client": "vue-tsc -p ./src/client/tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:worker": "vitest run --config vitest.worker.config.ts",
@@ -38,6 +39,7 @@
     "vite": "^8.0.12",
     "vitest": "^4.1.6",
     "vue": "^3.5.34",
+    "vue-tsc": "^3.2.8",
     "wrangler": "^4.4.0"
   }
 }
