@@ -1,7 +1,8 @@
-import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
+// Schema has been split into separate files:
+// - users.ts (users, tokens tables)
+// - buckets.ts (buckets table)
+// - files.ts (files, targz_files, uploadParts tables)
+// - settings.ts (appSettings table)
+// Import from scheme/index.ts instead.
 
-export const users = sqliteTable('users', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  name: text('name').notNull(),
-  email: text('email').notNull().unique(),
-});
+export {};

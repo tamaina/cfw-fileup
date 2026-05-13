@@ -1,0 +1,145 @@
+import { Hono } from 'hono';
+import { HTTPException } from 'hono/http-exception';
+import { eq } from 'drizzle-orm';
+import { users, tokens, files, buckets, appSettings } from '../scheme/index';
+import { getDb } from '../utils/db';
+import { authMiddleware, adminMiddleware } from '../middleware/auth';
+import type { Schema, SchemaType } from './schema-type';
+
+const suspendUserSchema = {
+	type: 'object',
+	properties: {
+		userId: { type: 'string' },
+	},
+	required: ['userId'],
+} as const satisfies Schema;
+
+const deleteFileSchema = {
+	type: 'object',
+	properties: {
+		fileId: { type: 'string' },
+	},
+	required: ['fileId'],
+} as const satisfies Schema;
+
+const deleteBucketSchema = {
+	type: 'object',
+	properties: {
+		bucketId: { type: 'string' },
+	},
+	required: ['bucketId'],
+} as const satisfies Schema;
+
+const toggleRegistrationSchema = {
+	type: 'object',
+	properties: {
+		enabled: { type: 'boolean' },
+	},
+	required: ['enabled'],
+} as const satisfies Schema;
+
+const app = new Hono<{ Bindings: CloudflareBindings }>();
+
+app.use(authMiddleware);
+app.use(adminMiddleware);
+
+app.post('/suspend-user', async (c) => {
+	const db = getDb(c.env);
+	const body = (await c.req.json()) as SchemaType<typeof suspendUserSchema>;
+
+	if (!body.userId) {
+		throw new HTTPException(400, { message: 'userId is required' });
+	}
+
+	const user = await db.select().from(users).where(eq(users.id, body.userId)).get();
+
+	if (!user) {
+		throw new HTTPException(404, { message: 'User not found' });
+	}
+
+	await db.update(users).set({ isSuspended: true }).where(eq(users.id, body.userId));
+
+	await db.delete(tokens).where(eq(tokens.userId, body.userId));
+
+	return c.json({ ok: true });
+});
+
+app.post('/delete-file', async (c) => {
+	const db = getDb(c.env);
+	const body = (await c.req.json()) as SchemaType<typeof deleteFileSchema>;
+
+	if (!body.fileId) {
+		throw new HTTPException(400, { message: 'fileId is required' });
+	}
+
+	const file = await db.select().from(files).where(eq(files.id, body.fileId)).get();
+
+	if (!file) {
+		throw new HTTPException(404, { message: 'File not found' });
+	}
+
+	try {
+		await c.env.R2.delete(file.r2Key);
+	} catch (error) {
+		console.error('Failed to delete R2 object:', file.r2Key, error);
+	}
+
+	await db.delete(files).where(eq(files.id, body.fileId));
+
+	return c.json({ ok: true });
+});
+
+app.post('/delete-bucket', async (c) => {
+	const db = getDb(c.env);
+	const body = (await c.req.json()) as SchemaType<typeof deleteBucketSchema>;
+
+	if (!body.bucketId) {
+		throw new HTTPException(400, { message: 'bucketId is required' });
+	}
+
+	const bucket = await db.select().from(buckets).where(eq(buckets.id, body.bucketId)).get();
+
+	if (!bucket) {
+		throw new HTTPException(404, { message: 'Bucket not found' });
+	}
+
+	const bucketFiles = await db.select().from(files).where(eq(files.bucketId, bucket.id));
+
+	for (const file of bucketFiles) {
+		try {
+			await c.env.R2.delete(file.r2Key);
+		} catch (error) {
+			console.error('Failed to delete R2 object:', file.r2Key, error);
+		}
+	}
+
+	await db.delete(buckets).where(eq(buckets.id, bucket.id));
+
+	return c.json({ ok: true });
+});
+
+app.post('/toggle-registration', async (c) => {
+	const db = getDb(c.env);
+	const body = (await c.req.json()) as SchemaType<typeof toggleRegistrationSchema>;
+
+	if (body.enabled === undefined || body.enabled === null) {
+		throw new HTTPException(400, { message: 'enabled is required' });
+	}
+
+	const value = body.enabled ? 'true' : 'false';
+
+	await db
+		.insert(appSettings)
+		.values({
+			key: 'registration_enabled',
+			value,
+		})
+		.onConflictDoUpdate({
+			target: appSettings.key,
+			set: { value },
+		});
+
+	return c.json({ ok: true });
+});
+
+export default app;

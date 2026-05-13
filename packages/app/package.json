@@ -7,7 +7,10 @@
     "preview": "vite preview",
     "deploy": "vite build && wrangler deploy",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate:local": "wrangler d1 migrations apply cfw-fileup-db --local",
+    "cf-typegen": "wrangler types"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.36.3",

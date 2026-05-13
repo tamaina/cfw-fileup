@@ -11,12 +11,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 このプロジェクトは開発初期段階です。README.mdに書かれているタスクやエンドポイントを実装ていきます。実装が終わったらチェックボックスをオン(`[ ] → [x]`)にします。
 
-## pnpm
+## pnpm/npm packages
+
+### Workspaces
 pnpm workspacesを使っています。cdを使わずとも、`--filter <package name>`で特定のパッケージに絞ってコマンドを実行します。
 
 ```
 pnpm --filter app dev
 ```
+
+### Ask DeepWiki
+DeepWikiに問い合わせると、npmパッケージの内容を理解できます。活用してください。
 
 ## Commands
 

@@ -2,37 +2,25 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "cfw-fileup",
   "main": "src/worker/index.ts",
-  "compatibility_date": "2026-05-11"
-  // "compatibility_flags": [
-  //   "nodejs_compat"
-  // ],
-  // "vars": {
-  //   "MY_VAR": "my-variable"
-  // },
-  // "kv_namespaces": [
-  //   {
-  //     "binding": "MY_KV_NAMESPACE",
-  //     "id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-  //   }
-  // ],
-  // "r2_buckets": [
-  //   {
-  //     "binding": "MY_BUCKET",
-  //     "bucket_name": "my-bucket"
-  //   }
-  // ],
-  // "d1_databases": [
-  //   {
-  //     "binding": "MY_DB",
-  //     "database_name": "my-database",
-  //     "database_id": ""
-  //   }
-  // ],
-  // "ai": {
-  //   "binding": "AI"
-  // },
-  // "observability": {
-  //   "enabled": true,
-  //   "head_sampling_rate": 1
-  // }
+  "compatibility_date": "2026-05-11",
+  "vars": {
+    "SIGNUP_PASSPHRASE": "",
+    "MAX_BUCKETS_PER_USER": "",
+    "MAX_BUCKET_SIZE_BYTES": "",
+    "MAX_FILES_PER_BUCKET": "",
+    "MAX_DAILY_UPLOADS": ""
+  },
+  "r2_buckets": [
+    {
+      "binding": "R2",
+      "bucket_name": "cfw-fileup-storage"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "cfw-fileup-db",
+      "database_id": "00000000-0000-0000-0000-000000000000"
+    }
+  ]
 }
