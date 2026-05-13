@@ -32,10 +32,11 @@ async function setupFileForUpload() {
 
 describe('HEAD /upload/:fileId', () => {
 	test('returns 200 with Upload-Offset: 0 before upload', async () => {
-		const { fileId } = await setupFileForUpload();
+		const { token, fileId } = await setupFileForUpload();
 
 		const res = await app.request(`/upload/${fileId}`, {
 			method: 'HEAD',
+			headers: { Authorization: `Bearer ${token}` },
 		}, env);
 		expect(res.status).toBe(200);
 		expect(res.headers.get('Upload-Offset')).toBe('0');
@@ -43,8 +44,11 @@ describe('HEAD /upload/:fileId', () => {
 	});
 
 	test('nonexistent fileId returns 404', async () => {
+		const { token } = await setupFileForUpload();
+
 		const res = await app.request('/upload/nonexistent', {
 			method: 'HEAD',
+			headers: { Authorization: `Bearer ${token}` },
 		}, env);
 		expect(res.status).toBe(404);
 	});
@@ -52,20 +56,26 @@ describe('HEAD /upload/:fileId', () => {
 
 describe('PATCH /upload/:fileId', () => {
 	test('missing Upload-Offset header returns 400', async () => {
-		const { fileId } = await setupFileForUpload();
+		const { token, fileId } = await setupFileForUpload();
 
 		const res = await app.request(`/upload/${fileId}`, {
 			method: 'PATCH',
-			headers: { 'Content-Type': 'application/offset+octet-stream' },
+			headers: {
+				Authorization: `Bearer ${token}`,
+				'Content-Type': 'application/offset+octet-stream',
+			},
 			body: new Uint8Array([1, 2, 3]).buffer,
 		}, env);
 		expect(res.status).toBe(400);
 	});
 
 	test('nonexistent fileId returns 404', async () => {
+		const { token } = await setupFileForUpload();
+
 		const res = await app.request('/upload/nonexistent', {
 			method: 'PATCH',
 			headers: {
+				Authorization: `Bearer ${token}`,
 				'Upload-Offset': '0',
 				'Content-Type': 'application/offset+octet-stream',
 			},
@@ -75,12 +85,13 @@ describe('PATCH /upload/:fileId', () => {
 	});
 
 	test('first PATCH creates multipart upload and returns 204 with new offset', async () => {
-		const { fileId } = await setupFileForUpload();
+		const { token, fileId } = await setupFileForUpload();
 		const data = new Uint8Array([1, 2, 3, 4, 5]);
 
 		const res = await app.request(`/upload/${fileId}`, {
 			method: 'PATCH',
 			headers: {
+				Authorization: `Bearer ${token}`,
 				'Upload-Offset': '0',
 				'Content-Type': 'application/offset+octet-stream',
 			},
@@ -92,11 +103,12 @@ describe('PATCH /upload/:fileId', () => {
 	});
 
 	test('invalid Upload-Offset returns 400', async () => {
-		const { fileId } = await setupFileForUpload();
+		const { token, fileId } = await setupFileForUpload();
 
 		const res = await app.request(`/upload/${fileId}`, {
 			method: 'PATCH',
 			headers: {
+				Authorization: `Bearer ${token}`,
 				'Upload-Offset': 'notanumber',
 				'Content-Type': 'application/offset+octet-stream',
 			},
