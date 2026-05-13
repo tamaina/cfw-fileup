@@ -5,7 +5,9 @@
     "dev": "vite dev",
     "build": "vite build",
     "preview": "vite preview",
-    "deploy": "vite build && wrangler deploy"
+    "deploy": "vite build && wrangler deploy",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.36.3",
@@ -23,6 +25,7 @@
     "hono": "^4.12.18",
     "nanoid": "^5.1.11",
     "vite": "^8.0.12",
+    "vitest": "^4.1.6",
     "vue": "^3.5.34",
     "wrangler": "^4.4.0"
   }
