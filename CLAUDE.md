@@ -23,27 +23,11 @@ pnpm --filter app dev
 ### Ask DeepWiki
 DeepWikiに問い合わせると、npmパッケージの内容を理解できます。活用してください。
 
+## We're using Git
+何か作業で失敗したときは、Gitの差分を見たり復元したりすることもできます。
+
 ## Commands
-
-All commands should be run from the repo root using pnpm:
-
-```bash
-pnpm dev       # Start local dev server (Vite + Cloudflare Workers runtime via @cloudflare/vite-plugin)
-pnpm build     # Build for production
-pnpm deploy    # Build and deploy to Cloudflare Workers via wrangler
-```
-
-From `packages/app` directly:
-```bash
-pnpm run cf-typegen   # Regenerate Cloudflare bindings types from wrangler.jsonc
-```
-
-Lint (from `packages/app`):
-```bash
-pnpm eslint .
-```
-
-There is no test suite configured yet.
+See CHEATSHEET.md
 
 ## Architecture
 

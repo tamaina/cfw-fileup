@@ -25,6 +25,7 @@ export const targzFiles = sqliteTable('targz_files', {
 	path: text('path').notNull(),
 	mimeType: text('mime_type').notNull(),
 	aStart: integer('a_start').notNull(),
+	aFirstEnd: integer('a_first_end').notNull(),
 	aFinalStart: integer('a_final_start').notNull(),
 	aEnd: integer('a_end').notNull(),
 	rStartOffset: integer('r_start_offset').notNull(),

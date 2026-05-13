@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1778647400000,
+      "tag": "0000_graceful_mole_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1778647500000,
+      "tag": "0001_ambiguous_joseph",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1778647600000,
+      "tag": "0002_add_a_first_end",
+      "breakpoints": true
+    }
+  ]
+}
