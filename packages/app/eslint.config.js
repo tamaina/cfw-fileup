@@ -31,7 +31,7 @@ export default [
 			parserOptions: {
 				ecmaVersion: 'latest',
 				parser: tsParser,
-				project: ['./tsconfig.worker.json'],
+				project: ['./worker/tsconfig.json'],
 				sourceType: 'module',
 				tsconfigRootDir: import.meta.dirname,
 			},

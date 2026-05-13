@@ -5,9 +5,17 @@
       "ESNext",
       "WebWorker"
     ],
+		"paths": {
+			"@/*": ["./src/client/"]
+		},
     "types": [
     ],
     "jsx": "react-jsx",
     "jsxImportSource": "hono/jsx"
   },
+  "exclude": [
+    "./src/client/**/*",
+    "./src/worker/**/*",
+    "./test/worker/**/*"
+  ]
 }

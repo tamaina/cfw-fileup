@@ -43,7 +43,7 @@ jobs:
 
       - run: pnpm --filter app run test:worker
 
-  typecheck-client:
+  test-client:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
