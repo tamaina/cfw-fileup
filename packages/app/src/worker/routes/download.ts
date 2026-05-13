@@ -50,7 +50,7 @@ async function decompressGzipChunk(data: Uint8Array): Promise<Uint8Array> {
 app.get('/d/:bucketName/*', async (c) => {
 	const db = getDb(c.env);
 	const bucketName = c.req.param('bucketName');
-	const filePath = c.req.param('*') || '';
+	const filePath = c.req.path.replace(`/d/${bucketName}/`, '');
 	const acceptEncoding = c.req.header('Accept-Encoding') || '';
 	const acceptsGzip = acceptEncoding.includes('gzip');
 
@@ -212,7 +212,7 @@ app.delete('/d/:bucketName/*', async (c) => {
 	}
 
 	const bucketName = c.req.param('bucketName');
-	const filePath = c.req.param('*') || '';
+	const filePath = c.req.path.replace(`/d/${bucketName}/`, '');
 
 	const bucket = await db.select().from(buckets).where(eq(buckets.name, bucketName)).get();
 

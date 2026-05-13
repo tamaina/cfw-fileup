@@ -7,7 +7,7 @@ import { genEaidx } from '../../shared/eaid-x';
 
 const app = new Hono<{ Bindings: CloudflareBindings }>();
 
-app.on('HEAD', '/upload/:fileId', async (c) => {
+app.get('/upload/:fileId', async (c) => {
 	const db = getDb(c.env);
 	const fileId = c.req.param('fileId');
 

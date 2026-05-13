@@ -179,6 +179,7 @@ describe('GET /d/:bucketName/:filePath?list (tar.gz index)', () => {
 						path: 'dir/file1.txt',
 						mimeType: 'text/plain',
 						aStart: 0,
+						aFirstEnd: 512,
 						aFinalStart: 512,
 						aEnd: 512,
 						rStartOffset: 0,
@@ -188,6 +189,7 @@ describe('GET /d/:bucketName/:filePath?list (tar.gz index)', () => {
 						path: 'dir/file2.txt',
 						mimeType: 'text/plain',
 						aStart: 512,
+						aFirstEnd: 1024,
 						aFinalStart: 1024,
 						aEnd: 1024,
 						rStartOffset: 0,
@@ -237,8 +239,8 @@ describe('GET /d/:bucketName/:filePath?list (tar.gz index)', () => {
 			body: JSON.stringify({
 				fileId,
 				files: [
-					{ path: 'dir/file1.txt', mimeType: 'text/plain', aStart: 0, aFinalStart: 512, aEnd: 512, rStartOffset: 0, rEndOffset: 0 },
-					{ path: 'other/file2.txt', mimeType: 'text/plain', aStart: 512, aFinalStart: 1024, aEnd: 1024, rStartOffset: 0, rEndOffset: 0 },
+					{ path: 'dir/file1.txt', mimeType: 'text/plain', aStart: 0, aFirstEnd: 512, aFinalStart: 512, aEnd: 512, rStartOffset: 0, rEndOffset: 0 },
+					{ path: 'other/file2.txt', mimeType: 'text/plain', aStart: 512, aFirstEnd: 1024, aFinalStart: 1024, aEnd: 1024, rStartOffset: 0, rEndOffset: 0 },
 				],
 			}),
 		}, env);

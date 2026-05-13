@@ -124,6 +124,7 @@ describe('POST /api/files/create/targz-index', () => {
 						path: 'file1.txt',
 						mimeType: 'text/plain',
 						aStart: 0,
+						aFirstEnd: 512,
 						aFinalStart: 512,
 						aEnd: 512,
 						rStartOffset: 0,

@@ -51,6 +51,7 @@ export async function setupDb(): Promise<void> {
 			path text NOT NULL,
 			mime_type text NOT NULL,
 			a_start integer NOT NULL,
+			a_first_end integer NOT NULL DEFAULT 0,
 			a_final_start integer NOT NULL,
 			a_end integer NOT NULL,
 			r_start_offset integer NOT NULL,
