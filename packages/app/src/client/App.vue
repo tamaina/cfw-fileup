@@ -1,31 +1,99 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, computed, onMounted, defineComponent, h } from 'vue';
+import { Nirax } from './nirax';
+import { ROUTE_DEF } from './router.definition';
+import { fetchCurrentUser, authStore, clearAuth } from './store/auth';
+import { navigateFn } from './navigate';
 
-let ok = ref(false);
+const NotFound = defineComponent({
+	render: () => h('div', [
+		h('h1', '404 - ページが見つかりません'),
+		h('p', [h('a', { href: '/' }, 'トップへ戻る')]),
+	]),
+});
 
-let id = ref('')
+const router = new Nirax(
+	ROUTE_DEF as never,
+	window.location.pathname + window.location.search + window.location.hash,
+	false,
+	NotFound,
+);
 
-const timer = setTimeout(() => {
-  fetch('/ping')
-    .then(res => res.text())
-    .then(text => {
-      if (text === 'pong') {
-        ok.value = true;
-      }
-    });
-  fetch('/id')
-    .then(res => res.text())
-    .then(text => {
-      id.value = text;
-    });
-}, 1000);
+const currentResolved = ref(router.current);
+
+navigateFn.value = (path) => router.pushByPath(path);
+
+router.on('push', ({ fullPath }) => {
+	window.history.pushState(null, '', fullPath);
+	currentResolved.value = router.current;
+});
+router.on('replace', ({ fullPath }) => {
+	window.history.replaceState(null, '', fullPath);
+	currentResolved.value = router.current;
+});
+router.on('forceReplace', ({ fullPath }) => {
+	window.location.replace(fullPath);
+});
+router.on('forcePush', ({ fullPath }) => {
+	window.location.href = fullPath;
+});
+
+window.addEventListener('popstate', () => {
+	router.pushByPath(window.location.pathname + window.location.search + window.location.hash);
+});
+
+const isReady = ref(false);
+
+onMounted(async () => {
+	await fetchCurrentUser();
+	router.init();
+	isReady.value = true;
+});
+
+const CurrentPage = computed(() => {
+	const resolved = currentResolved.value;
+	if (!resolved) return null;
+	const route = resolved.route;
+	if (!('component' in route)) return null;
+	// Capture component and props outside of render closure to preserve type narrowing
+	const component = route.component;
+	const propsMap = resolved.props;
+	return defineComponent({
+		render() {
+			const props: Record<string, unknown> = {};
+			propsMap.forEach((v, k) => { props[k] = v; });
+			return h(component, props);
+		},
+	});
+});
+
+function navigate(path: string, e: MouseEvent): void {
+	e.preventDefault();
+	router.pushByPath(path);
+}
 </script>
 
 <template>
-  <div class="container">
-    <h1>CFW FileUp</h1>
-    <p>Cloudflare Workersを使用したファイルアップロードサービス</p>
-    <p>{{ id }}</p>
-    <p v-if="ok">PING-PONG SUCCESS!</p>
+  <div>
+    <nav style="padding:8px; border-bottom:1px solid #ccc; margin-bottom:16px">
+      <a href="/" @click="navigate('/', $event)">CFW FileUp</a>
+      &nbsp;|&nbsp;
+      <a href="/my/buckets" @click="navigate('/my/buckets', $event)">マイバケット</a>
+      &nbsp;
+      <template v-if="authStore.user">
+        <span>{{ authStore.user.username }}</span>
+        &nbsp;
+        <button type="button" @click="clearAuth(); router.pushByPath('/signin')">ログアウト</button>
+      </template>
+      <template v-else>
+        <a href="/signin" @click="navigate('/signin', $event)">サインイン</a>
+      </template>
+    </nav>
+
+    <main style="padding:0 16px">
+      <p v-if="!isReady">読み込み中...</p>
+      <component :is="CurrentPage" v-else-if="CurrentPage" />
+      <NotFound v-else />
+    </main>
   </div>
 </template>

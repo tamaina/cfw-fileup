@@ -31,6 +31,7 @@
     "drizzle-orm": "^0.45.2",
     "eslint": "^9.39.4",
     "eslint-plugin-vue": "^10.9.1",
+    "eventemitter3": "^5.0.4",
     "hono": "^4.12.18",
     "nanoid": "^5.1.11",
     "typescript": "^6.0.3",
