@@ -2,50 +2,8 @@
   "enabledPlugins": {
     "cloudflare@claude-plugins-official": true
   },
-  "permissions": {
-    "allow": [
-      "Bash(*)",
-      "Edit(**)",
-      "Write(**)",
-      "TodoWrite",
-      "WebSearch(**)",
-      "WebFetch(**)"
-    ],
-    "deny": [
-      "Bash(rm -rf*)",
-      "Bash(rm --recursive*)",
-      "Bash(rm -r*)",
-      "Bash(sudo rm*)",
-      "Bash(git push --force*)",
-      "Bash(git push -f*)",
-      "Bash(git reset --hard*)",
-      "Bash(sudo *)",
-      "Bash(dd *)",
-      "Bash(mkfs*)",
-      "Bash(curl * | bash*)",
-      "Bash(wget * | bash*)",
-      "Bash(wget *-O- *|*)",
-      "Bash(git clean -f*)",
-      "Bash(git checkout -- *)",
-      "Bash(git restore .*)",
-      "Bash(git branch -D*)",
-      "Bash(git stash drop*)",
-      "Bash(git stash clear*)",
-      "Bash(truncate*)",
-      "Bash(shred*)",
-      "Bash(wrangler r2 bucket delete*)",
-      "Bash(wrangler r2 object delete*)",
-      "Bash(wrangler kv:namespace delete*)",
-      "Bash(wrangler d1 delete*)",
-      "Bash(wrangler secret delete*)",
-      "Bash(pnpm publish*)",
-      "Bash(npm publish*)",
-      "Bash(kill -9*)",
-      "Bash(killall*)",
-      "Edit(.claude/settings.json*)",
-      "Write(.claude/settings.json*)",
-      "Edit(.claude/settings.local.json*)",
-      "Write(.claude/settings.local.json*)"
-    ]
+  "attribution": {
+    "commit": "Generated with AI\n\nCo-Authored-By: AI <ai@example.com>",
+    "pr": ""
   }
 }
