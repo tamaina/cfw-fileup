@@ -12,11 +12,18 @@ importers:
         specifier: ^4.12.18
         version: 4.12.18
     devDependencies:
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
       wrangler:
         specifier: ^4.4.0
         version: 4.90.0(@cloudflare/workers-types@4.20260511.1)
 
   packages/app:
+    dependencies:
+      bgzf:
+        specifier: workspace:*
+        version: link:../bgzf
     devDependencies:
       '@cloudflare/vite-plugin':
         specifier: ^1.36.3

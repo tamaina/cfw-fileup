@@ -12,6 +12,9 @@
     "db:migrate:local": "wrangler d1 migrations apply cfw-fileup-db --local",
     "cf-typegen": "wrangler types"
   },
+  "dependencies": {
+    "bgzf": "workspace:*"
+  },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.36.3",
     "@cloudflare/workers-types": "^4.20260511.1",
