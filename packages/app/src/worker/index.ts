@@ -9,7 +9,7 @@ import adminRoutes from './api/admin';
 import downloadRoutes from './routes/download';
 import uploadRoutes from './routes/upload';
 
-const app = new Hono<{ Bindings: CloudflareBindings }>();
+const app = new Hono<{ Bindings: Env }>();
 
 app.onError((err, c) => {
 	console.error('Error:', err);

@@ -9,7 +9,7 @@ export interface RateLimitConfig {
 	maxDailyUploads: number | null;
 }
 
-export async function getQuotaForUser(env: CloudflareBindings, userId: string): Promise<RateLimitConfig> {
+export async function getQuotaForUser(env: Env, userId: string): Promise<RateLimitConfig> {
 	const db = getDb(env);
 
 	const userQuota = await db.select().from(userQuotas).where(eq(userQuotas.userId, userId)).get();
@@ -46,7 +46,7 @@ export async function getQuotaForUser(env: CloudflareBindings, userId: string): 
 	};
 }
 
-export async function getGlobalQuota(env: CloudflareBindings): Promise<RateLimitConfig> {
+export async function getGlobalQuota(env: Env): Promise<RateLimitConfig> {
 	const db = getDb(env);
 
 	const globalQuota = await db

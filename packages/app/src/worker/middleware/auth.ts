@@ -17,7 +17,7 @@ declare module 'hono' {
 	}
 }
 
-export const authMiddleware = createMiddleware<{ Bindings: CloudflareBindings }>(async (c, next) => {
+export const authMiddleware = createMiddleware<{ Bindings: Env }>(async (c, next) => {
 	const authorization = c.req.header('Authorization');
 	if (!authorization?.startsWith('Bearer ')) {
 		throw new HTTPException(401, { message: 'Unauthorized' });
@@ -52,7 +52,7 @@ export const authMiddleware = createMiddleware<{ Bindings: CloudflareBindings }>
 	await next();
 });
 
-export const adminMiddleware = createMiddleware<{ Bindings: CloudflareBindings }>(async (c, next) => {
+export const adminMiddleware = createMiddleware<{ Bindings: Env }>(async (c, next) => {
 	const user = c.get('user');
 	if (!user?.isAdmin) {
 		throw new HTTPException(403, { message: 'Forbidden' });

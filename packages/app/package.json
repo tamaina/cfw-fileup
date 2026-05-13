@@ -6,6 +6,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "deploy": "vite build && wrangler deploy",
+    "typecheck:worker": "tsc -p ./tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:worker": "vitest run --config vitest.worker.config.ts",
@@ -19,7 +20,7 @@
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.36.3",
-    "@cloudflare/workers-types": "^4.20260511.1",
+    "@cloudflare/vitest-pool-workers": "^0.16.4",
     "@eslint/eslintrc": "^3.3.5",
     "@eslint/js": "^9.39.4",
     "@misskey-dev/eslint-plugin": "^2.2.0",
@@ -32,10 +33,10 @@
     "eslint-plugin-vue": "^10.9.1",
     "hono": "^4.12.18",
     "nanoid": "^5.1.11",
+    "typescript": "^6.0.3",
     "vite": "^8.0.12",
     "vitest": "^4.1.6",
     "vue": "^3.5.34",
-    "wrangler": "^4.4.0",
-    "@cloudflare/vitest-pool-workers": "^0.16.4"
+    "wrangler": "^4.4.0"
   }
 }

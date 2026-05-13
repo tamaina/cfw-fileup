@@ -26,7 +26,7 @@ const signinSchema = {
 	required: ['username', 'password'],
 } as const satisfies Schema;
 
-const app = new Hono<{ Bindings: CloudflareBindings }>();
+const app = new Hono<{ Bindings: Env }>();
 
 app.post('/signup', async (c) => {
 	const db = getDb(c.env);

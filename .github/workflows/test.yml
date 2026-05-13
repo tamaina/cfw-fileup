@@ -39,4 +39,6 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - run: pnpm --filter app run typecheck:worker
+
       - run: pnpm --filter app run test:worker

@@ -5,7 +5,7 @@ import { buckets, files, targzFiles } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { createBgzfBlock } from 'bgzf';
 
-const app = new Hono<{ Bindings: CloudflareBindings }>();
+const app = new Hono<{ Bindings: Env }>();
 
 function getContentDisposition(filename: string, acceptsGzip: boolean): string {
 	const displayName = acceptsGzip ? filename : `${filename}.gz`;

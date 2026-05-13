@@ -17,7 +17,7 @@ const updateAccountSchema = {
 	required: ['currentPassword'],
 } as const satisfies Schema;
 
-const app = new Hono<{ Bindings: CloudflareBindings }>();
+const app = new Hono<{ Bindings: Env }>();
 
 app.use(authMiddleware);
 

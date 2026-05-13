@@ -41,10 +41,10 @@ The Worker serves the SPA's static assets and handles API routes.
 
 ### Worker (Hono)
 
-`src/worker/index.ts` is the Worker entrypoint. Routes are defined with [Hono](https://hono.dev/). The Worker should be typed with `CloudflareBindings` from the generated `worker-configuration.d.ts`:
+`src/worker/index.ts` is the Worker entrypoint. Routes are defined with [Hono](https://hono.dev/). The Worker should be typed with `Env` from the generated `worker-configuration.d.ts`:
 
 ```ts
-const app = new Hono<{ Bindings: CloudflareBindings }>()
+const app = new Hono<{ Bindings: Env }>()
 ```
 
 ### Database (Drizzle ORM + D1)

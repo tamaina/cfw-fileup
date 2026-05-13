@@ -5,7 +5,7 @@ import { files, uploadParts } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { genEaidx } from '../../shared/eaid-x';
 
-const app = new Hono<{ Bindings: CloudflareBindings }>();
+const app = new Hono<{ Bindings: Env }>();
 
 app.get('/upload/:fileId', async (c) => {
 	const db = getDb(c.env);
