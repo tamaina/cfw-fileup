@@ -38,7 +38,7 @@ export const ROUTE_DEF = [
 		component: page(() => import('@/pages/upload.vue')),
 	},
 	{
-		path: '/v/:bucketName/:filePath(*)',
+		path: '/v/:bucketName/:filePath(*)?',
 		name: 'browse',
 		component: page(() => import('@/pages/browse.vue')),
 	},

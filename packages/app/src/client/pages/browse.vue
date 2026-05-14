@@ -2,10 +2,10 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import NirA from '@/components/nira.vue';
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
 	bucketName: string;
-	filePath: string;
-}>();
+	filePath?: string;
+}>(), { filePath: '' });
 
 interface TargzEntry {
 	id: string;
@@ -61,7 +61,7 @@ watch(() => props.filePath, init);
 
 <template>
   <div>
-    <h2>/v/{{ bucketName }}/{{ filePath }}</h2>
+    <h2>{{ bucketName }}/{{ filePath }}</h2>
 
     <p v-if="loading">読み込み中...</p>
     <p v-else-if="error" style="color:red">{{ error }}</p>
