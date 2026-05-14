@@ -2,6 +2,10 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "cfw-fileup",
   "main": "src/worker/index.ts",
+  "assets": {
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  },
   "compatibility_date": "2026-05-11",
   "vars": {
     "SIGNUP_PASSPHRASE": "",

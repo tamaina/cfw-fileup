@@ -28,6 +28,20 @@ export default [
 	{
 		files: ['**/*.vue'],
 		...pluginMisskey.configs.typescript,
+		languageOptions: {
+			parserOptions: {
+				parser: tsParser,
+				extraFileExtensions: ['.vue'],
+			},
+		},
 	},
 	...pluginVue.configs['flat/recommended'],
+	{
+		files: ['**/*.vue'],
+		languageOptions: {
+			parserOptions: {
+				parser: tsParser,
+			},
+		},
+	},
 ];

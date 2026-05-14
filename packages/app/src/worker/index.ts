@@ -47,4 +47,6 @@ app.route('/api/admin', adminRoutes);
 app.route('/', downloadRoutes);
 app.route('/', uploadRoutes);
 
+app.get('*', (c) => c.env.ASSETS.fetch(c.req.raw));
+
 export default app;
