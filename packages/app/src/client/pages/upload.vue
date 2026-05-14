@@ -2,7 +2,9 @@
 import { ref, onMounted } from 'vue';
 import { authHeaders, authStore } from '../store/auth';
 import NirA from '@/components/nira.vue';
-import { createBgzfTar, type TarFileEntry } from 'bgzf';
+import { createBgzfTar, createTar, walkDirectory, type FileEntry, type TarGzIndex } from 'bgzf';
+
+type ArchiveMode = 'individual' | 'gz' | 'tar' | 'targz';
 
 const props = defineProps<{ bucketName: string }>();
 
@@ -11,16 +13,15 @@ interface Bucket {
 	name: string;
 }
 
-const CHUNK_SIZE = 5 * 1024 * 1024; // 5 MB per TUS chunk
+const CHUNK_SIZE = 5 * 1024 * 1024;
 
 const bucket = ref<Bucket | null>(null);
 const loadError = ref('');
 
-// Upload form state
 const selectedFiles = ref<FileList | null>(null);
 const selectedDir = ref<FileSystemDirectoryHandle | null>(null);
 const selectedDirName = ref('');
-const useTarGz = ref(false);
+const archiveMode = ref<ArchiveMode>('individual');
 const isPublic = ref(true);
 const passphrase = ref('');
 const uploadProgress = ref<{ filename: string; percent: number } | null>(null);
@@ -38,9 +39,7 @@ async function loadBucket(): Promise<void> {
 		});
 		const data = (await res.json()) as { buckets?: Bucket[] };
 		bucket.value = data.buckets?.find((b) => b.name === props.bucketName) ?? null;
-		if (!bucket.value) {
-			loadError.value = `バケット "${props.bucketName}" が見つかりません。`;
-		}
+		if (!bucket.value) loadError.value = `バケット "${props.bucketName}" が見つかりません。`;
 	} catch (e) {
 		loadError.value = String(e);
 	}
@@ -58,24 +57,28 @@ async function pickDirectory(): Promise<void> {
 	}
 }
 
-async function* walkDirectory(
-	dirHandle: FileSystemDirectoryHandle,
-	prefix = '',
-): AsyncGenerator<{ path: string; handle: FileSystemFileHandle }> {
-	for await (const [name, handle] of dirHandle as unknown as AsyncIterable<[string, FileSystemHandle]>) {
-		if (handle.kind === 'file') {
-			yield { path: prefix + name, handle: handle as FileSystemFileHandle };
-		} else if (handle.kind === 'directory') {
-			yield* walkDirectory(handle as FileSystemDirectoryHandle, prefix + name + '/');
-		}
-	}
+// ---- OPFS helpers ----
+
+async function streamToOpfs(stream: ReadableStream<Uint8Array>, name: string): Promise<FileSystemFileHandle> {
+	const root = await navigator.storage.getDirectory();
+	const handle = await root.getFileHandle(name, { create: true });
+	const writable = await handle.createWritable();
+	await stream.pipeTo(writable);
+	return handle;
 }
 
-async function tusUpload(fileId: string, data: ArrayBuffer, filename: string): Promise<boolean> {
-	const total = data.byteLength;
+async function deleteFromOpfs(name: string): Promise<void> {
+	const root = await navigator.storage.getDirectory();
+	await root.removeEntry(name).catch(() => {});
+}
+
+// ---- TUS upload (Blob.slice — only CHUNK_SIZE bytes in memory at a time) ----
+
+async function tusUpload(fileId: string, blob: Blob, filename: string): Promise<boolean> {
+	const total = blob.size;
 	let offset = 0;
 	while (offset < total) {
-		const chunk = data.slice(offset, offset + CHUNK_SIZE);
+		const chunk = blob.slice(offset, offset + CHUNK_SIZE);
 		const res = await fetch(`/upload/${fileId}`, {
 			method: 'PATCH',
 			headers: {
@@ -91,129 +94,118 @@ async function tusUpload(fileId: string, data: ArrayBuffer, filename: string): P
 			uploadError.value = `アップロード失敗 (${filename}): ${err.error ?? res.status}`;
 			return false;
 		}
-		offset += chunk.byteLength;
-		uploadProgress.value = {
-			filename,
-			percent: Math.round((offset / total) * 100),
-		};
+		offset += chunk.size;
+		uploadProgress.value = { filename, percent: Math.round((offset / total) * 100) };
 	}
 	return true;
 }
 
-async function uploadSingleFile(file: File, path: string): Promise<boolean> {
-	if (!bucket.value) return false;
-	// 1. open
-	const openRes = await fetch('/api/files/create/open', {
+// ---- Core upload primitives ----
+
+async function openUpload(path: string): Promise<string | null> {
+	if (!bucket.value) return null;
+	const res = await fetch('/api/files/create/open', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json', ...authHeaders() },
 		body: JSON.stringify({ bucketId: bucket.value.id, path }),
 	});
-	const openData = (await openRes.json()) as { fileId?: string; error?: string };
-	if (!openRes.ok) {
-		uploadError.value = openData.error ?? 'アップロード開始失敗';
-		return false;
-	}
-	const fileId = openData.fileId!;
-	// 2. TUS upload
-	const buf = await file.arrayBuffer();
-	if (!(await tusUpload(fileId, buf, path))) return false;
-	// 3. close
-	const closeRes = await fetch('/api/files/create/close', {
+	const data = (await res.json()) as { fileId?: string; error?: string };
+	if (!res.ok) { uploadError.value = data.error ?? 'アップロード開始失敗'; return null; }
+	return data.fileId!;
+}
+
+async function closeUpload(fileId: string): Promise<boolean> {
+	const res = await fetch('/api/files/create/close', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json', ...authHeaders() },
-		body: JSON.stringify({
-			fileId,
-			isPublic: isPublic.value,
-			passphrase: passphrase.value || undefined,
-		}),
+		body: JSON.stringify({ fileId, isPublic: isPublic.value, passphrase: passphrase.value || undefined }),
 	});
-	if (!closeRes.ok) {
-		const err = (await closeRes.json()) as { error?: string };
+	if (!res.ok) {
+		const err = (await res.json()) as { error?: string };
 		uploadError.value = err.error ?? 'アップロード完了失敗';
 		return false;
 	}
 	return true;
 }
 
-async function uploadTarGz(entries: TarFileEntry[], archivePath: string): Promise<boolean> {
-	if (!bucket.value) return false;
+/** Upload a Blob (File or OPFS File) via TUS. */
+async function uploadBlob(blob: Blob, path: string): Promise<boolean> {
+	uploadProgress.value = { filename: path, percent: 0 };
+	const fileId = await openUpload(path);
+	if (!fileId) return false;
+	if (!(await tusUpload(fileId, blob, path))) return false;
+	return closeUpload(fileId);
+}
+
+/** Write stream to OPFS, upload as blob, delete temp file. */
+async function uploadStream(stream: ReadableStream<Uint8Array>, path: string): Promise<boolean> {
+	const tmpName = `__up_${Date.now()}`;
+	uploadProgress.value = { filename: path, percent: 0 };
+	const handle = await streamToOpfs(stream, tmpName);
+	const file = await handle.getFile();
+	const ok = await uploadBlob(file, path);
+	await deleteFromOpfs(tmpName);
+	return ok;
+}
+
+/** Write BGZF stream to OPFS, upload, register index, delete temp file. */
+async function uploadBgzfStream(
+	stream: ReadableStream<Uint8Array>,
+	index: Promise<TarGzIndex[]>,
+	archivePath: string,
+): Promise<boolean> {
+	const tmpName = `__up_${Date.now()}`;
 	uploadProgress.value = { filename: archivePath, percent: 0 };
 
-	// 1. Build tar.gz
-	const { data, index } = await createBgzfTar(entries);
+	const handle = await streamToOpfs(stream, tmpName);
+	// stream is fully consumed here, so the index promise is now resolved
+	const resolvedIndex = await index;
+	const file = await handle.getFile();
 
-	// 2. open
-	const openRes = await fetch('/api/files/create/open', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json', ...authHeaders() },
-		body: JSON.stringify({ bucketId: bucket.value.id, path: archivePath }),
-	});
-	const openData = (await openRes.json()) as { fileId?: string; error?: string };
-	if (!openRes.ok) {
-		uploadError.value = openData.error ?? 'アップロード開始失敗';
+	const fileId = await openUpload(archivePath);
+	if (!fileId) { await deleteFromOpfs(tmpName); return false; }
+
+	if (!(await tusUpload(fileId, file, archivePath))) {
+		await deleteFromOpfs(tmpName);
 		return false;
 	}
-	const fileId = openData.fileId!;
 
-	// 3. TUS upload
-	if (!(await tusUpload(fileId, data.buffer as ArrayBuffer, archivePath))) return false;
-
-	// 4. Register tar.gz index
 	const indexRes = await fetch('/api/files/create/targz-index', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json', ...authHeaders() },
-		body: JSON.stringify({ fileId, files: index }),
+		body: JSON.stringify({ fileId, files: resolvedIndex }),
 	});
 	if (!indexRes.ok) {
 		const err = (await indexRes.json()) as { error?: string };
 		uploadError.value = err.error ?? 'インデックス登録失敗';
+		await deleteFromOpfs(tmpName);
 		return false;
 	}
 
-	// 5. close
-	const closeRes = await fetch('/api/files/create/close', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json', ...authHeaders() },
-		body: JSON.stringify({
-			fileId,
-			isPublic: isPublic.value,
-			passphrase: passphrase.value || undefined,
-		}),
-	});
-	if (!closeRes.ok) {
-		const err = (await closeRes.json()) as { error?: string };
-		uploadError.value = err.error ?? 'アップロード完了失敗';
-		return false;
-	}
-	return true;
+	const ok = await closeUpload(fileId);
+	await deleteFromOpfs(tmpName);
+	return ok;
 }
+
+// ---- startUpload ----
 
 async function startUpload(): Promise<void> {
 	uploadError.value = '';
 	uploadDone.value = false;
 	uploadProgress.value = null;
-
 	if (!bucket.value) return;
 
-	// Directory upload (File System Access API)
+	// Directory (File System Access API)
 	if (selectedDir.value) {
-		const entries: TarFileEntry[] = [];
-		for await (const { path, handle } of walkDirectory(selectedDir.value)) {
-			const file = await handle.getFile();
-			const data = new Uint8Array(await file.arrayBuffer() as ArrayBuffer);
-			const mimeType = file.type || 'application/octet-stream';
-			entries.push({ path, data, mimeType, mtime: file.lastModified });
-		}
-
-		if (useTarGz.value) {
-			const archivePath = `${selectedDirName.value}.tar.gz`;
-			if (!(await uploadTarGz(entries, archivePath))) return;
-		} else {
-			for (const entry of entries) {
-				uploadProgress.value = { filename: entry.path, percent: 0 };
-				const file = new File([entry.data], entry.path, { type: entry.mimeType });
-				if (!(await uploadSingleFile(file, entry.path))) return;
+		if (archiveMode.value === 'individual') {
+			for await (const { path, file } of walkDirectory(selectedDir.value)) {
+				if (!(await uploadBlob(file, path))) return;
 			}
+		} else if (archiveMode.value === 'tar') {
+			if (!(await uploadStream(createTar(selectedDir.value), `${selectedDirName.value}.tar`))) return;
+		} else {
+			const { stream, index } = await createBgzfTar(selectedDir.value);
+			if (!(await uploadBgzfStream(stream, index, `${selectedDirName.value}.tar.gz`))) return;
 		}
 		uploadDone.value = true;
 		return;
@@ -221,9 +213,25 @@ async function startUpload(): Promise<void> {
 
 	// Regular file(s)
 	if (selectedFiles.value && selectedFiles.value.length > 0) {
-		for (let i = 0; i < selectedFiles.value.length; i++) {
-			const file = selectedFiles.value[i];
-			if (!(await uploadSingleFile(file, file.name))) return;
+		const fileArr = Array.from(selectedFiles.value);
+		const entries: FileEntry[] = fileArr.map((f) => ({ path: f.name, file: f }));
+		const baseName = fileArr.length === 1 ? fileArr[0].name : 'archive';
+
+		if (archiveMode.value === 'individual') {
+			for (const file of fileArr) {
+				if (!(await uploadBlob(file, file.name))) return;
+			}
+		} else if (archiveMode.value === 'gz') {
+			// Stream through CompressionStream → OPFS (no memory buffering)
+			for (const file of fileArr) {
+				const stream = file.stream().pipeThrough(new CompressionStream('gzip'));
+				if (!(await uploadStream(stream, `${file.name}.gz`))) return;
+			}
+		} else if (archiveMode.value === 'tar') {
+			if (!(await uploadStream(createTar(entries), `${baseName}.tar`))) return;
+		} else {
+			const { stream, index } = await createBgzfTar(entries);
+			if (!(await uploadBgzfStream(stream, index, `${baseName}.tar.gz`))) return;
 		}
 		uploadDone.value = true;
 	}
@@ -255,9 +263,22 @@ onMounted(loadBucket);
           <span v-if="selectedDirName" style="margin-left:8px">選択済み: {{ selectedDirName }}</span>
         </div>
 
-        <div v-if="selectedDir" style="margin-top:8px">
-          <label>
-            <input v-model="useTarGz" type="checkbox">
+        <div v-if="selectedDir || (selectedFiles && selectedFiles.length > 0)" style="margin-top:8px">
+          <p style="margin:0 0 4px">アップロード形式:</p>
+          <label style="display:block">
+            <input v-model="archiveMode" type="radio" value="individual">
+            個別ファイルとしてアップロード
+          </label>
+          <label v-if="!selectedDir" style="display:block">
+            <input v-model="archiveMode" type="radio" value="gz">
+            gzip 圧縮してアップロード (.gz)
+          </label>
+          <label style="display:block">
+            <input v-model="archiveMode" type="radio" value="tar">
+            tar にまとめてアップロード (無圧縮)
+          </label>
+          <label style="display:block">
+            <input v-model="archiveMode" type="radio" value="targz">
             tar.gz にまとめてアップロード (BGZF形式・ランダムアクセス対応)
           </label>
         </div>

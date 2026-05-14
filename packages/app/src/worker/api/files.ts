@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { eq, and, gte } from 'drizzle-orm';
-import { buckets, files, targzFiles } from '../scheme/index';
+import { buckets, files, targzFiles, uploadParts } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { getQuotaForUser } from '../utils/rate-limit';
 import { authMiddleware } from '../middleware/auth';
@@ -222,6 +222,34 @@ app.post('/create/close', async (c) => {
 	}
 
 	const quota = await getQuotaForUser(c.env, user.id);
+
+	// Finalize R2 multipart upload if one is in progress
+	if (file.uploadId) {
+		const parts = await db
+			.select()
+			.from(uploadParts)
+			.where(eq(uploadParts.fileId, file.id));
+
+		if (parts.length === 0) {
+			throw new HTTPException(400, { message: 'Upload has not been completed' });
+		}
+
+		const sortedParts = parts
+			.slice()
+			.sort((a, b) => a.partNumber - b.partNumber)
+			.map((p) => ({ partNumber: p.partNumber, etag: p.etag }));
+
+		const multipartUpload = c.env.R2.resumeMultipartUpload(file.r2Key, file.uploadId);
+		try {
+			await multipartUpload.complete(sortedParts);
+		} catch (err) {
+			console.error('Failed to complete multipart upload:', err);
+			throw new HTTPException(400, { message: 'Failed to finalize upload' });
+		}
+
+		await db.update(files).set({ uploadId: null }).where(eq(files.id, file.id));
+	}
+
 	const r2Object = await c.env.R2.head(file.r2Key);
 
 	if (!r2Object) {

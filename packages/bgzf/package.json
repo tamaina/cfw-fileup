@@ -7,7 +7,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {},
-  "dependencies": {},
-  "devDependencies": {}
+  "dependencies": {
+    "file-type": "^22.0.1"
+  }
 }
-
