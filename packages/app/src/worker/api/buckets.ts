@@ -59,13 +59,11 @@ app.post('/create', async (c) => {
 	}
 
 	const bucketId = genEaidx(Date.now());
-	const now = Date.now();
 
 	await db.insert(buckets).values({
 		id: bucketId,
 		userId: user.id,
 		name: body.bucketName,
-		createdAt: now,
 	});
 
 	return c.json({ bucketId });

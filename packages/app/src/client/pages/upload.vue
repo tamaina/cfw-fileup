@@ -83,7 +83,7 @@ async function tusUpload(fileId: string, blob: Blob, filename: string): Promise<
 	let offset = 0;
 	while (offset < total) {
 		const chunk = blob.slice(offset, offset + CHUNK_SIZE);
-		const res = await fetch(`/upload/${fileId}`, {
+		const res = await fetch(`/upload/${fileId}/resume`, {
 			method: 'PATCH',
 			headers: {
 				'Content-Type': 'application/offset+octet-stream',
@@ -152,26 +152,101 @@ async function uploadStream(stream: ReadableStream<Uint8Array>, path: string): P
 	return ok;
 }
 
-/** Write tar stream to OPFS, upload, register index, delete temp file. */
+/** Write one chunk to OPFS then send as a single TUS PATCH. Deletes the temp file after. */
+async function patchChunk(
+	fileId: string,
+	chunk: Uint8Array<ArrayBuffer>,
+	offset: number,
+	path: string,
+	partNum: number,
+	isFinal: boolean,
+): Promise<boolean> {
+	const tmpName = `__chunk_${Date.now()}_${partNum}`;
+	const root = await navigator.storage.getDirectory();
+	const handle = await root.getFileHandle(tmpName, { create: true });
+	const writable = await handle.createWritable();
+	await writable.write(chunk);
+	await writable.close();
+
+	const file = await handle.getFile();
+	const extraHeaders: Record<string, string> = isFinal ? { 'Upload-Final': '1' } : {};
+	const res = await fetch(`/upload/${fileId}/resume`, {
+		method: 'PATCH',
+		headers: {
+			'Content-Type': 'application/offset+octet-stream',
+			'Upload-Offset': String(offset),
+			'Tus-Resumable': '1.0.0',
+			...authHeaders(),
+			...extraHeaders,
+		},
+				body: file,
+	});
+
+	await root.removeEntry(tmpName).catch(() => {});
+
+	if (!res.ok) {
+		const err = (await res.json().catch(() => ({}))) as { error?: string };
+		uploadError.value = `アップロード失敗 (${path}): ${err.error ?? res.status}`;
+		return false;
+	}
+	return true;
+}
+
+/** Open upload then stream in CHUNK_SIZE pieces via OPFS. Returns fileId or null on error. */
+async function uploadChunkedStream(
+	stream: ReadableStream<Uint8Array>,
+	path: string,
+): Promise<string | null> {
+	const fileId = await openUpload(path);
+	if (!fileId) return null;
+
+	uploadProgress.value = { filename: path, percent: 0 };
+	const reader = stream.getReader();
+	let buf = new Uint8Array(0);
+	let offset = 0;
+	let partNum = 0;
+
+	try {
+		while (true) {
+			const { done, value } = await reader.read();
+
+			if (value) {
+				const next = new Uint8Array(buf.length + value.length);
+				next.set(buf);
+				next.set(value, buf.length);
+				buf = next;
+			}
+
+			if (buf.length >= CHUNK_SIZE) {
+				if (!(await patchChunk(fileId, buf, offset, path, partNum++, false))) return null;
+				offset += buf.length;
+				buf = new Uint8Array(0);
+			}
+
+			if (done) {
+				if (buf.length > 0) {
+					if (!(await patchChunk(fileId, buf, offset, path, partNum, true))) return null;
+				}
+				break;
+			}
+		}
+	} finally {
+		reader.releaseLock();
+	}
+
+	return fileId;
+}
+
+/** Upload tar stream in chunks, then register index. */
 async function uploadTarStream(
 	stream: ReadableStream<Uint8Array>,
 	index: Promise<TarIndex[]>,
 	archivePath: string,
 ): Promise<boolean> {
-	const tmpName = `__up_${Date.now()}`;
-	uploadProgress.value = { filename: archivePath, percent: 0 };
+	const fileId = await uploadChunkedStream(stream, archivePath);
+	if (!fileId) return false;
 
-	const handle = await streamToOpfs(stream, tmpName);
 	const resolvedIndex = await index;
-	const file = await handle.getFile();
-
-	const fileId = await openUpload(archivePath);
-	if (!fileId) { await deleteFromOpfs(tmpName); return false; }
-
-	if (!(await tusUpload(fileId, file, archivePath))) {
-		await deleteFromOpfs(tmpName);
-		return false;
-	}
 
 	const indexRes = await fetch('/api/files/create/tar-index', {
 		method: 'POST',
@@ -181,36 +256,22 @@ async function uploadTarStream(
 	if (!indexRes.ok) {
 		const err = (await indexRes.json()) as { error?: string };
 		uploadError.value = err.error ?? 'インデックス登録失敗';
-		await deleteFromOpfs(tmpName);
 		return false;
 	}
 
-	const ok = await closeUpload(fileId);
-	await deleteFromOpfs(tmpName);
-	return ok;
+	return closeUpload(fileId);
 }
 
-/** Write BGZF stream to OPFS, upload, register index, delete temp file. */
+/** Upload BGZF stream in chunks, then register index. */
 async function uploadBgzfStream(
 	stream: ReadableStream<Uint8Array>,
 	index: Promise<TarGzIndex[]>,
 	archivePath: string,
 ): Promise<boolean> {
-	const tmpName = `__up_${Date.now()}`;
-	uploadProgress.value = { filename: archivePath, percent: 0 };
+	const fileId = await uploadChunkedStream(stream, archivePath);
+	if (!fileId) return false;
 
-	const handle = await streamToOpfs(stream, tmpName);
-	// stream is fully consumed here, so the index promise is now resolved
 	const resolvedIndex = await index;
-	const file = await handle.getFile();
-
-	const fileId = await openUpload(archivePath);
-	if (!fileId) { await deleteFromOpfs(tmpName); return false; }
-
-	if (!(await tusUpload(fileId, file, archivePath))) {
-		await deleteFromOpfs(tmpName);
-		return false;
-	}
 
 	const indexRes = await fetch('/api/files/create/targz-index', {
 		method: 'POST',
@@ -220,13 +281,10 @@ async function uploadBgzfStream(
 	if (!indexRes.ok) {
 		const err = (await indexRes.json()) as { error?: string };
 		uploadError.value = err.error ?? 'インデックス登録失敗';
-		await deleteFromOpfs(tmpName);
 		return false;
 	}
 
-	const ok = await closeUpload(fileId);
-	await deleteFromOpfs(tmpName);
-	return ok;
+	return closeUpload(fileId);
 }
 
 // ---- startUpload ----

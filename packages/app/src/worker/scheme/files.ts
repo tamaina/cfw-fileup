@@ -1,9 +1,11 @@
 import { sqliteTable, text, integer, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import { buckets } from './buckets';
+import { users } from './users';
 
 export const files = sqliteTable('files', {
 	id: text('id').primaryKey(),
 	bucketId: text('bucket_id').notNull().references(() => buckets.id, { onDelete: 'cascade' }),
+	userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
 	path: text('path').notNull(),
 	r2Key: text('r2_key').notNull().unique(),
 	size: integer('size'),
@@ -15,7 +17,6 @@ export const files = sqliteTable('files', {
 	isTargz: integer('is_targz', { mode: 'boolean' }).notNull().default(false),
 	isTar: integer('is_tar', { mode: 'boolean' }).notNull().default(false),
 	uploadId: text('upload_id'),
-	createdAt: integer('created_at').notNull(),
 }, (table) => [
 	uniqueIndex('files_bucket_path_idx').on(table.bucketId, table.path),
 ]);

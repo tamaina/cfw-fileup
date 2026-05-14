@@ -134,7 +134,7 @@ app.post('/create/open', async (c) => {
 		const dailyUploadCount = await db
 			.select()
 			.from(files)
-			.where(and(eq(files.bucketId, bucket.id), gte(files.createdAt, dayStart)))
+			.where(and(eq(files.bucketId, bucket.id), gte(files.id, genEaidx(dayStart))))
 			.then((result) => result.length);
 
 		if (dailyUploadCount >= quota.maxDailyUploads) {
@@ -144,16 +144,15 @@ app.post('/create/open', async (c) => {
 
 	const fileId = genEaidx(Date.now());
 	const r2Key = `${bucket.id}/${body.path}`;
-	const now = Date.now();
-	const uploadExpiry = now + 24 * 60 * 60 * 1000;
+	const uploadExpiry = Date.now() + 24 * 60 * 60 * 1000;
 
 	await db.insert(files).values({
 		id: fileId,
 		bucketId: bucket.id,
+		userId: user.id,
 		path: body.path,
 		r2Key,
 		uploadExpiresAt: uploadExpiry,
-		createdAt: now,
 	});
 
 	return c.json({ fileId, uploadExpiry });

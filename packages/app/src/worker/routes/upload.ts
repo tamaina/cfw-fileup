@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { eq } from 'drizzle-orm';
-import { buckets, files, uploadParts } from '../scheme/index';
+import { files, uploadParts } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { authMiddleware } from '../middleware/auth';
 import { genEaidx } from '../../shared/eaid-x';
@@ -10,7 +10,32 @@ const app = new Hono<{ Bindings: Env }>();
 
 app.use('/upload/*', authMiddleware);
 
-app.get('/upload/:fileId', async (c) => {
+app.put('/upload/:fileId', async (c) => {
+	const db = getDb(c.env);
+	const user = c.get('user');
+	const fileId = c.req.param('fileId');
+
+	const file = await db.select().from(files).where(eq(files.id, fileId)).get();
+	if (!file) throw new HTTPException(404, { message: 'File not found' });
+
+	if (file.userId !== user.id && !user.isAdmin) {
+		throw new HTTPException(403, { message: 'Forbidden' });
+	}
+
+	if (file.uploadExpiresAt < Date.now()) {
+		throw new HTTPException(410, { message: 'Upload expired' });
+	}
+
+	try {
+		await c.env.R2.put(file.r2Key, c.req.raw.body);
+	} catch (err) {
+		throw new HTTPException(400, { message: String(err) });
+	}
+
+	return new Response(null, { status: 204 });
+});
+
+app.get('/upload/:fileId/resume', async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
 	const fileId = c.req.param('fileId');
@@ -21,8 +46,7 @@ app.get('/upload/:fileId', async (c) => {
 		throw new HTTPException(404, { message: 'File not found' });
 	}
 
-	const bucket = await db.select().from(buckets).where(eq(buckets.id, file.bucketId)).get();
-	if (!bucket || (bucket.userId !== user.id && !user.isAdmin)) {
+	if (file.userId !== user.id && !user.isAdmin) {
 		throw new HTTPException(403, { message: 'Forbidden' });
 	}
 
@@ -42,12 +66,11 @@ app.get('/upload/:fileId', async (c) => {
 	});
 });
 
-app.patch('/upload/:fileId', async (c) => {
+app.patch('/upload/:fileId/resume', async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
 	const fileId = c.req.param('fileId');
 	const uploadOffset = c.req.header('Upload-Offset');
-
 	if (!uploadOffset) {
 		throw new HTTPException(400, { message: 'Upload-Offset header is required' });
 	}
@@ -58,8 +81,7 @@ app.patch('/upload/:fileId', async (c) => {
 		throw new HTTPException(404, { message: 'File not found' });
 	}
 
-	const bucket = await db.select().from(buckets).where(eq(buckets.id, file.bucketId)).get();
-	if (!bucket || (bucket.userId !== user.id && !user.isAdmin)) {
+	if (file.userId !== user.id && !user.isAdmin) {
 		throw new HTTPException(403, { message: 'Forbidden' });
 	}
 
@@ -72,7 +94,7 @@ app.patch('/upload/:fileId', async (c) => {
 		throw new HTTPException(400, { message: 'Invalid Upload-Offset header' });
 	}
 
-	const body = await c.req.arrayBuffer();
+	const contentLength = parseInt(c.req.header('Content-Length') ?? '0', 10);
 
 	if (currentOffset === 0 && !file.uploadId) {
 		const multipartUpload = await c.env.R2.createMultipartUpload(file.r2Key);
@@ -84,20 +106,30 @@ app.patch('/upload/:fileId', async (c) => {
 		throw new HTTPException(400, { message: 'Upload session not initialized' });
 	}
 
-	const partNumber = currentOffset === 0 ? 1 : Math.floor(currentOffset / (5 * 1024 * 1024)) + 1;
+	const existingPartsCount = await db
+		.select()
+		.from(uploadParts)
+		.where(eq(uploadParts.fileId, fileId))
+		.then((r) => r.length);
+	const nextPartNumber = existingPartsCount + 1;
 
 	const multipartUpload = c.env.R2.resumeMultipartUpload(file.r2Key, file.uploadId);
-	const uploadedPart = await multipartUpload.uploadPart(partNumber, body);
 
-	const uploadPartId = genEaidx(Date.now());
+	let uploadedPart: R2UploadedPart;
+	try {
+		uploadedPart = await multipartUpload.uploadPart(nextPartNumber, c.req.raw.body!);
+	} catch (err) {
+		throw new HTTPException(400, { message: String(err) });
+	}
+
 	await db.insert(uploadParts).values({
-		id: uploadPartId,
+		id: genEaidx(Date.now()),
 		fileId,
-		partNumber,
+		partNumber: nextPartNumber,
 		etag: uploadedPart.etag,
 	});
 
-	const newOffset = currentOffset + body.byteLength;
+	const newOffset = currentOffset + contentLength;
 
 	return new Response(null, {
 		status: 204,

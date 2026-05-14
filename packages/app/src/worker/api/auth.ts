@@ -71,7 +71,6 @@ app.post('/signup', async (c) => {
 
 	const userId = genEaidx(Date.now());
 	const passwordHash = await hashPassword(body.password);
-	const now = Date.now();
 
 	await db.insert(users).values({
 		id: userId,
@@ -79,7 +78,6 @@ app.post('/signup', async (c) => {
 		passwordHash,
 		isAdmin: isFirstUser,
 		isSuspended: false,
-		createdAt: now,
 	});
 
 	const tokenId = genEaidx(Date.now());
@@ -89,7 +87,6 @@ app.post('/signup', async (c) => {
 		id: tokenId,
 		userId,
 		token: tokenValue,
-		createdAt: now,
 	});
 
 	if (isFirstUser) {
@@ -130,13 +127,11 @@ app.post('/signin', async (c) => {
 
 	const tokenId = genEaidx(Date.now());
 	const tokenValue = generateToken();
-	const now = Date.now();
 
 	await db.insert(tokens).values({
 		id: tokenId,
 		userId: user.id,
 		token: tokenValue,
-		createdAt: now,
 	});
 
 	return c.json({ token: tokenValue });
