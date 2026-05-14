@@ -7,6 +7,16 @@ export interface AuthUser {
 }
 
 const TOKEN_KEY = 'cfw_fileup_token';
+const USER_KEY = 'cfw_fileup_user';
+
+function loadStoredUser(): AuthUser | null {
+	try {
+		const raw = localStorage.getItem(USER_KEY);
+		return raw ? (JSON.parse(raw) as AuthUser) : null;
+	} catch {
+		return null;
+	}
+}
 
 const state = reactive<{
 	token: string | null;
@@ -14,8 +24,8 @@ const state = reactive<{
 	initialized: boolean;
 }>({
 	token: localStorage.getItem(TOKEN_KEY),
-	user: null,
-	initialized: false,
+	user: loadStoredUser(),
+	initialized: loadStoredUser() !== null || localStorage.getItem(TOKEN_KEY) === null,
 });
 
 export const authStore = readonly(state);
@@ -29,6 +39,7 @@ export function clearAuth(): void {
 	state.token = null;
 	state.user = null;
 	localStorage.removeItem(TOKEN_KEY);
+	localStorage.removeItem(USER_KEY);
 }
 
 export function authHeaders(): Record<string, string> {
@@ -52,6 +63,7 @@ export async function fetchCurrentUser(): Promise<AuthUser | null> {
 		}
 		const user = (await res.json()) as AuthUser;
 		state.user = user;
+		localStorage.setItem(USER_KEY, JSON.stringify(user));
 		state.initialized = true;
 		return user;
 	} catch {

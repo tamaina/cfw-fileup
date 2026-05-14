@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import { eq, and, gte } from 'drizzle-orm';
+import { eq, and, gte, desc } from 'drizzle-orm';
 import { buckets, files, targzFiles, tarFiles, uploadParts } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { getQuotaForUser } from '../utils/rate-limit';
@@ -332,6 +332,31 @@ app.post('/create/close', async (c) => {
 		.where(eq(files.id, file.id));
 
 	return c.json({ ok: true });
+});
+
+app.post('/uploadings', async (c) => {
+	const db = getDb(c.env);
+	const user = c.get('user');
+
+	const userFiles = await db
+		.select({
+			id: files.id,
+			bucketId: files.bucketId,
+			bucketName: buckets.name,
+			path: files.path,
+			size: files.size,
+			isClosed: files.isClosed,
+			isPublic: files.isPublic,
+			uploadExpiresAt: files.uploadExpiresAt,
+			isTargz: files.isTargz,
+			isTar: files.isTar,
+		})
+		.from(files)
+		.innerJoin(buckets, eq(files.bucketId, buckets.id))
+		.where(eq(files.userId, user.id))
+		.orderBy(desc(files.id));
+
+	return c.json({ files: userFiles });
 });
 
 app.post('/delete', async (c) => {

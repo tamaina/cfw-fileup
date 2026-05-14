@@ -144,6 +144,14 @@ export interface TarIndex {
 	size: number;   // file data byte count
 }
 
+export interface ArchiveProgress {
+	processedFiles: number;
+	totalFiles: number;
+	currentFile: string;
+	processedBytes: number;
+	totalBytes: number;
+}
+
 
 // ---- TarArchiver ----
 
@@ -224,8 +232,10 @@ class TarArchiverBase<TIdx> {
 /** Uncompressed tar archiver with a byte-offset index. Use `TarArchiver.create()` to construct. */
 export class TarArchiver extends TarArchiverBase<TarIndex> {
 	/** Create an uncompressed tar archiver for the given directory. */
-	static async create(dir: FileSystemDirectoryHandle): Promise<TarArchiver> {
+	static async create(dir: FileSystemDirectoryHandle, onProgress?: (p: ArchiveProgress) => void): Promise<TarArchiver> {
 		const entries = await TarArchiverBase.prepareEntries(dir);
+		const totalFiles = entries.length;
+		const totalBytes = entries.reduce((s, e) => s + e.file.size, 0);
 
 		let resolveIndex!: (v: TarIndex[]) => void;
 		let rejectIndex!: (e: unknown) => void;
@@ -234,8 +244,11 @@ export class TarArchiver extends TarArchiverBase<TarIndex> {
 		const gen = (async function* () {
 			const tarEntries: TarIndex[] = [];
 			let offset = 0;
+			let processedBytes = 0;
 
-			for (const entry of entries) {
+			for (let i = 0; i < entries.length; i++) {
+				const entry = entries[i];
+				onProgress?.({ processedFiles: i, totalFiles, currentFile: entry.path, processedBytes, totalBytes });
 				const padLen = (512 - (entry.file.size % 512)) % 512;
 				yield createTarHeader(entry.path, entry.file.size, entry.mtime);
 				offset += 512;
@@ -255,7 +268,9 @@ export class TarArchiver extends TarArchiverBase<TarIndex> {
 					yield new Uint8Array(padLen);
 					offset += padLen;
 				}
+				processedBytes += entry.file.size;
 				tarEntries.push({ path: entry.path, mimeType: entry.mimeType, offset: dataOffset, size: entry.file.size });
+				onProgress?.({ processedFiles: i + 1, totalFiles, currentFile: entry.path, processedBytes, totalBytes });
 			}
 			yield new Uint8Array(1024); // end-of-archive
 			resolveIndex(tarEntries);
@@ -268,8 +283,10 @@ export class TarArchiver extends TarArchiverBase<TarIndex> {
 /** BGZF-compressed tar archiver with a block-level random-access index. Use `BgzfTarArchiver.create()` to construct. */
 export class BgzfTarArchiver extends TarArchiverBase<TarGzIndex> {
 	/** Create a BGZF-compressed tar archiver for the given directory. */
-	static async create(dir: FileSystemDirectoryHandle): Promise<BgzfTarArchiver> {
+	static async create(dir: FileSystemDirectoryHandle, onProgress?: (p: ArchiveProgress) => void): Promise<BgzfTarArchiver> {
 		const entries = await TarArchiverBase.prepareEntries(dir);
+		const totalFiles = entries.length;
+		const totalBytes = entries.reduce((s, e) => s + e.file.size, 0);
 
 		let resolveIndex!: (v: TarGzIndex[]) => void;
 		let rejectIndex!: (e: unknown) => void;
@@ -303,7 +320,10 @@ export class BgzfTarArchiver extends TarArchiverBase<TarGzIndex> {
 				}
 			}
 
-			for (const entry of entries) {
+			let processedBytes = 0;
+			for (let i = 0; i < entries.length; i++) {
+				const entry = entries[i];
+				onProgress?.({ processedFiles: i, totalFiles, currentFile: entry.path, processedBytes, totalBytes });
 				const padLen = (512 - (entry.file.size % 512)) % 512;
 				yield* writeBytes(createTarHeader(entry.path, entry.file.size, entry.mtime));
 				const dataStart = totalWritten;
@@ -319,6 +339,8 @@ export class BgzfTarArchiver extends TarArchiverBase<TarGzIndex> {
 				}
 				if (padLen > 0) yield* writeBytes(new Uint8Array(padLen));
 				fileBounds.push({ path: entry.path, mimeType: entry.mimeType, start: dataStart, end: dataStart + entry.file.size });
+				processedBytes += entry.file.size;
+				onProgress?.({ processedFiles: i + 1, totalFiles, currentFile: entry.path, processedBytes, totalBytes });
 			}
 			yield* writeBytes(new Uint8Array(1024)); // end-of-archive
 

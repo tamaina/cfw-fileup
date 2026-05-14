@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { authHeaders, authStore } from '../store/auth';
 import NirA from '@/components/nira.vue';
-import { TarArchiver, BgzfTarArchiver, type TarIndex, type TarGzIndex } from 'bgzf';
+import { TarArchiver, BgzfTarArchiver, type TarIndex, type TarGzIndex, type ArchiveProgress } from 'bgzf';
+import { takePendingUpload } from '@/store/pending-upload';
 
 type ArchiveMode = 'individual' | 'gz' | 'tar' | 'targz';
 
@@ -15,18 +16,49 @@ interface Bucket {
 
 const CHUNK_SIZE = 5 * 1024 * 1024;
 
-const bucket = ref<Bucket | null>(null);
+const buckets = ref<Bucket[]>([]);
+const selectedBucketName = ref(props.bucketName);
+const bucket = computed(() => buckets.value.find(b => b.name === selectedBucketName.value) ?? null);
 const loadError = ref('');
 
-const selectedFiles = ref<FileList | null>(null);
+const selectedFiles = ref<File[]>([]);
+const uploadPrefix = ref('');
 const selectedDir = ref<FileSystemDirectoryHandle | null>(null);
 const selectedDirName = ref('');
 const archiveMode = ref<ArchiveMode>('individual');
 const isPublic = ref(true);
 const passphrase = ref('');
-const uploadProgress = ref<{ filename: string; percent: number } | null>(null);
+interface UploadProgress {
+	filename: string;
+	fileIndex: number;
+	totalFiles: number;
+	uploadedBytes: number;
+	totalBytes: number;
+}
+
+const uploadProgress = ref<UploadProgress | null>(null);
 const uploadError = ref('');
 const uploadDone = ref(false);
+
+function formatBytes(n: number): string {
+	if (n < 1024) return `${n} B`;
+	if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+	return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function getUploadPaths(): string[] {
+	if (selectedDir.value) {
+		if (archiveMode.value === 'tar') return [`${selectedDirName.value}.tar`];
+		if (archiveMode.value === 'targz') return [`${selectedDirName.value}.tar.gz`];
+		return [];
+	}
+	if (!selectedFiles.value.length) return [];
+	return selectedFiles.value.map(f =>
+		archiveMode.value === 'gz'
+			? `${uploadPrefix.value}${f.name}.gz`
+			: `${uploadPrefix.value}${f.name}`,
+	);
+}
 
 const supportsFileAccessAPI = typeof window !== 'undefined' && 'showDirectoryPicker' in window;
 
@@ -38,8 +70,7 @@ async function loadBucket(): Promise<void> {
 			body: JSON.stringify({}),
 		});
 		const data = (await res.json()) as { buckets?: Bucket[] };
-		bucket.value = data.buckets?.find((b) => b.name === props.bucketName) ?? null;
-		if (!bucket.value) loadError.value = `バケット "${props.bucketName}" が見つかりません。`;
+		buckets.value = data.buckets ?? [];
 	} catch (e) {
 		loadError.value = String(e);
 	}
@@ -55,7 +86,7 @@ async function pickDirectory(): Promise<void> {
     console.log(handle);
 		selectedDir.value = handle;
 		selectedDirName.value = handle.name;
-		selectedFiles.value = null;
+		selectedFiles.value = [];
 	} catch (e) {
 		console.error('showDirectoryPicker failed', e)
 	}
@@ -78,7 +109,7 @@ async function deleteFromOpfs(name: string): Promise<void> {
 
 // ---- TUS upload (Blob.slice — only CHUNK_SIZE bytes in memory at a time) ----
 
-async function tusUpload(fileId: string, blob: Blob, filename: string): Promise<boolean> {
+async function tusUpload(fileId: string, blob: Blob, filename: string, onProgress?: (uploaded: number) => void): Promise<boolean> {
 	const total = blob.size;
 	let offset = 0;
 	while (offset < total) {
@@ -99,12 +130,20 @@ async function tusUpload(fileId: string, blob: Blob, filename: string): Promise<
 			return false;
 		}
 		offset += chunk.size;
-		uploadProgress.value = { filename, percent: Math.round((offset / total) * 100) };
+		onProgress?.(offset);
 	}
 	return true;
 }
 
 // ---- Core upload primitives ----
+
+async function deleteExistingFile(path: string): Promise<boolean> {
+	const res = await fetch(`/d/${selectedBucketName.value}/${path}`, {
+		method: 'DELETE',
+		headers: authHeaders(),
+	});
+	return res.ok;
+}
 
 async function openUpload(path: string): Promise<string | null> {
 	if (!bucket.value) return null;
@@ -133,21 +172,19 @@ async function closeUpload(fileId: string): Promise<boolean> {
 }
 
 /** Upload a Blob (File or OPFS File) via TUS. */
-async function uploadBlob(blob: Blob, path: string): Promise<boolean> {
-	uploadProgress.value = { filename: path, percent: 0 };
+async function uploadBlob(blob: Blob, path: string, onProgress?: (uploaded: number) => void): Promise<boolean> {
 	const fileId = await openUpload(path);
 	if (!fileId) return false;
-	if (!(await tusUpload(fileId, blob, path))) return false;
+	if (!(await tusUpload(fileId, blob, path, onProgress))) return false;
 	return closeUpload(fileId);
 }
 
 /** Write stream to OPFS, upload as blob, delete temp file. */
-async function uploadStream(stream: ReadableStream<Uint8Array>, path: string): Promise<boolean> {
+async function uploadStream(stream: ReadableStream<Uint8Array>, path: string, onProgress?: (uploaded: number) => void): Promise<boolean> {
 	const tmpName = `__up_${Date.now()}`;
-	uploadProgress.value = { filename: path, percent: 0 };
 	const handle = await streamToOpfs(stream, tmpName);
 	const file = await handle.getFile();
-	const ok = await uploadBlob(file, path);
+	const ok = await uploadBlob(file, path, onProgress);
 	await deleteFromOpfs(tmpName);
 	return ok;
 }
@@ -196,11 +233,11 @@ async function patchChunk(
 async function uploadChunkedStream(
 	stream: ReadableStream<Uint8Array>,
 	path: string,
+	onUploadedBytes?: (total: number) => void,
 ): Promise<string | null> {
 	const fileId = await openUpload(path);
 	if (!fileId) return null;
 
-	uploadProgress.value = { filename: path, percent: 0 };
 	const reader = stream.getReader();
 	let buf = new Uint8Array(0);
 	let offset = 0;
@@ -220,12 +257,15 @@ async function uploadChunkedStream(
 			if (buf.length >= CHUNK_SIZE) {
 				if (!(await patchChunk(fileId, buf, offset, path, partNum++, false))) return null;
 				offset += buf.length;
+				onUploadedBytes?.(offset);
 				buf = new Uint8Array(0);
 			}
 
 			if (done) {
 				if (buf.length > 0) {
 					if (!(await patchChunk(fileId, buf, offset, path, partNum, true))) return null;
+					offset += buf.length;
+					onUploadedBytes?.(offset);
 				}
 				break;
 			}
@@ -242,8 +282,9 @@ async function uploadTarStream(
 	stream: ReadableStream<Uint8Array>,
 	index: Promise<TarIndex[]>,
 	archivePath: string,
+	onUploadedBytes?: (total: number) => void,
 ): Promise<boolean> {
-	const fileId = await uploadChunkedStream(stream, archivePath);
+	const fileId = await uploadChunkedStream(stream, archivePath, onUploadedBytes);
 	if (!fileId) return false;
 
 	const resolvedIndex = await index;
@@ -267,8 +308,9 @@ async function uploadBgzfStream(
 	stream: ReadableStream<Uint8Array>,
 	index: Promise<TarGzIndex[]>,
 	archivePath: string,
+	onUploadedBytes?: (total: number) => void,
 ): Promise<boolean> {
-	const fileId = await uploadChunkedStream(stream, archivePath);
+	const fileId = await uploadChunkedStream(stream, archivePath, onUploadedBytes);
 	if (!fileId) return false;
 
 	const resolvedIndex = await index;
@@ -295,19 +337,60 @@ async function startUpload(): Promise<void> {
 	uploadProgress.value = null;
 	if (!bucket.value) return;
 
+	// Pre-upload existence check
+	const paths = getUploadPaths();
+	if (paths.length > 0) {
+		const conflicts: string[] = [];
+		for (const path of paths) {
+			const res = await fetch(`/d/${selectedBucketName.value}/${path}?meta`);
+			if (res.ok) conflicts.push(path);
+		}
+		if (conflicts.length > 0) {
+			const msg = `以下のパスにすでにファイルが存在します:\n${conflicts.join('\n')}\n\n上書きしますか？`;
+			if (!confirm(msg)) return;
+			for (const path of conflicts) {
+				if (!(await deleteExistingFile(path))) {
+					uploadError.value = `既存ファイルの削除に失敗しました: ${path}`;
+					return;
+				}
+			}
+		}
+	}
+
 	// Directory (File System Access API)
 	if (selectedDir.value) {
 		if (archiveMode.value === 'individual') {
-			for await (const { path, file } of TarArchiver.walkDirectory(selectedDir.value)) {
-				if (!(await uploadBlob(file, path))) return;
+			const allEntries: Array<{ path: string; file: File }> = [];
+			for await (const entry of TarArchiver.walkDirectory(selectedDir.value)) allEntries.push(entry);
+			const totalFiles = allEntries.length;
+			const totalBytes = allEntries.reduce((s, e) => s + e.file.size, 0);
+			let cumulativeBytes = 0;
+			for (let i = 0; i < allEntries.length; i++) {
+				const { path, file } = allEntries[i];
+				uploadProgress.value = { filename: path, fileIndex: i + 1, totalFiles, uploadedBytes: cumulativeBytes, totalBytes };
+				if (!(await uploadBlob(file, path, (n) => {
+					uploadProgress.value = { filename: path, fileIndex: i + 1, totalFiles, uploadedBytes: cumulativeBytes + n, totalBytes };
+				}))) return;
+				cumulativeBytes += file.size;
 			}
 		} else if (archiveMode.value === 'tar') {
-			const archiver = await TarArchiver.create(selectedDir.value);
-			if (!(await uploadTarStream(archiver.stream, archiver.index, `${selectedDirName.value}.tar`))) return;
+			uploadProgress.value = { filename: '', fileIndex: 0, totalFiles: 0, uploadedBytes: 0, totalBytes: 0 };
+			const archiver = await TarArchiver.create(selectedDir.value, (p: ArchiveProgress) => {
+				if (!uploadProgress.value) return;
+				uploadProgress.value = { ...uploadProgress.value, filename: p.currentFile, fileIndex: p.processedFiles + 1, totalFiles: p.totalFiles };
+			});
+			if (!(await uploadTarStream(archiver.stream, archiver.index, `${selectedDirName.value}.tar`, (n) => {
+				if (uploadProgress.value) uploadProgress.value = { ...uploadProgress.value, uploadedBytes: n };
+			}))) return;
 		} else {
-			const archiver = await BgzfTarArchiver.create(selectedDir.value);
-      console.log(archiver);
-			if (!(await uploadBgzfStream(archiver.stream, archiver.index, `${selectedDirName.value}.tar.gz`))) return;
+			uploadProgress.value = { filename: '', fileIndex: 0, totalFiles: 0, uploadedBytes: 0, totalBytes: 0 };
+			const archiver = await BgzfTarArchiver.create(selectedDir.value, (p: ArchiveProgress) => {
+				if (!uploadProgress.value) return;
+				uploadProgress.value = { ...uploadProgress.value, filename: p.currentFile, fileIndex: p.processedFiles + 1, totalFiles: p.totalFiles };
+			});
+			if (!(await uploadBgzfStream(archiver.stream, archiver.index, `${selectedDirName.value}.tar.gz`, (n) => {
+				if (uploadProgress.value) uploadProgress.value = { ...uploadProgress.value, uploadedBytes: n };
+			}))) return;
 		}
 		uploadDone.value = true;
 		return;
@@ -316,31 +399,57 @@ async function startUpload(): Promise<void> {
 	// Regular file(s) — tar/bgzf modes are directory-only
 	if (selectedFiles.value && selectedFiles.value.length > 0) {
 		const fileArr = Array.from(selectedFiles.value);
+		const totalFiles = fileArr.length;
+		const isGz = archiveMode.value === 'gz';
+		const totalBytes = isGz ? 0 : fileArr.reduce((s, f) => s + f.size, 0);
+		let cumulativeBytes = 0;
 
-		if (archiveMode.value === 'gz') {
-			for (const file of fileArr) {
+		for (let i = 0; i < fileArr.length; i++) {
+			const file = fileArr[i];
+			uploadProgress.value = { filename: file.name, fileIndex: i + 1, totalFiles, uploadedBytes: cumulativeBytes, totalBytes };
+			if (isGz) {
 				const stream = file.stream().pipeThrough(new CompressionStream('gzip'));
-				if (!(await uploadStream(stream, `${file.name}.gz`))) return;
-			}
-		} else {
-			for (const file of fileArr) {
-				if (!(await uploadBlob(file, file.name))) return;
+				if (!(await uploadStream(stream, `${uploadPrefix.value}${file.name}.gz`, (n) => {
+					if (uploadProgress.value) uploadProgress.value = { ...uploadProgress.value, uploadedBytes: cumulativeBytes + n };
+				}))) return;
+				cumulativeBytes += file.size;
+			} else {
+				if (!(await uploadBlob(file, `${uploadPrefix.value}${file.name}`, (n) => {
+					if (uploadProgress.value) uploadProgress.value = { ...uploadProgress.value, uploadedBytes: cumulativeBytes + n };
+				}))) return;
+				cumulativeBytes += file.size;
 			}
 		}
 		uploadDone.value = true;
 	}
 }
 
-onMounted(loadBucket);
+onMounted(async () => {
+	await loadBucket();
+	const pending = takePendingUpload();
+	if (pending) {
+		selectedFiles.value = pending.files;
+		uploadPrefix.value = pending.prefix;
+	}
+});
 </script>
 
 <template>
   <div>
-    <h2>アップロード - {{ bucketName }}</h2>
+    <h2>アップロード - {{ selectedBucketName }}</h2>
 
     <p v-if="!authStore.user">ログインが必要です。</p>
     <p v-else-if="loadError" style="color:red">{{ loadError }}</p>
     <template v-else>
+      <div style="margin-bottom:12px">
+        <label>
+          バケット:
+          <select v-model="selectedBucketName">
+            <option v-for="b in buckets" :key="b.id" :value="b.name">{{ b.name }}</option>
+          </select>
+        </label>
+      </div>
+
       <section>
         <h3>ファイル選択</h3>
 
@@ -348,8 +457,21 @@ onMounted(loadBucket);
           <input
             type="file"
             multiple
-            @change="e => { selectedFiles = (e.target as HTMLInputElement).files; selectedDir = null; selectedDirName = ''; }"
+            @change="e => { selectedFiles = Array.from((e.target as HTMLInputElement).files ?? []); selectedDir = null; selectedDirName = ''; }"
           >
+          <span v-if="selectedFiles.length > 0" style="margin-left:8px">{{ selectedFiles.length }} ファイル選択済み</span>
+        </div>
+
+        <div style="margin-top:8px">
+          <label style="font-size:0.9em">
+            アップロード先パス (任意):<br>
+            <code style="font-size:1em">{{ selectedBucketName }}/</code><input
+              v-model="uploadPrefix"
+              type="text"
+              placeholder="folder/path/"
+              style="font-family:monospace; width:240px"
+            >
+          </label>
         </div>
 
         <div v-if="supportsFileAccessAPI" style="margin-top:8px">
@@ -402,13 +524,26 @@ onMounted(loadBucket);
       </div>
 
       <div v-if="uploadProgress" style="margin-top:12px">
-        <p>{{ uploadProgress.filename }}: {{ uploadProgress.percent }}%</p>
+        <p>
+          <template v-if="uploadProgress.totalFiles > 0">
+            {{ uploadProgress.fileIndex }}/{{ uploadProgress.totalFiles }}:
+          </template>
+          {{ uploadProgress.filename }}
+        </p>
+        <p>
+          {{ formatBytes(uploadProgress.uploadedBytes) }}
+          <template v-if="uploadProgress.totalBytes > 0">
+            / {{ formatBytes(uploadProgress.totalBytes) }}
+            ({{ Math.round(uploadProgress.uploadedBytes / uploadProgress.totalBytes * 100) }}%)
+          </template>
+          <template v-else>転送済み</template>
+        </p>
       </div>
 
       <p v-if="uploadError" style="color:red; margin-top:8px">{{ uploadError }}</p>
       <p v-if="uploadDone" style="color:green; margin-top:8px">
         アップロード完了！
-        <NirA :to="`/v/${bucketName}/`">ファイル一覧を見る</NirA>
+        <NirA :to="`/v/${selectedBucketName}/`">ファイル一覧を見る</NirA>
       </p>
     </template>
   </div>

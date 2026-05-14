@@ -6,6 +6,7 @@ import bucketRoutes from './api/buckets';
 import fileRoutes from './api/files';
 import accountRoutes from './api/account';
 import adminRoutes from './api/admin';
+import directoryRoutes from './api/directories';
 import downloadRoutes from './routes/download';
 import uploadRoutes from './routes/upload';
 
@@ -44,6 +45,7 @@ app.route('/api/buckets', bucketRoutes);
 app.route('/api/files', fileRoutes);
 app.route('/api/account', accountRoutes);
 app.route('/api/admin', adminRoutes);
+app.route('/api/directories', directoryRoutes);
 app.route('/', downloadRoutes);
 app.route('/', uploadRoutes);
 

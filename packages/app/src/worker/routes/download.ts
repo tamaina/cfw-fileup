@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import { eq, and } from 'drizzle-orm';
-import { buckets, files, targzFiles } from '../scheme/index';
+import { eq, and, like } from 'drizzle-orm';
+import { buckets, files, targzFiles, directories } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { authMiddleware } from '../middleware/auth';
 import { createBgzfBlock } from 'bgzf';
@@ -61,6 +61,86 @@ app.get('/d/:bucketName/*', async (c) => {
 		throw new HTTPException(404, { message: 'Bucket not found' });
 	}
 
+	const isDirectory = filePath === '' || filePath.endsWith('/');
+
+	if (isDirectory) {
+		if (filePath !== '') {
+			const dirExists = await db.select({ id: directories.id })
+				.from(directories)
+				.where(and(eq(directories.bucketId, bucket.id), eq(directories.path, filePath)))
+				.get();
+			if (!dirExists) {
+				const hasFile = await db.select({ path: files.path })
+					.from(files)
+					.where(and(eq(files.bucketId, bucket.id), like(files.path, `${filePath}%`)))
+					.get();
+				if (!hasFile) throw new HTTPException(404, { message: 'Directory not found' });
+			}
+		}
+
+		const allFiles = await db
+			.select({
+				path: files.path,
+				size: files.size,
+				mimeType: files.mimeType,
+				isTargz: files.isTargz,
+				isTar: files.isTar,
+			})
+			.from(files)
+			.where(and(eq(files.bucketId, bucket.id), eq(files.isClosed, true), eq(files.isPublic, true)));
+
+		const entries: Array<{
+			type: 'dir' | 'file';
+			name: string;
+			path?: string;
+			size?: number;
+			mimeType?: string;
+			isTargz?: boolean;
+			isTar?: boolean;
+		}> = [];
+		const seenDirs = new Set<string>();
+
+		const allDirs = await db
+			.select({ path: directories.path })
+			.from(directories)
+			.where(eq(directories.bucketId, bucket.id));
+
+		for (const d of allDirs) {
+			if (!d.path.startsWith(filePath)) continue;
+			const rest = d.path.slice(filePath.length);
+			const slashIdx = rest.indexOf('/');
+			if (slashIdx !== -1) {
+				const dirName = rest.slice(0, slashIdx);
+				if (!seenDirs.has(dirName)) {
+					seenDirs.add(dirName);
+					entries.push({ type: 'dir', name: dirName });
+				}
+			}
+		}
+
+		for (const f of allFiles) {
+			if (!f.path.startsWith(filePath)) continue;
+			const rest = f.path.slice(filePath.length);
+			const slashIdx = rest.indexOf('/');
+			if (slashIdx === -1) {
+				entries.push({ type: 'file', name: rest, path: f.path, size: f.size ?? undefined, mimeType: f.mimeType ?? undefined, isTargz: f.isTargz, isTar: f.isTar });
+			} else {
+				const dirName = rest.slice(0, slashIdx);
+				if (!seenDirs.has(dirName)) {
+					seenDirs.add(dirName);
+					entries.push({ type: 'dir', name: dirName });
+				}
+			}
+		}
+
+		entries.sort((a, b) => {
+			if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
+			return a.name.localeCompare(b.name);
+		});
+
+		return c.json({ type: 'directory', entries });
+	}
+
 	const file = await db
 		.select()
 		.from(files)
@@ -69,6 +149,18 @@ app.get('/d/:bucketName/*', async (c) => {
 
 	if (!file) {
 		throw new HTTPException(404, { message: 'File not found' });
+	}
+
+	if (c.req.query('meta') !== undefined) {
+		return c.json({
+			type: 'file',
+			path: file.path,
+			size: file.size,
+			mimeType: file.mimeType,
+			isTargz: file.isTargz,
+			isTar: file.isTar,
+			isPublic: file.isPublic,
+		});
 	}
 
 	if (!file.isPublic) {

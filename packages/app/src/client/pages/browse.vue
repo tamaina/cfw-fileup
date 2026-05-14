@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
+import BrowseDirectory from './browse.directory.vue';
+import BrowseFile from './browse.file.vue';
 import NirA from '@/components/nira.vue';
 
 const props = withDefaults(defineProps<{
@@ -7,89 +9,71 @@ const props = withDefaults(defineProps<{
 	filePath?: string;
 }>(), { filePath: '' });
 
-interface TargzEntry {
-	id: string;
-	path: string;
-	mimeType: string;
-}
+const breadcrumbs = computed(() => {
+	const parts = props.filePath ? props.filePath.replace(/\/$/, '').split('/') : [];
+	const result: { name: string; link: string | null }[] = [];
+
+	result.push({
+		name: props.bucketName,
+		link: parts.length === 0 ? null : `/v/${props.bucketName}/`,
+	});
+
+	for (let i = 0; i < parts.length; i++) {
+		const isLast = i === parts.length - 1;
+		const pathSoFar = parts.slice(0, i + 1).join('/') + '/';
+		result.push({
+			name: parts[i],
+			link: isLast ? null : `/v/${props.bucketName}/${pathSoFar}`,
+		});
+	}
+
+	return result;
+});
 
 const isDirectory = computed(() => props.filePath === '' || props.filePath.endsWith('/'));
-const targzEntries = ref<TargzEntry[]>([]);
-const error = ref('');
-const loading = ref(true);
 
-const downloadUrl = computed(() => `/d/${props.bucketName}/${props.filePath}`);
-const isImage = computed(() => {
-	const ext = props.filePath.split('.').pop()?.toLowerCase() ?? '';
-	return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'avif'].includes(ext);
-});
-const isText = computed(() => {
-	const ext = props.filePath.split('.').pop()?.toLowerCase() ?? '';
-	return ['txt', 'md', 'json', 'xml', 'html', 'css', 'js', 'ts', 'yaml', 'yml', 'toml', 'sh', 'csv'].includes(ext);
-});
-const isTargz = computed(() => props.filePath.endsWith('.tar.gz') || props.filePath.endsWith('.tgz'));
+const isTargz = ref(false);
+const metaLoading = ref(false);
+const metaError = ref('');
 
-async function loadTargzIndex(): Promise<void> {
-	loading.value = true;
-	error.value = '';
+async function fetchMeta(): Promise<void> {
+	if (isDirectory.value) {
+		isTargz.value = false;
+		return;
+	}
+	metaLoading.value = true;
+	metaError.value = '';
 	try {
-		const url = `${downloadUrl.value}?list`;
-		const res = await fetch(url);
-		if (!res.ok) {
-			error.value = `取得失敗: ${res.status}`;
-			return;
-		}
-		targzEntries.value = (await res.json()) as TargzEntry[];
+		const res = await fetch(`/d/${props.bucketName}/${props.filePath}?meta`);
+		if (!res.ok) { metaError.value = `取得失敗: ${res.status}`; return; }
+		const data = await res.json() as { isTargz?: boolean };
+		isTargz.value = data.isTargz ?? false;
 	} catch (e) {
-		error.value = String(e);
+		metaError.value = String(e);
 	} finally {
-		loading.value = false;
+		metaLoading.value = false;
 	}
 }
 
-function init(): void {
-	if (isTargz.value) {
-		loadTargzIndex();
-	} else {
-		loading.value = false;
-	}
-}
-
-onMounted(init);
-watch(() => props.filePath, init);
+onMounted(fetchMeta);
+watch(() => [props.bucketName, props.filePath], fetchMeta);
 </script>
 
 <template>
   <div>
-    <h2>{{ bucketName }}/{{ filePath }}</h2>
-
-    <p v-if="loading">読み込み中...</p>
-    <p v-else-if="error" style="color:red">{{ error }}</p>
-
-    <template v-else-if="isTargz">
-      <h3>tar.gz 内容一覧</h3>
-      <ul>
-        <li v-for="entry in targzEntries" :key="entry.id">
-          <NirA :to="`${downloadUrl}?file=${encodeURIComponent(entry.path)}`">
-            {{ entry.path }}
-          </NirA>
-          <span style="color:#888; font-size:0.85em"> ({{ entry.mimeType }})</span>
-        </li>
-      </ul>
-      <p v-if="targzEntries.length === 0">エントリがありません。</p>
-    </template>
-
-    <template v-else>
-      <template v-if="isImage">
-        <img :src="downloadUrl" :alt="filePath" style="max-width:100%; max-height:600px;">
-        <br>
+    <h2>
+      <template v-for="(seg, i) in breadcrumbs" :key="i">
+        <span v-if="i > 0">/</span>
+        <NirA v-if="seg.link" :to="seg.link">{{ seg.name }}</NirA>
+        <span v-else>{{ seg.name }}</span>
       </template>
-      <p>
-        <a :href="downloadUrl" download>ダウンロード</a>
-      </p>
-      <p v-if="isText">
-        <a :href="downloadUrl" target="_blank">ブラウザで開く</a>
-      </p>
+    </h2>
+
+    <p v-if="metaLoading">読み込み中...</p>
+    <p v-else-if="metaError" style="color:red">{{ metaError }}</p>
+    <template v-else>
+      <BrowseDirectory v-if="isDirectory || isTargz" :bucketName="bucketName" :filePath="filePath" :isTargz="isTargz" />
+      <BrowseFile v-else :bucketName="bucketName" :filePath="filePath" />
     </template>
   </div>
 </template>

@@ -301,7 +301,7 @@ export class Nirax<DEF extends RouteDef[]> extends EventEmitter<RouterEvents> {
 						}
 						if (p.wildcard) {
 							if (parts.length !== 0) {
-								props.set(p.name, safeURIDecode(parts.join('/')));
+								props.set(p.name, safeURIDecode(parts.join('/') + (trailingSlash ? '/' : '')));
 								parts = [];
 							}
 							break pathMatchLoop;
@@ -379,6 +379,7 @@ export class Nirax<DEF extends RouteDef[]> extends EventEmitter<RouterEvents> {
 			return null;
 		}
 
+		const trailingSlash = path.endsWith('/');
 		const _parts = path.split('/').filter(part => part.length !== 0);
 
 		return check(this.routes, _parts);
