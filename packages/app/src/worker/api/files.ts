@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { eq, and, gte } from 'drizzle-orm';
-import { buckets, files, targzFiles } from '../scheme/index';
+import { buckets, files, targzFiles, tarFiles, uploadParts } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { getQuotaForUser } from '../utils/rate-limit';
 import { authMiddleware } from '../middleware/auth';
@@ -36,6 +36,27 @@ const targzIndexSchema = {
 					rEndOffset: { type: 'integer' },
 				},
 				required: ['path', 'mimeType', 'aStart', 'aFirstEnd', 'aFinalStart', 'aEnd', 'rStartOffset', 'rEndOffset'],
+			},
+		},
+	},
+	required: ['fileId', 'files'],
+} as const satisfies Schema;
+
+const tarIndexSchema = {
+	type: 'object',
+	properties: {
+		fileId: { type: 'string' },
+		files: {
+			type: 'array',
+			items: {
+				type: 'object',
+				properties: {
+					path: { type: 'string' },
+					mimeType: { type: 'string' },
+					offset: { type: 'integer' },
+					size: { type: 'integer' },
+				},
+				required: ['path', 'mimeType', 'offset', 'size'],
 			},
 		},
 	},
@@ -192,6 +213,41 @@ app.post('/create/targz-index', async (c) => {
 	return c.json({ ok: true });
 });
 
+app.post('/create/tar-index', async (c) => {
+	const db = getDb(c.env);
+	const user = c.get('user');
+	const body = (await c.req.json()) as SchemaType<typeof tarIndexSchema>;
+
+	if (!body.fileId || !body.files) {
+		throw new HTTPException(400, { message: 'fileId and files are required' });
+	}
+
+	const file = await db.select().from(files).where(eq(files.id, body.fileId)).get();
+	if (!file) throw new HTTPException(404, { message: 'File not found' });
+
+	const bucket = await db.select().from(buckets).where(eq(buckets.id, file.bucketId)).get();
+	if (!bucket) throw new HTTPException(404, { message: 'Bucket not found' });
+	if (bucket.userId !== user.id && !user.isAdmin) throw new HTTPException(403, { message: 'Forbidden' });
+	if (file.uploadExpiresAt < Date.now()) throw new HTTPException(410, { message: 'Upload expired' });
+
+	const fileIds = body.files.map(() => genEaidx(Date.now()));
+	for (let i = 0; i < body.files.length; i++) {
+		const entry = body.files[i];
+		await db.insert(tarFiles).values({
+			id: fileIds[i],
+			fileId: file.id,
+			path: entry.path,
+			mimeType: entry.mimeType,
+			offset: entry.offset,
+			size: entry.size,
+		});
+	}
+
+	await db.update(files).set({ isTar: true }).where(eq(files.id, file.id));
+
+	return c.json({ ok: true });
+});
+
 app.post('/create/close', async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
@@ -222,6 +278,34 @@ app.post('/create/close', async (c) => {
 	}
 
 	const quota = await getQuotaForUser(c.env, user.id);
+
+	// Finalize R2 multipart upload if one is in progress
+	if (file.uploadId) {
+		const parts = await db
+			.select()
+			.from(uploadParts)
+			.where(eq(uploadParts.fileId, file.id));
+
+		if (parts.length === 0) {
+			throw new HTTPException(400, { message: 'Upload has not been completed' });
+		}
+
+		const sortedParts = parts
+			.slice()
+			.sort((a, b) => a.partNumber - b.partNumber)
+			.map((p) => ({ partNumber: p.partNumber, etag: p.etag }));
+
+		const multipartUpload = c.env.R2.resumeMultipartUpload(file.r2Key, file.uploadId);
+		try {
+			await multipartUpload.complete(sortedParts);
+		} catch (err) {
+			console.error('Failed to complete multipart upload:', err);
+			throw new HTTPException(400, { message: 'Failed to finalize upload' });
+		}
+
+		await db.update(files).set({ uploadId: null }).where(eq(files.id, file.id));
+	}
+
 	const r2Object = await c.env.R2.head(file.r2Key);
 
 	if (!r2Object) {

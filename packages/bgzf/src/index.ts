@@ -1,190 +1,130 @@
-/**
- * CRC-32 calculation for BGZF footer
- */
-export function calculateCrc32(data: Uint8Array): number {
+import { fileTypeFromBlob } from 'file-type';
+
+// ---- CRC-32 ----
+
+function calculateCrc32(data: Uint8Array): number {
 	const table = new Uint32Array(256);
 	for (let i = 0; i < 256; i++) {
 		let c = i;
-		for (let j = 0; j < 8; j++) {
-			c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-		}
+		for (let j = 0; j < 8; j++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
 		table[i] = c >>> 0;
 	}
-
 	let crc = 0xffffffff;
-	for (let i = 0; i < data.length; i++) {
-		crc = table[(crc ^ data[i]) & 0xff] ^ (crc >>> 8);
-	}
+	for (let i = 0; i < data.length; i++) crc = table[(crc ^ data[i]) & 0xff] ^ (crc >>> 8);
 	return (crc ^ 0xffffffff) >>> 0;
 }
 
-/**
- * Compress data to raw deflate format (without gzip wrapper)
- */
-export async function compressDeflate(data: Uint8Array): Promise<Uint8Array> {
-	const cs = new CompressionStream('deflate');
-	const writer = cs.writable.getWriter();
-	// Create a copy to ensure regular ArrayBuffer (not SharedArrayBuffer)
-	const normalizedData = new Uint8Array(data);
-	await writer.write(normalizedData);
-	await writer.close();
+// ---- Raw deflate compression ----
 
+async function compressDeflate(data: Uint8Array): Promise<Uint8Array> {
+	// 'deflate-raw' = RFC 1951 raw deflate, required by BGZF (gzip CDATA)
+	const cs = new CompressionStream('deflate-raw');
+	const writer = cs.writable.getWriter();
+	await writer.write(new Uint8Array(data));
+	await writer.close();
 	const chunks: Uint8Array[] = [];
 	const reader = cs.readable.getReader();
-
 	try {
 		while (true) {
 			const { done, value } = await reader.read();
 			if (done) break;
-			if (value instanceof Uint8Array) {
-				chunks.push(value);
-			}
+			if (value instanceof Uint8Array) chunks.push(value);
 		}
 	} finally {
 		reader.releaseLock();
 	}
-
-	const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-	const result = new Uint8Array(totalLength);
-	let offset = 0;
-	for (const chunk of chunks) {
-		result.set(chunk, offset);
-		offset += chunk.length;
-	}
-	return result;
+	const total = chunks.reduce((s, c) => s + c.length, 0);
+	const out = new Uint8Array(total);
+	let pos = 0;
+	for (const c of chunks) { out.set(c, pos); pos += c.length; }
+	return out;
 }
 
-/**
- * Create BGZF block from uncompressed data
- * Includes BGZF header, deflate-compressed data, and CRC-32/ISIZE footer
- */
-export async function createBgzfBlock(uncompressed: Uint8Array): Promise<Uint8Array> {
-	const deflated = await compressDeflate(uncompressed);
+// RFC 1951 non-compressed (stored) block: BFINAL=1, BTYPE=00
+// Overhead is 5 bytes regardless of content, so it always fits within BGZF limits.
+function storeDeflateRaw(data: Uint8Array): Uint8Array {
+	const out = new Uint8Array(5 + data.length);
+	out[0] = 0x01; // BFINAL=1, BTYPE=00
+	out[1] = data.length & 0xff;
+	out[2] = (data.length >> 8) & 0xff;
+	const nlen = (~data.length) & 0xffff;
+	out[3] = nlen & 0xff;
+	out[4] = (nlen >> 8) & 0xff;
+	out.set(data, 5);
+	return out;
+}
 
-	// Calculate CRC-32
+// ---- BGZF block ----
+
+// BGZF per-block overhead: 18-byte header + 4-byte CRC32 + 4-byte ISIZE = 26 bytes
+const BGZF_OVERHEAD = 26;
+
+export async function createBgzfBlock(uncompressed: Uint8Array): Promise<Uint8Array> {
+	let deflated = await compressDeflate(uncompressed);
 	const crc32 = calculateCrc32(uncompressed);
 
-	// BGZF block structure:
-	// Header (10 bytes) + Extra subfield (8 bytes) + compressed data + footer (8 bytes)
-	const blockSize = 10 + 8 + deflated.length + 8;
-
-	// Check BGZF block size limit (65536 bytes)
-	if (blockSize > 65536) {
-		throw new Error(
-			`BGZF block size ${blockSize} exceeds maximum 65536 bytes. Data too large for single block.`
-		);
+	// Fall back to stored block if deflate expanded the data beyond the 65536-byte BGZF limit
+	if (deflated.length + BGZF_OVERHEAD > 65536) {
+		deflated = storeDeflateRaw(uncompressed);
 	}
 
+	const blockSize = BGZF_OVERHEAD + deflated.length;
+	if (blockSize > 65536) throw new Error(`BGZF block size ${blockSize} exceeds 65536 bytes.`);
 	const block = new Uint8Array(blockSize);
-	let offset = 0;
-
-	// GZIP header (RFC 1952)
-	block[offset++] = 0x1f; // ID1
-	block[offset++] = 0x8b; // ID2
-	block[offset++] = 0x08; // Compression method (deflate)
-	block[offset++] = 0x04; // Flags (FNAME flag for BGZF)
-	// Modification time (4 bytes) - set to 0
-	block[offset++] = 0;
-	block[offset++] = 0;
-	block[offset++] = 0;
-	block[offset++] = 0;
-	block[offset++] = 0; // Extra flags
-	block[offset++] = 0xff; // OS (unknown)
-
-	// Extra subfield for BGZF (8 bytes total)
-	// XLEN (extra field length) = 6 bytes
-	const xlen = 6;
-	block[offset++] = xlen & 0xff;
-	block[offset++] = (xlen >> 8) & 0xff;
-
-	// BGZF subfield
-	block[offset++] = 0x42; // SI1 ('B')
-	block[offset++] = 0x43; // SI2 ('C')
-	block[offset++] = 0x02; // LEN (length of BGZF subfield data)
-	block[offset++] = 0x00; // LEN continued
-
-	// BSIZE (total block size including header and footer, little-endian)
-	const bsize = blockSize - 1; // BSIZE doesn't include itself in some implementations, but standard includes it
-	block[offset++] = bsize & 0xff;
-	block[offset++] = (bsize >> 8) & 0xff;
-
-	// Compressed data
-	block.set(deflated, offset);
-	offset += deflated.length;
-
-	// Footer: CRC-32 (little-endian, 4 bytes)
-	block[offset++] = crc32 & 0xff;
-	block[offset++] = (crc32 >> 8) & 0xff;
-	block[offset++] = (crc32 >> 16) & 0xff;
-	block[offset++] = (crc32 >> 24) & 0xff;
-
-	// ISIZE (uncompressed size, little-endian, 4 bytes, modulo 2^32)
+	let o = 0;
+	block[o++] = 0x1f; block[o++] = 0x8b; block[o++] = 0x08; block[o++] = 0x04;
+	block[o++] = 0; block[o++] = 0; block[o++] = 0; block[o++] = 0;
+	block[o++] = 0; block[o++] = 0xff;
+	block[o++] = 6 & 0xff; block[o++] = (6 >> 8) & 0xff;
+	block[o++] = 0x42; block[o++] = 0x43; block[o++] = 0x02; block[o++] = 0x00;
+	const bsize = blockSize - 1;
+	block[o++] = bsize & 0xff; block[o++] = (bsize >> 8) & 0xff;
+	block.set(deflated, o); o += deflated.length;
+	block[o++] = crc32 & 0xff; block[o++] = (crc32 >> 8) & 0xff;
+	block[o++] = (crc32 >> 16) & 0xff; block[o++] = (crc32 >> 24) & 0xff;
 	const isize = uncompressed.length;
-	block[offset++] = isize & 0xff;
-	block[offset++] = (isize >> 8) & 0xff;
-	block[offset++] = (isize >> 16) & 0xff;
-	block[offset++] = (isize >> 24) & 0xff;
-
+	block[o++] = isize & 0xff; block[o++] = (isize >> 8) & 0xff;
+	block[o++] = (isize >> 16) & 0xff; block[o++] = (isize >> 24) & 0xff;
 	return block;
 }
+
+// ---- Tar header (ustar) ----
 
 const enc = new TextEncoder();
 
 function writeString(buf: Uint8Array, offset: number, str: string, maxLen: number): void {
-	const bytes = enc.encode(str);
-	buf.set(bytes.slice(0, maxLen), offset);
+	buf.set(enc.encode(str).slice(0, maxLen), offset);
 }
 
 function writeOctal(buf: Uint8Array, offset: number, value: number, len: number): void {
-	const str = value.toString(8).padStart(len - 1, '0');
-	writeString(buf, offset, str, len);
-	// null terminator already present in zeroed array
+	writeString(buf, offset, value.toString(8).padStart(len - 1, '0'), len);
 }
 
-/**
- * Create a ustar-format tar header block (512 bytes)
- */
-export function createTarHeader(name: string, size: number, mtime: number, type: '0' | '5' = '0'): Uint8Array {
+function createTarHeader(name: string, size: number, mtime: number, type: '0' | '5' = '0'): Uint8Array {
 	const header = new Uint8Array(512);
-
-	// Truncate name to 100 bytes
 	writeString(header, 0, name, 100);
-	// Mode
 	writeString(header, 100, type === '5' ? '0000755\0' : '0000644\0', 8);
-	// UID / GID
 	writeString(header, 108, '0000000\0', 8);
 	writeString(header, 116, '0000000\0', 8);
-	// Size (12 bytes octal)
 	writeOctal(header, 124, size, 12);
-	// Modification time
 	writeOctal(header, 136, Math.floor(mtime / 1000), 12);
-	// Checksum placeholder = all spaces
 	header.fill(32, 148, 156);
-	// Type flag
-	header[156] = type === '5' ? 53 : 48; // '5' or '0'
-	// ustar magic + version
+	header[156] = type === '5' ? 53 : 48;
 	writeString(header, 257, 'ustar', 5);
 	writeString(header, 263, '00', 2);
-
-	// Compute checksum over all 512 bytes (checksum field treated as spaces)
 	let checksum = 0;
-	for (let i = 0; i < 512; i++) {
-		checksum += header[i];
-	}
-	// Write checksum: 6 octal digits + null + space
-	const csStr = checksum.toString(8).padStart(6, '0');
-	writeString(header, 148, csStr, 6);
-	header[154] = 0;
-	header[155] = 32; // space
-
+	for (let i = 0; i < 512; i++) checksum += header[i];
+	writeString(header, 148, checksum.toString(8).padStart(6, '0'), 6);
+	header[154] = 0; header[155] = 32;
 	return header;
 }
 
-export interface TarFileEntry {
+// ---- Public types ----
+
+/** A file to include in a tar or BGZF tar archive. */
+export interface FileEntry {
 	path: string;
-	data: Uint8Array<ArrayBuffer>;
-	mimeType: string;
-	mtime?: number;
+	file: File;
 }
 
 export interface TarGzIndex {
@@ -198,100 +138,217 @@ export interface TarGzIndex {
 	rEndOffset: number;
 }
 
-/**
- * Create a BGZF-compressed tar archive with an index for random access.
- * Each BGZF block contains up to BLOCK_SIZE bytes of uncompressed tar data.
- * Returns the .tar.gz bytes and the index needed by /api/files/create/targz-index.
- */
-export async function createBgzfTar(entries: TarFileEntry[]): Promise<{ data: Uint8Array; index: TarGzIndex[] }> {
-	// Max uncompressed bytes per BGZF block (conservative: compressed must fit in 65536)
-	const BLOCK_SIZE = 65000;
+/** Index entry for a file within a plain tar archive. */
+export interface TarIndex {
+	path: string;
+	mimeType: string;
+	offset: number; // byte offset of file data start within the tar
+	size: number;   // file data byte count
+}
 
-	// Build uncompressed tar stream and record file data boundaries
-	const parts: Uint8Array[] = [];
-	const fileBounds: { path: string; mimeType: string; start: number; end: number }[] = [];
-	let pos = 0;
-	const now = Date.now();
 
-	for (const entry of entries) {
-		const header = createTarHeader(entry.path, entry.data.length, entry.mtime ?? now);
-		// Data padded to 512-byte boundary
-		const padLen = (512 - (entry.data.length % 512)) % 512;
-		const padding = new Uint8Array(padLen);
+// ---- TarArchiver ----
 
-		// file data starts after 512-byte header
-		const dataStart = pos + 512;
-		parts.push(header, entry.data, padding);
+const BGZF_BLOCK_SIZE = 65000;
 
-		fileBounds.push({
-			path: entry.path,
-			mimeType: entry.mimeType,
-			start: dataStart,
-			end: dataStart + entry.data.length,
-		});
+function makePullStream<T>(
+	gen: AsyncGenerator<T>,
+	onError?: (err: unknown) => void,
+): ReadableStream<T> {
+	return new ReadableStream<T>({
+		async pull(controller) {
+			try {
+				const { value, done } = await gen.next();
+				if (done) controller.close();
+				else controller.enqueue(value);
+			} catch (err) {
+				onError?.(err);
+				controller.error(err);
+			}
+		},
+		cancel() {
+			gen.return(undefined as unknown as T);
+			onError?.(new Error('Stream cancelled'));
+		},
+	});
+}
 
-		pos += 512 + entry.data.length + padLen;
+interface PreparedEntry {
+	path: string;
+	file: File;
+	mimeType: string;
+	mtime: number;
+}
+
+// Shared base — not exported. TarArchiver and BgzfTarArchiver extend this independently
+// to avoid a TypeScript static-side compatibility error (TS2417) that would arise if one
+// extended the other while both define create() with incompatible return types.
+class TarArchiverBase<TIdx> {
+	readonly stream: ReadableStream<Uint8Array>;
+	readonly index: Promise<TIdx[]>;
+
+	protected constructor(stream: ReadableStream<Uint8Array>, index: Promise<TIdx[]>) {
+		this.stream = stream;
+		this.index = index;
 	}
 
-	// Two 512-byte null blocks = end-of-archive
-	parts.push(new Uint8Array(1024));
-	const totalUncompressed = pos + 1024;
-
-	// Concatenate all tar data
-	const tarData = new Uint8Array(totalUncompressed);
-	let writePos = 0;
-	for (const part of parts) {
-		tarData.set(part, writePos);
-		writePos += part.length;
+	/** Recursively walk a directory, yielding each file as a FileEntry. */
+	static async* walkDirectory(dir: FileSystemDirectoryHandle, prefix = ''): AsyncGenerator<FileEntry> {
+		for await (const [name, handle] of dir as unknown as AsyncIterable<[string, FileSystemHandle]>) {
+			if (handle.kind === 'file') {
+				yield { path: prefix + name, file: await (handle as FileSystemFileHandle).getFile() };
+			} else if (handle.kind === 'directory') {
+				yield* TarArchiverBase.walkDirectory(handle as FileSystemDirectoryHandle, prefix + name + '/');
+			}
+		}
 	}
 
-	// Compress into BGZF blocks and record each block's byte offset in the output
-	const bgzfBlocks: Uint8Array[] = [];
-	const bgzfStartOffsets: number[] = [];
-	let bgzfOffset = 0;
-
-	for (let i = 0; i < tarData.length; i += BLOCK_SIZE) {
-		const chunk = tarData.slice(i, Math.min(i + BLOCK_SIZE, tarData.length));
-		const block = await createBgzfBlock(chunk);
-		bgzfStartOffsets.push(bgzfOffset);
-		bgzfBlocks.push(block);
-		bgzfOffset += block.length;
+	/** Walk a directory and detect MIME types for all files in parallel. */
+	protected static async prepareEntries(dir: FileSystemDirectoryHandle): Promise<PreparedEntry[]> {
+		const now = Date.now();
+		const walked: FileEntry[] = [];
+		for await (const entry of TarArchiverBase.walkDirectory(dir)) walked.push(entry);
+		return Promise.all(
+			walked.map(async ({ path, file }) => {
+				const detected = await fileTypeFromBlob(file);
+				return { path, file, mimeType: detected?.mime ?? 'application/octet-stream', mtime: file.lastModified || now };
+			}),
+		);
 	}
+}
 
-	// BGZF EOF block (empty)
-	const eofBlock = await createBgzfBlock(new Uint8Array(0));
-	bgzfBlocks.push(eofBlock);
+/** Uncompressed tar archiver with a byte-offset index. Use `TarArchiver.create()` to construct. */
+export class TarArchiver extends TarArchiverBase<TarIndex> {
+	/** Create an uncompressed tar archiver for the given directory. */
+	static async create(dir: FileSystemDirectoryHandle): Promise<TarArchiver> {
+		const entries = await TarArchiverBase.prepareEntries(dir);
 
-	// Build index: for each file find which blocks it spans
-	const index: TarGzIndex[] = [];
-	for (const fb of fileBounds) {
-		const startBlockIdx = Math.floor(fb.start / BLOCK_SIZE);
-		const endBlockIdx = Math.floor(Math.max(fb.end - 1, fb.start) / BLOCK_SIZE);
+		let resolveIndex!: (v: TarIndex[]) => void;
+		let rejectIndex!: (e: unknown) => void;
+		const index = new Promise<TarIndex[]>((res, rej) => { resolveIndex = res; rejectIndex = rej; });
 
-		const rStartOffset = fb.start - startBlockIdx * BLOCK_SIZE;
-		const endBlockDataEnd = (endBlockIdx + 1) * BLOCK_SIZE;
-		const rEndOffset = Math.min(endBlockDataEnd, totalUncompressed) - fb.end;
+		const gen = (async function* () {
+			const tarEntries: TarIndex[] = [];
+			let offset = 0;
 
-		index.push({
-			path: fb.path,
-			mimeType: fb.mimeType,
-			aStart: bgzfStartOffsets[startBlockIdx],
-			aFirstEnd: bgzfStartOffsets[startBlockIdx] + bgzfBlocks[startBlockIdx].length,
-			aFinalStart: bgzfStartOffsets[endBlockIdx],
-			aEnd: bgzfStartOffsets[endBlockIdx] + bgzfBlocks[endBlockIdx].length,
-			rStartOffset,
-			rEndOffset,
-		});
+			for (const entry of entries) {
+				const padLen = (512 - (entry.file.size % 512)) % 512;
+				yield createTarHeader(entry.path, entry.file.size, entry.mtime);
+				offset += 512;
+				const dataOffset = offset;
+				const reader = entry.file.stream().getReader();
+				try {
+					while (true) {
+						const { done, value } = await reader.read();
+						if (done) break;
+						yield value;
+						offset += value.length;
+					}
+				} finally {
+					reader.releaseLock();
+				}
+				if (padLen > 0) {
+					yield new Uint8Array(padLen);
+					offset += padLen;
+				}
+				tarEntries.push({ path: entry.path, mimeType: entry.mimeType, offset: dataOffset, size: entry.file.size });
+			}
+			yield new Uint8Array(1024); // end-of-archive
+			resolveIndex(tarEntries);
+		})();
+
+		return new TarArchiver(makePullStream(gen, rejectIndex), index);
 	}
+}
 
-	// Combine all BGZF blocks into final output
-	const totalSize = bgzfBlocks.reduce((sum, b) => sum + b.length, 0);
-	const output = new Uint8Array(totalSize);
-	let outPos = 0;
-	for (const block of bgzfBlocks) {
-		output.set(block, outPos);
-		outPos += block.length;
+/** BGZF-compressed tar archiver with a block-level random-access index. Use `BgzfTarArchiver.create()` to construct. */
+export class BgzfTarArchiver extends TarArchiverBase<TarGzIndex> {
+	/** Create a BGZF-compressed tar archiver for the given directory. */
+	static async create(dir: FileSystemDirectoryHandle): Promise<BgzfTarArchiver> {
+		const entries = await TarArchiverBase.prepareEntries(dir);
+
+		let resolveIndex!: (v: TarGzIndex[]) => void;
+		let rejectIndex!: (e: unknown) => void;
+		const index = new Promise<TarGzIndex[]>((res, rej) => { resolveIndex = res; rejectIndex = rej; });
+
+		const gen = (async function* () {
+			const blockOffsets: number[] = [];
+			const blockLengths: number[] = [];
+			let compressedOffset = 0;
+			let totalWritten = 0;
+			const blockBuffer = new Uint8Array(BGZF_BLOCK_SIZE);
+			let bufLen = 0;
+			const fileBounds: { path: string; mimeType: string; start: number; end: number }[] = [];
+
+			async function* writeBytes(data: Uint8Array): AsyncGenerator<Uint8Array> {
+				let pos = 0;
+				while (pos < data.length) {
+					const n = Math.min(BGZF_BLOCK_SIZE - bufLen, data.length - pos);
+					blockBuffer.set(data.subarray(pos, pos + n), bufLen);
+					bufLen += n;
+					totalWritten += n;
+					pos += n;
+					if (bufLen === BGZF_BLOCK_SIZE) {
+						const block = await createBgzfBlock(blockBuffer.slice(0, bufLen));
+						blockOffsets.push(compressedOffset);
+						blockLengths.push(block.length);
+						compressedOffset += block.length;
+						bufLen = 0;
+						yield block;
+					}
+				}
+			}
+
+			for (const entry of entries) {
+				const padLen = (512 - (entry.file.size % 512)) % 512;
+				yield* writeBytes(createTarHeader(entry.path, entry.file.size, entry.mtime));
+				const dataStart = totalWritten;
+				const reader = entry.file.stream().getReader();
+				try {
+					while (true) {
+						const { done, value } = await reader.read();
+						if (done) break;
+						yield* writeBytes(value);
+					}
+				} finally {
+					reader.releaseLock();
+				}
+				if (padLen > 0) yield* writeBytes(new Uint8Array(padLen));
+				fileBounds.push({ path: entry.path, mimeType: entry.mimeType, start: dataStart, end: dataStart + entry.file.size });
+			}
+			yield* writeBytes(new Uint8Array(1024)); // end-of-archive
+
+			if (bufLen > 0) {
+				const block = await createBgzfBlock(blockBuffer.slice(0, bufLen));
+				blockOffsets.push(compressedOffset);
+				blockLengths.push(block.length);
+				compressedOffset += block.length;
+				bufLen = 0;
+				yield block;
+			}
+
+			const eofBlock = await createBgzfBlock(new Uint8Array(0));
+			blockOffsets.push(compressedOffset);
+			blockLengths.push(eofBlock.length);
+			yield eofBlock;
+
+			const totalUncompressed = totalWritten;
+			resolveIndex(fileBounds.map((fb) => {
+				const si = Math.floor(fb.start / BGZF_BLOCK_SIZE);
+				const ei = Math.floor(Math.max(fb.end - 1, fb.start) / BGZF_BLOCK_SIZE);
+				return {
+					path: fb.path,
+					mimeType: fb.mimeType,
+					aStart: blockOffsets[si],
+					aFirstEnd: blockOffsets[si] + blockLengths[si],
+					aFinalStart: blockOffsets[ei],
+					aEnd: blockOffsets[ei] + blockLengths[ei],
+					rStartOffset: fb.start - si * BGZF_BLOCK_SIZE,
+					rEndOffset: Math.min((ei + 1) * BGZF_BLOCK_SIZE, totalUncompressed) - fb.end,
+				};
+			}));
+		})();
+
+		return new BgzfTarArchiver(makePullStream(gen, rejectIndex), index);
 	}
-
-	return { data: output, index };
 }
