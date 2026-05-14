@@ -138,203 +138,217 @@ export interface TarGzIndex {
 	rEndOffset: number;
 }
 
-// ---- File System Access API walker ----
-
-/**
- * Walk a FileSystemDirectoryHandle recursively, yielding FileEntry for each file.
- */
-export async function* walkDirectory(
-	dir: FileSystemDirectoryHandle,
-	prefix = '',
-): AsyncGenerator<FileEntry> {
-	for await (const [name, handle] of dir as unknown as AsyncIterable<[string, FileSystemHandle]>) {
-		if (handle.kind === 'file') {
-			yield { path: prefix + name, file: await (handle as FileSystemFileHandle).getFile() };
-		} else if (handle.kind === 'directory') {
-			yield* walkDirectory(handle as FileSystemDirectoryHandle, prefix + name + '/');
-		}
-	}
+/** Index entry for a file within a plain tar archive. */
+export interface TarIndex {
+	path: string;
+	mimeType: string;
+	offset: number; // byte offset of file data start within the tar
+	size: number;   // file data byte count
 }
 
-async function resolveSource(source: FileEntry[] | FileSystemDirectoryHandle): Promise<FileEntry[]> {
-	if (Array.isArray(source)) return source;
-	const files: FileEntry[] = [];
-	for await (const entry of walkDirectory(source)) files.push(entry);
-	return files;
-}
 
-// ---- createTar ----
+// ---- TarArchiver ----
 
-/**
- * Create an uncompressed tar (ustar) archive as a ReadableStream.
- * Accepts a FileEntry[] or a FileSystemDirectoryHandle.
- * File contents are streamed — no full-file memory buffering.
- */
-export function createTar(source: FileEntry[] | FileSystemDirectoryHandle): ReadableStream<Uint8Array> {
-	const gen = (async function* () {
-		const files = await resolveSource(source);
-		for (const { path, file } of files) {
-			yield createTarHeader(path, file.size, file.lastModified);
-			const reader = file.stream().getReader();
-			try {
-				while (true) {
-					const { done, value } = await reader.read();
-					if (done) break;
-					yield value;
-				}
-			} finally {
-				reader.releaseLock();
-			}
-			const padLen = (512 - (file.size % 512)) % 512;
-			if (padLen > 0) yield new Uint8Array(padLen);
-		}
-		yield new Uint8Array(1024); // end-of-archive
-	})();
+const BGZF_BLOCK_SIZE = 65000;
 
-	return new ReadableStream<Uint8Array>({
+function makePullStream<T>(
+	gen: AsyncGenerator<T>,
+	onError?: (err: unknown) => void,
+): ReadableStream<T> {
+	return new ReadableStream<T>({
 		async pull(controller) {
 			try {
 				const { value, done } = await gen.next();
 				if (done) controller.close();
 				else controller.enqueue(value);
 			} catch (err) {
-				controller.error(err);
-			}
-		},
-		cancel() { gen.return(undefined); },
-	});
-}
-
-// ---- createBgzfTar ----
-
-/**
- * Create a BGZF-compressed tar archive with a random-access index.
- * Accepts a FileEntry[] or a FileSystemDirectoryHandle.
- * MIME types are detected with fileTypeFromBlob (reads first few KB only).
- * File data and BGZF blocks are streamed — no bulk memory buffering.
- * The index resolves after the stream is fully consumed.
- */
-export async function createBgzfTar(
-	source: FileEntry[] | FileSystemDirectoryHandle,
-): Promise<{ stream: ReadableStream<Uint8Array>; index: Promise<TarGzIndex[]> }> {
-	const files = await resolveSource(source);
-	const BLOCK_SIZE = 65000;
-	const now = Date.now();
-
-	// Detect MIME types using fileTypeFromBlob (reads first few KB, no full-file buffer)
-	const entries = await Promise.all(
-		files.map(async ({ path, file }) => {
-			const detected = await fileTypeFromBlob(file);
-			return { path, file, mimeType: detected?.mime ?? 'application/octet-stream', mtime: file.lastModified || now };
-		}),
-	);
-
-	let resolveIndex!: (v: TarGzIndex[]) => void;
-	let rejectIndex!: (e: unknown) => void;
-	const index = new Promise<TarGzIndex[]>((res, rej) => { resolveIndex = res; rejectIndex = rej; });
-
-	// Async generator: yields one BGZF block per iteration.
-	// Block metadata (offsets/sizes) is tracked without storing block bytes.
-	const gen = (async function* () {
-		const blockOffsets: number[] = [];
-		const blockLengths: number[] = [];
-		let compressedOffset = 0;
-		let totalWritten = 0;
-		const blockBuffer = new Uint8Array(BLOCK_SIZE);
-		let bufLen = 0;
-		const fileBounds: { path: string; mimeType: string; start: number; end: number }[] = [];
-
-		// Write bytes into the block buffer, yielding a compressed block whenever it fills.
-		async function* writeBytes(data: Uint8Array): AsyncGenerator<Uint8Array> {
-			let pos = 0;
-			while (pos < data.length) {
-				const n = Math.min(BLOCK_SIZE - bufLen, data.length - pos);
-				blockBuffer.set(data.subarray(pos, pos + n), bufLen);
-				bufLen += n;
-				totalWritten += n;
-				pos += n;
-				if (bufLen === BLOCK_SIZE) {
-					const block = await createBgzfBlock(blockBuffer.slice(0, bufLen));
-					blockOffsets.push(compressedOffset);
-					blockLengths.push(block.length);
-					compressedOffset += block.length;
-					bufLen = 0;
-					yield block;
-				}
-			}
-		}
-
-		for (const entry of entries) {
-			const padLen = (512 - (entry.file.size % 512)) % 512;
-			yield* writeBytes(createTarHeader(entry.path, entry.file.size, entry.mtime));
-			const dataStart = totalWritten;
-			const reader = entry.file.stream().getReader();
-			try {
-				while (true) {
-					const { done, value } = await reader.read();
-					if (done) break;
-					yield* writeBytes(value);
-				}
-			} finally {
-				reader.releaseLock();
-			}
-			if (padLen > 0) yield* writeBytes(new Uint8Array(padLen));
-			fileBounds.push({ path: entry.path, mimeType: entry.mimeType, start: dataStart, end: dataStart + entry.file.size });
-		}
-		yield* writeBytes(new Uint8Array(1024)); // end-of-archive
-
-		// Flush remaining partial block
-		if (bufLen > 0) {
-			const block = await createBgzfBlock(blockBuffer.slice(0, bufLen));
-			blockOffsets.push(compressedOffset);
-			blockLengths.push(block.length);
-			compressedOffset += block.length;
-			bufLen = 0;
-			yield block;
-		}
-
-		// BGZF EOF block
-		const eofBlock = await createBgzfBlock(new Uint8Array(0));
-		blockOffsets.push(compressedOffset);
-		blockLengths.push(eofBlock.length);
-		yield eofBlock;
-
-		// Build and resolve index now that all block offsets are known
-		const totalUncompressed = totalWritten;
-		resolveIndex(fileBounds.map((fb) => {
-			const startBlockIdx = Math.floor(fb.start / BLOCK_SIZE);
-			const endBlockIdx = Math.floor(Math.max(fb.end - 1, fb.start) / BLOCK_SIZE);
-			const rStartOffset = fb.start - startBlockIdx * BLOCK_SIZE;
-			const rEndOffset = Math.min((endBlockIdx + 1) * BLOCK_SIZE, totalUncompressed) - fb.end;
-			return {
-				path: fb.path,
-				mimeType: fb.mimeType,
-				aStart: blockOffsets[startBlockIdx],
-				aFirstEnd: blockOffsets[startBlockIdx] + blockLengths[startBlockIdx],
-				aFinalStart: blockOffsets[endBlockIdx],
-				aEnd: blockOffsets[endBlockIdx] + blockLengths[endBlockIdx],
-				rStartOffset,
-				rEndOffset,
-			};
-		}));
-	})();
-
-	const stream = new ReadableStream<Uint8Array>({
-		async pull(controller) {
-			try {
-				const { value, done } = await gen.next();
-				if (done) controller.close();
-				else controller.enqueue(value);
-			} catch (err) {
-				rejectIndex(err);
+				onError?.(err);
 				controller.error(err);
 			}
 		},
 		cancel() {
-			gen.return(undefined);
-			rejectIndex(new Error('Stream cancelled'));
+			gen.return(undefined as unknown as T);
+			onError?.(new Error('Stream cancelled'));
 		},
 	});
+}
 
-	return { stream, index };
+interface PreparedEntry {
+	path: string;
+	file: File;
+	mimeType: string;
+	mtime: number;
+}
+
+// Shared base — not exported. TarArchiver and BgzfTarArchiver extend this independently
+// to avoid a TypeScript static-side compatibility error (TS2417) that would arise if one
+// extended the other while both define create() with incompatible return types.
+class TarArchiverBase<TIdx> {
+	readonly stream: ReadableStream<Uint8Array>;
+	readonly index: Promise<TIdx[]>;
+
+	protected constructor(stream: ReadableStream<Uint8Array>, index: Promise<TIdx[]>) {
+		this.stream = stream;
+		this.index = index;
+	}
+
+	/** Recursively walk a directory, yielding each file as a FileEntry. */
+	static async* walkDirectory(dir: FileSystemDirectoryHandle, prefix = ''): AsyncGenerator<FileEntry> {
+		for await (const [name, handle] of dir as unknown as AsyncIterable<[string, FileSystemHandle]>) {
+			if (handle.kind === 'file') {
+				yield { path: prefix + name, file: await (handle as FileSystemFileHandle).getFile() };
+			} else if (handle.kind === 'directory') {
+				yield* TarArchiverBase.walkDirectory(handle as FileSystemDirectoryHandle, prefix + name + '/');
+			}
+		}
+	}
+
+	/** Walk a directory and detect MIME types for all files in parallel. */
+	protected static async prepareEntries(dir: FileSystemDirectoryHandle): Promise<PreparedEntry[]> {
+		const now = Date.now();
+		const walked: FileEntry[] = [];
+		for await (const entry of TarArchiverBase.walkDirectory(dir)) walked.push(entry);
+		return Promise.all(
+			walked.map(async ({ path, file }) => {
+				const detected = await fileTypeFromBlob(file);
+				return { path, file, mimeType: detected?.mime ?? 'application/octet-stream', mtime: file.lastModified || now };
+			}),
+		);
+	}
+}
+
+/** Uncompressed tar archiver with a byte-offset index. Use `TarArchiver.create()` to construct. */
+export class TarArchiver extends TarArchiverBase<TarIndex> {
+	/** Create an uncompressed tar archiver for the given directory. */
+	static async create(dir: FileSystemDirectoryHandle): Promise<TarArchiver> {
+		const entries = await TarArchiverBase.prepareEntries(dir);
+
+		let resolveIndex!: (v: TarIndex[]) => void;
+		let rejectIndex!: (e: unknown) => void;
+		const index = new Promise<TarIndex[]>((res, rej) => { resolveIndex = res; rejectIndex = rej; });
+
+		const gen = (async function* () {
+			const tarEntries: TarIndex[] = [];
+			let offset = 0;
+
+			for (const entry of entries) {
+				const padLen = (512 - (entry.file.size % 512)) % 512;
+				yield createTarHeader(entry.path, entry.file.size, entry.mtime);
+				offset += 512;
+				const dataOffset = offset;
+				const reader = entry.file.stream().getReader();
+				try {
+					while (true) {
+						const { done, value } = await reader.read();
+						if (done) break;
+						yield value;
+						offset += value.length;
+					}
+				} finally {
+					reader.releaseLock();
+				}
+				if (padLen > 0) {
+					yield new Uint8Array(padLen);
+					offset += padLen;
+				}
+				tarEntries.push({ path: entry.path, mimeType: entry.mimeType, offset: dataOffset, size: entry.file.size });
+			}
+			yield new Uint8Array(1024); // end-of-archive
+			resolveIndex(tarEntries);
+		})();
+
+		return new TarArchiver(makePullStream(gen, rejectIndex), index);
+	}
+}
+
+/** BGZF-compressed tar archiver with a block-level random-access index. Use `BgzfTarArchiver.create()` to construct. */
+export class BgzfTarArchiver extends TarArchiverBase<TarGzIndex> {
+	/** Create a BGZF-compressed tar archiver for the given directory. */
+	static async create(dir: FileSystemDirectoryHandle): Promise<BgzfTarArchiver> {
+		const entries = await TarArchiverBase.prepareEntries(dir);
+
+		let resolveIndex!: (v: TarGzIndex[]) => void;
+		let rejectIndex!: (e: unknown) => void;
+		const index = new Promise<TarGzIndex[]>((res, rej) => { resolveIndex = res; rejectIndex = rej; });
+
+		const gen = (async function* () {
+			const blockOffsets: number[] = [];
+			const blockLengths: number[] = [];
+			let compressedOffset = 0;
+			let totalWritten = 0;
+			const blockBuffer = new Uint8Array(BGZF_BLOCK_SIZE);
+			let bufLen = 0;
+			const fileBounds: { path: string; mimeType: string; start: number; end: number }[] = [];
+
+			async function* writeBytes(data: Uint8Array): AsyncGenerator<Uint8Array> {
+				let pos = 0;
+				while (pos < data.length) {
+					const n = Math.min(BGZF_BLOCK_SIZE - bufLen, data.length - pos);
+					blockBuffer.set(data.subarray(pos, pos + n), bufLen);
+					bufLen += n;
+					totalWritten += n;
+					pos += n;
+					if (bufLen === BGZF_BLOCK_SIZE) {
+						const block = await createBgzfBlock(blockBuffer.slice(0, bufLen));
+						blockOffsets.push(compressedOffset);
+						blockLengths.push(block.length);
+						compressedOffset += block.length;
+						bufLen = 0;
+						yield block;
+					}
+				}
+			}
+
+			for (const entry of entries) {
+				const padLen = (512 - (entry.file.size % 512)) % 512;
+				yield* writeBytes(createTarHeader(entry.path, entry.file.size, entry.mtime));
+				const dataStart = totalWritten;
+				const reader = entry.file.stream().getReader();
+				try {
+					while (true) {
+						const { done, value } = await reader.read();
+						if (done) break;
+						yield* writeBytes(value);
+					}
+				} finally {
+					reader.releaseLock();
+				}
+				if (padLen > 0) yield* writeBytes(new Uint8Array(padLen));
+				fileBounds.push({ path: entry.path, mimeType: entry.mimeType, start: dataStart, end: dataStart + entry.file.size });
+			}
+			yield* writeBytes(new Uint8Array(1024)); // end-of-archive
+
+			if (bufLen > 0) {
+				const block = await createBgzfBlock(blockBuffer.slice(0, bufLen));
+				blockOffsets.push(compressedOffset);
+				blockLengths.push(block.length);
+				compressedOffset += block.length;
+				bufLen = 0;
+				yield block;
+			}
+
+			const eofBlock = await createBgzfBlock(new Uint8Array(0));
+			blockOffsets.push(compressedOffset);
+			blockLengths.push(eofBlock.length);
+			yield eofBlock;
+
+			const totalUncompressed = totalWritten;
+			resolveIndex(fileBounds.map((fb) => {
+				const si = Math.floor(fb.start / BGZF_BLOCK_SIZE);
+				const ei = Math.floor(Math.max(fb.end - 1, fb.start) / BGZF_BLOCK_SIZE);
+				return {
+					path: fb.path,
+					mimeType: fb.mimeType,
+					aStart: blockOffsets[si],
+					aFirstEnd: blockOffsets[si] + blockLengths[si],
+					aFinalStart: blockOffsets[ei],
+					aEnd: blockOffsets[ei] + blockLengths[ei],
+					rStartOffset: fb.start - si * BGZF_BLOCK_SIZE,
+					rEndOffset: Math.min((ei + 1) * BGZF_BLOCK_SIZE, totalUncompressed) - fb.end,
+				};
+			}));
+		})();
+
+		return new BgzfTarArchiver(makePullStream(gen, rejectIndex), index);
+	}
 }

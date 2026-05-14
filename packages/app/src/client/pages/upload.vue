@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue';
 import { authHeaders, authStore } from '../store/auth';
 import NirA from '@/components/nira.vue';
-import { createBgzfTar, createTar, walkDirectory, type FileEntry, type TarGzIndex } from 'bgzf';
+import { TarArchiver, BgzfTarArchiver, type TarIndex, type TarGzIndex } from 'bgzf';
 
 type ArchiveMode = 'individual' | 'gz' | 'tar' | 'targz';
 
@@ -148,6 +148,44 @@ async function uploadStream(stream: ReadableStream<Uint8Array>, path: string): P
 	return ok;
 }
 
+/** Write tar stream to OPFS, upload, register index, delete temp file. */
+async function uploadTarStream(
+	stream: ReadableStream<Uint8Array>,
+	index: Promise<TarIndex[]>,
+	archivePath: string,
+): Promise<boolean> {
+	const tmpName = `__up_${Date.now()}`;
+	uploadProgress.value = { filename: archivePath, percent: 0 };
+
+	const handle = await streamToOpfs(stream, tmpName);
+	const resolvedIndex = await index;
+	const file = await handle.getFile();
+
+	const fileId = await openUpload(archivePath);
+	if (!fileId) { await deleteFromOpfs(tmpName); return false; }
+
+	if (!(await tusUpload(fileId, file, archivePath))) {
+		await deleteFromOpfs(tmpName);
+		return false;
+	}
+
+	const indexRes = await fetch('/api/files/create/tar-index', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', ...authHeaders() },
+		body: JSON.stringify({ fileId, files: resolvedIndex }),
+	});
+	if (!indexRes.ok) {
+		const err = (await indexRes.json()) as { error?: string };
+		uploadError.value = err.error ?? 'インデックス登録失敗';
+		await deleteFromOpfs(tmpName);
+		return false;
+	}
+
+	const ok = await closeUpload(fileId);
+	await deleteFromOpfs(tmpName);
+	return ok;
+}
+
 /** Write BGZF stream to OPFS, upload, register index, delete temp file. */
 async function uploadBgzfStream(
 	stream: ReadableStream<Uint8Array>,
@@ -198,40 +236,33 @@ async function startUpload(): Promise<void> {
 	// Directory (File System Access API)
 	if (selectedDir.value) {
 		if (archiveMode.value === 'individual') {
-			for await (const { path, file } of walkDirectory(selectedDir.value)) {
+			for await (const { path, file } of TarArchiver.walkDirectory(selectedDir.value)) {
 				if (!(await uploadBlob(file, path))) return;
 			}
 		} else if (archiveMode.value === 'tar') {
-			if (!(await uploadStream(createTar(selectedDir.value), `${selectedDirName.value}.tar`))) return;
+			const archiver = await TarArchiver.create(selectedDir.value);
+			if (!(await uploadTarStream(archiver.stream, archiver.index, `${selectedDirName.value}.tar`))) return;
 		} else {
-			const { stream, index } = await createBgzfTar(selectedDir.value);
-			if (!(await uploadBgzfStream(stream, index, `${selectedDirName.value}.tar.gz`))) return;
+			const archiver = await BgzfTarArchiver.create(selectedDir.value);
+			if (!(await uploadBgzfStream(archiver.stream, archiver.index, `${selectedDirName.value}.tar.gz`))) return;
 		}
 		uploadDone.value = true;
 		return;
 	}
 
-	// Regular file(s)
+	// Regular file(s) — tar/bgzf modes are directory-only
 	if (selectedFiles.value && selectedFiles.value.length > 0) {
 		const fileArr = Array.from(selectedFiles.value);
-		const entries: FileEntry[] = fileArr.map((f) => ({ path: f.name, file: f }));
-		const baseName = fileArr.length === 1 ? fileArr[0].name : 'archive';
 
-		if (archiveMode.value === 'individual') {
-			for (const file of fileArr) {
-				if (!(await uploadBlob(file, file.name))) return;
-			}
-		} else if (archiveMode.value === 'gz') {
-			// Stream through CompressionStream → OPFS (no memory buffering)
+		if (archiveMode.value === 'gz') {
 			for (const file of fileArr) {
 				const stream = file.stream().pipeThrough(new CompressionStream('gzip'));
 				if (!(await uploadStream(stream, `${file.name}.gz`))) return;
 			}
-		} else if (archiveMode.value === 'tar') {
-			if (!(await uploadStream(createTar(entries), `${baseName}.tar`))) return;
 		} else {
-			const { stream, index } = await createBgzfTar(entries);
-			if (!(await uploadBgzfStream(stream, index, `${baseName}.tar.gz`))) return;
+			for (const file of fileArr) {
+				if (!(await uploadBlob(file, file.name))) return;
+			}
 		}
 		uploadDone.value = true;
 	}
@@ -273,11 +304,11 @@ onMounted(loadBucket);
             <input v-model="archiveMode" type="radio" value="gz">
             gzip 圧縮してアップロード (.gz)
           </label>
-          <label style="display:block">
+          <label v-if="selectedDir" style="display:block">
             <input v-model="archiveMode" type="radio" value="tar">
             tar にまとめてアップロード (無圧縮)
           </label>
-          <label style="display:block">
+          <label v-if="selectedDir" style="display:block">
             <input v-model="archiveMode" type="radio" value="targz">
             tar.gz にまとめてアップロード (BGZF形式・ランダムアクセス対応)
           </label>

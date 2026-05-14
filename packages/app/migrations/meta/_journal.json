@@ -22,6 +22,13 @@
       "when": 1778647600000,
       "tag": "0002_add_a_first_end",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1778760279570,
+      "tag": "0003_hard_oracle",
+      "breakpoints": true
     }
   ]
 }

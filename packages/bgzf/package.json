@@ -6,8 +6,14 @@
   "exports": {
     ".": "./src/index.ts"
   },
-  "scripts": {},
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
   "dependencies": {
     "file-type": "^22.0.1"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.6"
   }
 }

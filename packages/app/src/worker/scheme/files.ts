@@ -13,6 +13,7 @@ export const files = sqliteTable('files', {
 	uploadExpiresAt: integer('upload_expires_at').notNull(),
 	isClosed: integer('is_closed', { mode: 'boolean' }).notNull().default(false),
 	isTargz: integer('is_targz', { mode: 'boolean' }).notNull().default(false),
+	isTar: integer('is_tar', { mode: 'boolean' }).notNull().default(false),
 	uploadId: text('upload_id'),
 	createdAt: integer('created_at').notNull(),
 }, (table) => [
@@ -30,6 +31,15 @@ export const targzFiles = sqliteTable('targz_files', {
 	aEnd: integer('a_end').notNull(),
 	rStartOffset: integer('r_start_offset').notNull(),
 	rEndOffset: integer('r_end_offset').notNull(),
+});
+
+export const tarFiles = sqliteTable('tar_files', {
+	id: text('id').primaryKey(),
+	fileId: text('file_id').notNull().references(() => files.id, { onDelete: 'cascade' }),
+	path: text('path').notNull(),
+	mimeType: text('mime_type').notNull(),
+	offset: integer('offset').notNull(),
+	size: integer('size').notNull(),
 });
 
 export const uploadParts = sqliteTable('upload_parts', {
