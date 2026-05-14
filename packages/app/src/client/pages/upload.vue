@@ -46,14 +46,18 @@ async function loadBucket(): Promise<void> {
 }
 
 async function pickDirectory(): Promise<void> {
-	if (!supportsFileAccessAPI) return;
+	if (!('showDirectoryPicker' in window)) {
+    alert('folder picker is not supported!');
+    return;
+  }
 	try {
-		const handle = await (window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }).showDirectoryPicker();
+		const handle = await (window as unknown as any).showDirectoryPicker();
+    console.log(handle);
 		selectedDir.value = handle;
 		selectedDirName.value = handle.name;
 		selectedFiles.value = null;
-	} catch {
-		// user cancelled
+	} catch (e) {
+		console.error('showDirectoryPicker failed', e)
 	}
 }
 
@@ -244,6 +248,7 @@ async function startUpload(): Promise<void> {
 			if (!(await uploadTarStream(archiver.stream, archiver.index, `${selectedDirName.value}.tar`))) return;
 		} else {
 			const archiver = await BgzfTarArchiver.create(selectedDir.value);
+      console.log(archiver);
 			if (!(await uploadBgzfStream(archiver.stream, archiver.index, `${selectedDirName.value}.tar.gz`))) return;
 		}
 		uploadDone.value = true;
