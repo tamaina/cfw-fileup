@@ -37,6 +37,8 @@ const CurrentPage = computed(() => {
       <NirA to="/">CFW FileUp</NirA>
       &nbsp;|&nbsp;
       <NirA to="/my/buckets">マイバケット</NirA>
+      &nbsp;|&nbsp;
+      <NirA to="/my/uploadings">アップロード中</NirA>
       &nbsp;
       <template v-if="authStore.user">
         <span>{{ authStore.user.username }}</span>

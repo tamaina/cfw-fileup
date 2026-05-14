@@ -189,44 +189,101 @@ async function uploadStream(stream: ReadableStream<Uint8Array>, path: string, on
 	return ok;
 }
 
-/** Write one chunk to OPFS then send as a single TUS PATCH. Deletes the temp file after. */
-async function patchChunk(
-	fileId: string,
-	chunk: Uint8Array<ArrayBuffer>,
-	offset: number,
-	path: string,
-	partNum: number,
-	isFinal: boolean,
-): Promise<boolean> {
-	const tmpName = `__chunk_${Date.now()}_${partNum}`;
-	const root = await navigator.storage.getDirectory();
-	const handle = await root.getFileHandle(tmpName, { create: true });
-	const writable = await handle.createWritable();
-	await writable.write(chunk);
-	await writable.close();
+class TusChunkQueue {
+	private fileId: string;
+	private path: string;
+	private onUploadedBytes?: (total: number) => void;
+	private queueChain: Promise<boolean> = Promise.resolve(true);
+	private hasError = false;
+	private pendingUploads: Promise<boolean>[] = [];
 
-	const file = await handle.getFile();
-	const extraHeaders: Record<string, string> = isFinal ? { 'Upload-Final': '1' } : {};
-	const res = await fetch(`/upload/${fileId}/resume`, {
-		method: 'PATCH',
-		headers: {
-			'Content-Type': 'application/offset+octet-stream',
-			'Upload-Offset': String(offset),
-			'Tus-Resumable': '1.0.0',
-			...authHeaders(),
-			...extraHeaders,
-		},
-				body: file,
-	});
-
-	await root.removeEntry(tmpName).catch(() => {});
-
-	if (!res.ok) {
-		const err = (await res.json().catch(() => ({}))) as { error?: string };
-		uploadError.value = `アップロード失敗 (${path}): ${err.error ?? res.status}`;
-		return false;
+	constructor(fileId: string, path: string, onUploadedBytes?: (total: number) => void) {
+		this.fileId = fileId;
+		this.path = path;
+		this.onUploadedBytes = onUploadedBytes;
 	}
-	return true;
+
+	async appendChunk(chunk: Uint8Array<ArrayBuffer>, offset: number, partNum: number, isFinal: boolean): Promise<boolean> {
+		const tmpName = `__chunk_${Date.now()}_${partNum}`;
+		try {
+			const root = await navigator.storage.getDirectory();
+			const handle = await root.getFileHandle(tmpName, { create: true });
+			const writable = await handle.createWritable();
+			await writable.write(chunk);
+			await writable.close();
+
+			this.queueUpload({ handle, tmpName, offset, partNum, length: chunk.length, isFinal });
+			return true;
+		} catch (err) {
+			console.error('OPFS チャンク保存失敗', err);
+			return false;
+		}
+	}
+
+	private queueUpload(info: {
+		handle: FileSystemFileHandle;
+		tmpName: string;
+		offset: number;
+		partNum: number;
+		length: number;
+		isFinal: boolean;
+	}) {
+		const { handle, tmpName, offset, partNum, length, isFinal } = info;
+		const promise = this.queueChain.then((prevOk) => {
+			if (!prevOk || this.hasError) return false;
+			return this.sendChunk(handle, tmpName, offset, partNum, isFinal);
+		}).then((ok) => {
+			if (!ok) {
+				this.hasError = true;
+				return false;
+			}
+			this.onUploadedBytes?.(offset + length);
+			return true;
+		}).catch(() => {
+			this.hasError = true;
+			return false;
+		});
+
+		this.queueChain = promise.catch(() => false);
+		this.pendingUploads.push(promise);
+	}
+
+	private async sendChunk(
+		handle: FileSystemFileHandle,
+		tmpName: string,
+		offset: number,
+		partNum: number,
+		isFinal: boolean,
+	): Promise<boolean> {
+		const file = await handle.getFile();
+		const extraHeaders: Record<string, string> = isFinal ? { 'Upload-Final': '1' } : {};
+		const res = await fetch(`/upload/${this.fileId}/resume`, {
+			method: 'PATCH',
+			headers: {
+				'Content-Type': 'application/offset+octet-stream',
+				'Upload-Offset': String(offset),
+				'Tus-Resumable': '1.0.0',
+				...authHeaders(),
+				...extraHeaders,
+			},
+			body: file,
+		});
+
+		const root = await navigator.storage.getDirectory();
+		await root.removeEntry(tmpName).catch(() => {});
+
+		if (!res.ok) {
+			const err = (await res.json().catch(() => ({}))) as { error?: string };
+			uploadError.value = `アップロード失敗 (${this.path}): ${err.error ?? res.status}`;
+			return false;
+		}
+		return true;
+	}
+
+	async waitAll(): Promise<boolean> {
+		const results = await Promise.all(this.pendingUploads);
+		return !this.hasError && results.every((ok) => ok);
+	}
 }
 
 /** Open upload then stream in CHUNK_SIZE pieces via OPFS. Returns fileId or null on error. */
@@ -239,6 +296,7 @@ async function uploadChunkedStream(
 	if (!fileId) return null;
 
 	const reader = stream.getReader();
+	const queue = new TusChunkQueue(fileId, path, onUploadedBytes);
 	let buf = new Uint8Array(0);
 	let offset = 0;
 	let partNum = 0;
@@ -246,7 +304,6 @@ async function uploadChunkedStream(
 	try {
 		while (true) {
 			const { done, value } = await reader.read();
-
 			if (value) {
 				const next = new Uint8Array(buf.length + value.length);
 				next.set(buf);
@@ -255,23 +312,30 @@ async function uploadChunkedStream(
 			}
 
 			if (buf.length >= CHUNK_SIZE) {
-				if (!(await patchChunk(fileId, buf, offset, path, partNum++, false))) return null;
-				offset += buf.length;
-				onUploadedBytes?.(offset);
+				const chunk = buf;
 				buf = new Uint8Array(0);
+				if (!(await queue.appendChunk(chunk, offset, partNum++, false))) {
+					return null;
+				}
+				offset += chunk.length;
 			}
 
 			if (done) {
 				if (buf.length > 0) {
-					if (!(await patchChunk(fileId, buf, offset, path, partNum, true))) return null;
+					if (!(await queue.appendChunk(buf, offset, partNum, true))) {
+						return null;
+					}
 					offset += buf.length;
-					onUploadedBytes?.(offset);
 				}
 				break;
 			}
 		}
 	} finally {
 		reader.releaseLock();
+	}
+
+	if (!(await queue.waitAll())) {
+		return null;
 	}
 
 	return fileId;
@@ -377,10 +441,13 @@ async function startUpload(): Promise<void> {
 			uploadProgress.value = { filename: '', fileIndex: 0, totalFiles: 0, uploadedBytes: 0, totalBytes: 0 };
 			const archiver = await TarArchiver.create(selectedDir.value, (p: ArchiveProgress) => {
 				if (!uploadProgress.value) return;
+        console.info('tar create', p);
 				uploadProgress.value = { ...uploadProgress.value, filename: p.currentFile, fileIndex: p.processedFiles + 1, totalFiles: p.totalFiles };
 			});
 			if (!(await uploadTarStream(archiver.stream, archiver.index, `${selectedDirName.value}.tar`, (n) => {
-				if (uploadProgress.value) uploadProgress.value = { ...uploadProgress.value, uploadedBytes: n };
+				if (uploadProgress.value) {
+          uploadProgress.value = { ...uploadProgress.value, uploadedBytes: n };
+        }
 			}))) return;
 		} else {
 			uploadProgress.value = { filename: '', fileIndex: 0, totalFiles: 0, uploadedBytes: 0, totalBytes: 0 };

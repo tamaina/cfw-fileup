@@ -33,9 +33,9 @@ export const ROUTE_DEF = [
 		component: page(() => import('@/pages/my-buckets.vue')),
 	},
 	{
-		path: '/my/uploads',
-		name: 'my-uploads',
-		component: page(() => import('@/pages/my-uploads.vue')),
+		path: '/my/uploadings',
+		name: 'my-uploadings',
+		component: page(() => import('@/pages/my-uploadings.vue')),
 	},
 	{
 		path: '/my/buckets/:bucketName/upload',
