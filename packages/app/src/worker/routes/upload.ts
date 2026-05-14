@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import { eq } from 'drizzle-orm';
+import { eq, max } from 'drizzle-orm';
 import { files, uploadParts } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { authMiddleware } from '../middleware/auth';
@@ -106,12 +106,14 @@ app.patch('/upload/:fileId/resume', async (c) => {
 		throw new HTTPException(400, { message: 'Upload session not initialized' });
 	}
 
-	const existingPartsCount = await db
-		.select()
+	const [{ maxPartNumber }] = await db
+		.select({
+      maxPartNumber: max(uploadParts.partNumber),
+    })
 		.from(uploadParts)
-		.where(eq(uploadParts.fileId, fileId))
-		.then((r) => r.length);
-	const nextPartNumber = existingPartsCount + 1;
+		.where(eq(uploadParts.fileId, fileId));
+
+	const nextPartNumber = (maxPartNumber ?? 0) + 1;
 
 	const multipartUpload = c.env.R2.resumeMultipartUpload(file.r2Key, file.uploadId);
 
@@ -125,7 +127,7 @@ app.patch('/upload/:fileId/resume', async (c) => {
 	await db.insert(uploadParts).values({
 		id: genEaidx(Date.now()),
 		fileId,
-		partNumber: nextPartNumber,
+		partNumber: uploadedPart.partNumber,
 		etag: uploadedPart.etag,
 	});
 
