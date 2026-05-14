@@ -7,9 +7,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 `cfw-fileup` is a file uploader service built on Cloudflare Workers, R2, and D1. It is a pnpm monorepo with two packages:
 
 - `packages/app` — The main application: a Hono-based Worker backend + Vue 3 SPA frontend
+  * `packages/app/src/worker` — Worker code (API routes, database access, etc.)
+  * `packages/app/src/client` — Vue 3 SPA code (components, views, etc.)
+  * `packages/app/src/shared` — Code shared between Worker and client (types, utilities, etc.)
 - `packages/bgzf` — Planned library for BGZF-format compression (for random-access into tar.gz files)
-
-このプロジェクトは開発初期段階です。README.mdに書かれているタスクやエンドポイントを実装ていきます。実装が終わったらチェックボックスをオン(`[ ] → [x]`)にします。
 
 ## pnpm/npm packages
 
@@ -47,9 +48,19 @@ The Worker serves the SPA's static assets and handles API routes.
 const app = new Hono<{ Bindings: Env }>()
 ```
 
-### Database (Drizzle ORM + D1)
+#### Tests
 
-Schema is defined under `src/worker/scheme/`. Currently only `file.ts` exists (a `users` table placeholder). D1 is a Cloudflare SQLite binding; it must be configured in `wrangler.jsonc` before use.
+```sh
+# tsc型チェック
+pnpm --filter app run typecheck:worker
+
+# Vitest
+pnpm --filter app run test:worker
+```
+
+#### Database (Drizzle ORM + D1)
+
+Schema is defined under `src/worker/scheme/`. D1 is a Cloudflare SQLite binding; it must be configured in `wrangler.jsonc` before use.
 
 ### Shared code
 
@@ -58,6 +69,15 @@ Schema is defined under `src/worker/scheme/`. Currently only `file.ts` exists (a
 ### Client (Vue 3 SPA)
 
 `src/client/` is a standard Vue 3 app. It has its own `tsconfig.json` scoped to the client files.
+
+nirax は、Misskeyプロジェクトから持ち出してきたルーターです。router.definition.tsにルート定義があります。
+
+#### Tests
+
+```sh
+# vue-tsc型チェック
+pnpm --filter app run typecheck:client
+```
 
 ### TypeScript
 
