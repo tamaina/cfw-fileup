@@ -1,5 +1,3 @@
-import { fileTypeFromBlob } from 'file-type';
-
 // ---- CRC-32 ----
 
 function calculateCrc32(data: Uint8Array): number {
@@ -208,10 +206,16 @@ class TarArchiverBase<TIdx> {
 		const now = Date.now();
 		const walked: FileEntry[] = [];
 		for await (const entry of TarArchiverBase.walkDirectory(dir)) walked.push(entry);
+		const { fileTypeFromBlob } = await import('file-type');
 		return Promise.all(
 			walked.map(async ({ path, file }) => {
 				const detected = await fileTypeFromBlob(file);
-				return { path, file, mimeType: detected?.mime ?? 'application/octet-stream', mtime: file.lastModified || now };
+				return {
+					path,
+					file,
+					mimeType: detected?.mime ?? file.type ?? 'application/octet-stream',
+					mtime: file.lastModified || now,
+				};
 			}),
 		);
 	}
