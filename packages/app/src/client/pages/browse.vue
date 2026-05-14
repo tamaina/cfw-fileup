@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
+import NirA from '@/components/nira.vue';
 
 const props = defineProps<{
 	bucketName: string;
@@ -69,9 +70,9 @@ watch(() => props.filePath, init);
       <h3>tar.gz 内容一覧</h3>
       <ul>
         <li v-for="entry in targzEntries" :key="entry.id">
-          <a :href="`${downloadUrl}?file=${encodeURIComponent(entry.path)}`">
+          <NirA :to="`${downloadUrl}?file=${encodeURIComponent(entry.path)}`">
             {{ entry.path }}
-          </a>
+          </NirA>
           <span style="color:#888; font-size:0.85em"> ({{ entry.mimeType }})</span>
         </li>
       </ul>

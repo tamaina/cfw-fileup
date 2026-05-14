@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { authHeaders, authStore } from '../store/auth';
+import NirA from '@/components/nira.vue';
 import { createBgzfTar, type TarFileEntry } from 'bgzf';
 
 const props = defineProps<{ bucketName: string }>();
@@ -292,7 +293,7 @@ onMounted(loadBucket);
       <p v-if="uploadError" style="color:red; margin-top:8px">{{ uploadError }}</p>
       <p v-if="uploadDone" style="color:green; margin-top:8px">
         アップロード完了！
-        <a :href="`/v/${bucketName}/`">ファイル一覧を見る</a>
+        <NirA :to="`/v/${bucketName}/`">ファイル一覧を見る</NirA>
       </p>
     </template>
   </div>

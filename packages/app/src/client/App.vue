@@ -4,6 +4,7 @@ import { Nirax } from './nirax';
 import { ROUTE_DEF } from './router.definition';
 import { fetchCurrentUser, authStore, clearAuth } from './store/auth';
 import { navigateFn } from './navigate';
+import NirA from './components/nira.vue';
 
 const NotFound = defineComponent({
 	render: () => h('div', [
@@ -67,18 +68,14 @@ const CurrentPage = computed(() => {
 	});
 });
 
-function navigate(path: string, e: MouseEvent): void {
-	e.preventDefault();
-	router.pushByPath(path);
-}
 </script>
 
 <template>
   <div>
     <nav style="padding:8px; border-bottom:1px solid #ccc; margin-bottom:16px">
-      <a href="/" @click="navigate('/', $event)">CFW FileUp</a>
+      <NirA to="/">CFW FileUp</NirA>
       &nbsp;|&nbsp;
-      <a href="/my/buckets" @click="navigate('/my/buckets', $event)">マイバケット</a>
+      <NirA to="/my/buckets">マイバケット</NirA>
       &nbsp;
       <template v-if="authStore.user">
         <span>{{ authStore.user.username }}</span>
@@ -86,7 +83,7 @@ function navigate(path: string, e: MouseEvent): void {
         <button type="button" @click="clearAuth(); router.pushByPath('/signin')">ログアウト</button>
       </template>
       <template v-else>
-        <a href="/signin" @click="navigate('/signin', $event)">サインイン</a>
+        <NirA to="/signin">サインイン</NirA>
       </template>
     </nav>
 

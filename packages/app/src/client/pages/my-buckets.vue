@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { authHeaders, authStore } from '../store/auth';
+import NirA from '@/components/nira.vue';
 
 interface Bucket {
 	id: string;
@@ -96,9 +97,9 @@ onMounted(loadBuckets);
       <p v-else-if="error" style="color:red">{{ error }}</p>
       <ul v-else-if="buckets.length > 0">
         <li v-for="b in buckets" :key="b.id">
-          <a :href="`/v/${b.name}/`">{{ b.name }}</a>
+          <NirA :to="`/v/${b.name}/`">{{ b.name }}</NirA>
           &nbsp;
-          <a :href="`/my/buckets/${b.name}/upload`">アップロード</a>
+          <NirA :to="`/my/buckets/${b.name}/upload`">アップロード</NirA>
           &nbsp;
           <button type="button" @click="deleteBucket(b.id, b.name)">削除</button>
         </li>

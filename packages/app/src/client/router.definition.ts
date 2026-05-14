@@ -6,8 +6,8 @@
 
 import { defineAsyncComponent } from 'vue';
 import type { AsyncComponentLoader } from 'vue';
-import MkLoading from './components/MkLoading.vue';
-import MkError from './components/MkError.vue';
+import MkLoading from './components/loading.vue';
+import MkError from './components/error.vue';
 import type { RouteDef } from './nirax';
 
 export const page = (loader: AsyncComponentLoader) => defineAsyncComponent({

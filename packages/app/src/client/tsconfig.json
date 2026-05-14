@@ -18,6 +18,7 @@
     "./**/*.vue"
   ],
   "exclude": [
-    "vite.config.ts"
+    "vite.config.ts",
+    "./components/nira.sample.vue"
   ]
 }

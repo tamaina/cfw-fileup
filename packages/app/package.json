@@ -15,7 +15,7 @@
     "test:worker:watch": "vitest --config vitest.worker.config.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply cfw-fileup-db --local",
-    "cf-typegen": "wrangler types"
+    "cf-typegen": "wrangler types ./src/worker/worker-configuration.d.ts"
   },
   "dependencies": {
     "bgzf": "workspace:*"
