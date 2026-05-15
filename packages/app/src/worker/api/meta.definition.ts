@@ -16,7 +16,12 @@ export const metaApiSchema = [
 		summary: 'Get server metadata',
 		tags: ['Meta'],
 		responses: {
-			200: { description: 'Success', schema: metaResponseSchema },
+			200: {
+				description: 'Success',
+				content: {
+					'application/json': { schema: metaResponseSchema }
+				}
+			},
 		},
 	},
 ] as const;

@@ -60,7 +60,12 @@ export const bucketsApiSchema = [
 			'application/json': createBucketSchema,
 		},
 		responses: {
-			201: { description: 'Created', schema: createBucketResponseSchema },
+			201: {
+				description: 'Created',
+				content: {
+					'application/json': { schema: createBucketResponseSchema }
+				}
+			},
 			400: { description: 'Bad request' },
 			429: { description: 'Quota exceeded' },
 		},
@@ -71,7 +76,12 @@ export const bucketsApiSchema = [
 		summary: 'List buckets',
 		tags: ['Buckets'],
 		responses: {
-			200: { description: 'Success', schema: listBucketsResponseSchema },
+			200: {
+				description: 'Success',
+				content: {
+					'application/json': { schema: listBucketsResponseSchema }
+				}
+			},
 			401: { description: 'Unauthorized' },
 		},
 	},
@@ -84,7 +94,12 @@ export const bucketsApiSchema = [
 			'application/json': deleteBucketSchema,
 		},
 		responses: {
-			200: { description: 'Success', schema: okResponseSchema },
+			200: {
+				description: 'Success',
+				content: {
+					'application/json': { schema: okResponseSchema }
+				}
+			},
 			400: { description: 'Bad request' },
 			403: { description: 'Forbidden' },
 			404: { description: 'Not found' },

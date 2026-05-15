@@ -214,8 +214,10 @@ export type ExtractResponseSchema<
 	Status extends string | number = 200
 > = FindEndpointForResponse<T, Path, Method> extends { responses?: infer Responses }
 	? Responses extends Record<Status, infer R>
-		? R extends { schema: infer S }
+		? R extends { content: { 'application/json': { schema: infer S } } }
 			? S
-			: R
+			: R extends { schema: infer S }
+				? S
+				: R
 		: never
 	: never;

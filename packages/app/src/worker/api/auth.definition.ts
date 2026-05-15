@@ -57,7 +57,12 @@ export const authApiSchema = [
 			'application/json': signupSchema,
 		},
 		responses: {
-			201: { description: 'User created', schema: signupResponseSchema },
+			201: {
+				description: 'User created',
+				content: {
+					'application/json': { schema: signupResponseSchema }
+				}
+			},
 			400: { description: 'Bad request' },
 			409: { description: 'User exists' },
 		},
@@ -71,7 +76,12 @@ export const authApiSchema = [
 			'application/json': signinSchema,
 		},
 		responses: {
-			200: { description: 'Success', schema: signinResponseSchema },
+			200: {
+				description: 'Success',
+				content: {
+					'application/json': { schema: signinResponseSchema }
+				}
+			},
 			401: { description: 'Invalid credentials' },
 		},
 	},
@@ -81,7 +91,12 @@ export const authApiSchema = [
 		summary: 'Get user profile',
 		tags: ['Auth'],
 		responses: {
-			200: { description: 'Success', schema: userProfileSchema },
+			200: {
+				description: 'Success',
+				content: {
+					'application/json': { schema: userProfileSchema }
+				}
+			},
 			401: { description: 'Unauthorized' },
 		},
 	},

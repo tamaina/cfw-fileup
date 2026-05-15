@@ -82,7 +82,12 @@ export const adminApiSchema = [
 			'application/json': suspendUserSchema,
 		},
 		responses: {
-			200: { description: 'Success', schema: okResponseSchema },
+			200: {
+				description: 'Success',
+				content: {
+					'application/json': { schema: okResponseSchema }
+				}
+			},
 			400: { description: 'Bad request' },
 			404: { description: 'Not found' },
 		},
@@ -96,7 +101,12 @@ export const adminApiSchema = [
 			'application/json': deleteFileAdminSchema,
 		},
 		responses: {
-			200: { description: 'Success', schema: okResponseSchema },
+			200: {
+				description: 'Success',
+				content: {
+					'application/json': { schema: okResponseSchema }
+				}
+			},
 			400: { description: 'Bad request' },
 			404: { description: 'Not found' },
 		},
@@ -110,7 +120,12 @@ export const adminApiSchema = [
 			'application/json': deleteBucketAdminSchema,
 		},
 		responses: {
-			200: { description: 'Success', schema: okResponseSchema },
+			200: {
+				description: 'Success',
+				content: {
+					'application/json': { schema: okResponseSchema }
+				}
+			},
 			400: { description: 'Bad request' },
 			404: { description: 'Not found' },
 		},
@@ -124,7 +139,12 @@ export const adminApiSchema = [
 			'application/json': updateSettingSchema,
 		},
 		responses: {
-			200: { description: 'Success', schema: okResponseSchema },
+			200: {
+				description: 'Success',
+				content: {
+					'application/json': { schema: okResponseSchema }
+				}
+			},
 			400: { description: 'Bad request' },
 		},
 	},
@@ -134,7 +154,12 @@ export const adminApiSchema = [
 		summary: 'Get all settings',
 		tags: ['Admin'],
 		responses: {
-			200: { description: 'Success', schema: getSettingsResponseSchema },
+			200: {
+				description: 'Success',
+				content: {
+					'application/json': { schema: getSettingsResponseSchema }
+				}
+			},
 		},
 	},
 	{
@@ -146,7 +171,12 @@ export const adminApiSchema = [
 			'application/json': quotaSchema,
 		},
 		responses: {
-			200: { description: 'Success', schema: okResponseSchema },
+			200: {
+				description: 'Success',
+				content: {
+					'application/json': { schema: okResponseSchema }
+				}
+			},
 			400: { description: 'Bad request' },
 			404: { description: 'Not found' },
 		},
@@ -160,7 +190,12 @@ export const adminApiSchema = [
 			'application/json': quotaSchema,
 		},
 		responses: {
-			200: { description: 'Success', schema: okResponseSchema },
+			200: {
+				description: 'Success',
+				content: {
+					'application/json': { schema: okResponseSchema }
+				}
+			},
 			400: { description: 'Bad request' },
 		},
 	},
@@ -170,7 +205,12 @@ export const adminApiSchema = [
 		summary: 'Get user quota',
 		tags: ['Admin'],
 		responses: {
-			200: { description: 'Success', schema: quotaSchema },
+			200: {
+				description: 'Success',
+				content: {
+					'application/json': { schema: quotaSchema }
+				}
+			},
 			404: { description: 'Not found' },
 		},
 	},
@@ -180,7 +220,12 @@ export const adminApiSchema = [
 		summary: 'Get global quota',
 		tags: ['Admin'],
 		responses: {
-			200: { description: 'Success', schema: quotaSchema },
+			200: {
+				description: 'Success',
+				content: {
+					'application/json': { schema: quotaSchema }
+				}
+			},
 		},
 	},
 	{
@@ -189,7 +234,12 @@ export const adminApiSchema = [
 		summary: 'Delete user quota',
 		tags: ['Admin'],
 		responses: {
-			200: { description: 'Success', schema: okResponseSchema },
+			200: {
+				description: 'Success',
+				content: {
+					'application/json': { schema: okResponseSchema }
+				}
+			},
 			404: { description: 'Not found' },
 		},
 	},
@@ -202,7 +252,12 @@ export const adminApiSchema = [
 			'application/json': toggleRegistrationSchema,
 		},
 		responses: {
-			200: { description: 'Success', schema: okResponseSchema },
+			200: {
+				description: 'Success',
+				content: {
+					'application/json': { schema: okResponseSchema }
+				}
+			},
 			400: { description: 'Bad request' },
 		},
 	},

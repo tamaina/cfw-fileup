@@ -101,7 +101,12 @@ export const filesApiSchema = [
 			'application/json': createOpenSchema,
 		},
 		responses: {
-			200: { description: 'Success', schema: createOpenFileResponseSchema },
+			200: {
+				description: 'Success',
+				content: {
+					'application/json': { schema: createOpenFileResponseSchema }
+				}
+			},
 			400: { description: 'Bad request' },
 			403: { description: 'Forbidden' },
 			404: { description: 'Not found' },
@@ -117,7 +122,12 @@ export const filesApiSchema = [
 			'application/json': targzIndexSchema,
 		},
 		responses: {
-			200: { description: 'Success', schema: okResponseSchema },
+			200: {
+				description: 'Success',
+				content: {
+					'application/json': { schema: okResponseSchema }
+				}
+			},
 			400: { description: 'Bad request' },
 			403: { description: 'Forbidden' },
 			404: { description: 'Not found' },
@@ -133,7 +143,12 @@ export const filesApiSchema = [
 			'application/json': tarIndexSchema,
 		},
 		responses: {
-			200: { description: 'Success', schema: okResponseSchema },
+			200: {
+				description: 'Success',
+				content: {
+					'application/json': { schema: okResponseSchema }
+				}
+			},
 			400: { description: 'Bad request' },
 			403: { description: 'Forbidden' },
 			404: { description: 'Not found' },
@@ -149,7 +164,12 @@ export const filesApiSchema = [
 			'application/json': createCloseSchema,
 		},
 		responses: {
-			200: { description: 'Success', schema: okResponseSchema },
+			200: {
+				description: 'Success',
+				content: {
+					'application/json': { schema: okResponseSchema }
+				}
+			},
 			400: { description: 'Bad request' },
 			403: { description: 'Forbidden' },
 			404: { description: 'Not found' },
@@ -166,7 +186,12 @@ export const filesApiSchema = [
 			'application/json': deleteFileSchema,
 		},
 		responses: {
-			200: { description: 'Success', schema: okResponseSchema },
+			200: {
+				description: 'Success',
+				content: {
+					'application/json': { schema: okResponseSchema }
+				}
+			},
 			400: { description: 'Bad request' },
 			403: { description: 'Forbidden' },
 			404: { description: 'Not found' },
@@ -178,7 +203,12 @@ export const filesApiSchema = [
 		summary: 'List user files',
 		tags: ['Files'],
 		responses: {
-			200: { description: 'Success', schema: { type: 'object', properties: { files: { type: 'array' } }, required: ['files'] } },
+			200: {
+				description: 'Success',
+				content: {
+					'application/json': { schema: { type: 'object', properties: { files: { type: 'array' } }, required: ['files'] } }
+				}
+			},
 			401: { description: 'Unauthorized' },
 		},
 	},
