@@ -23,6 +23,7 @@ export async function setupDb(): Promise<void> {
 			id text PRIMARY KEY NOT NULL,
 			user_id text NOT NULL,
 			name text NOT NULL UNIQUE,
+			used_bytes integer NOT NULL DEFAULT 0,
 			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 		)`),
 		env.DB.prepare(`CREATE TABLE IF NOT EXISTS files (
@@ -108,12 +109,13 @@ export async function signup(
 	password = 'password123',
 	extra?: Record<string, string>,
 ): Promise<{ status: number; data: Record<string, unknown> }> {
+	const passphrase = (env as Record<string, string>).SIGNUP_PASSPHRASE;
 	const res = await app.request(
 		'/api/signup',
 		{
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ username, password, ...extra }),
+			body: JSON.stringify({ username, password, ...(passphrase ? { passphrase } : {}), ...extra }),
 		},
 		env,
 	);

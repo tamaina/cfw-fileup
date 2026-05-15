@@ -210,10 +210,10 @@ describe('Quota management', () => {
 	test('admin can set per-user quota', async () => {
 		const { adminToken, userId } = await setupAdminAndUser();
 
-		const res = await app.request(`/api/admin/set-user-quota`, {
+		const res = await app.request(`/api/admin/set-user-quota/${userId}`, {
 			method: 'POST',
 			headers: authHeaders(adminToken),
-			body: JSON.stringify({ userId, maxBuckets: 3 }),
+			body: JSON.stringify({ maxBuckets: 3 }),
 		}, env);
 		expect(res.status).toBe(200);
 

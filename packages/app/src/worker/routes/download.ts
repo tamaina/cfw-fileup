@@ -3,6 +3,7 @@ import { HTTPException } from 'hono/http-exception';
 import { eq, and, like, sql } from 'drizzle-orm';
 import { buckets, files, targzFiles, directories } from '../scheme/index';
 import { getDb } from '../utils/db';
+import { abortUpload } from '../utils/abort-upload';
 import { authMiddleware } from '../middleware/auth';
 import { createBgzfBlock } from 'bgzf';
 
@@ -322,13 +323,7 @@ app.delete('/d/:bucketName/*', authMiddleware, async (c) => {
 		throw new HTTPException(404, { message: 'File not found' });
 	}
 
-	try {
-		await c.env.R2.delete(file.r2Key);
-	} catch (error) {
-		console.error('Failed to delete R2 object:', file.r2Key, error);
-	}
-
-	await db.delete(files).where(eq(files.id, file.id));
+	await abortUpload(file, c.env);
 
 	if (file.isClosed && file.size) {
 		await db

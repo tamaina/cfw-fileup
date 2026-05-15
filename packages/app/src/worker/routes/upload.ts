@@ -1,8 +1,9 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import { eq, max } from 'drizzle-orm';
+import { eq, max, sql } from 'drizzle-orm';
 import { files, uploadParts } from '../scheme/index';
 import { getDb } from '../utils/db';
+import { abortUpload } from '../utils/abort-upload';
 import { authMiddleware } from '../middleware/auth';
 import { genEaidx } from '../../shared/eaid-x';
 
@@ -27,11 +28,21 @@ app.get('/upload/:fileId/resume', async (c) => {
 	}
 
 	if (file.uploadExpiresAt < Date.now()) {
+		await abortUpload(file, c.env);
 		throw new HTTPException(410, { message: 'Upload expired' });
 	}
 
-	const r2Object = await c.env.R2.head(file.r2Key);
-	const offset = r2Object?.size ?? 0;
+	let offset: number;
+	if (file.uploadId) {
+		const [{ count }] = await db
+			.select({ count: sql<number>`COUNT(*)` })
+			.from(uploadParts)
+			.where(eq(uploadParts.fileId, fileId));
+		offset = Number(count) * PART_SIZE;
+	} else {
+		const r2Object = await c.env.R2.head(file.r2Key);
+		offset = r2Object?.size ?? 0;
+	}
 
 	return new Response(null, {
 		status: 200,
@@ -62,6 +73,7 @@ app.patch('/upload/:fileId/resume', async (c) => {
 	}
 
 	if (file.uploadExpiresAt < Date.now()) {
+		await abortUpload(file, c.env);
 		throw new HTTPException(410, { message: 'Upload expired' });
 	}
 
@@ -83,21 +95,12 @@ app.patch('/upload/:fileId/resume', async (c) => {
 	}
 
 	const [{ maxPartNumber }] = await db
-		.select({
-      maxPartNumber: max(uploadParts.partNumber),
-    })
+		.select({ maxPartNumber: max(uploadParts.partNumber) })
 		.from(uploadParts)
 		.where(eq(uploadParts.fileId, fileId));
 
-	const isLastPart = contentLength < PART_SIZE;
-	const isNonLastPart = maxPartNumber !== null && maxPartNumber !== undefined && maxPartNumber > 0;
-
-	if (!isLastPart && contentLength !== PART_SIZE) {
+	if (contentLength > PART_SIZE) {
 		throw new HTTPException(400, { message: `All parts except the last must be exactly ${PART_SIZE} bytes` });
-	}
-
-	if (isNonLastPart && isLastPart) {
-		throw new HTTPException(400, { message: 'Last part must be smaller than or equal to previous parts' });
 	}
 
 	const nextPartNumber = (maxPartNumber ?? 0) + 1;

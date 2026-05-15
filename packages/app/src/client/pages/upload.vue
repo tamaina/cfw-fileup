@@ -110,27 +110,75 @@ async function deleteFromOpfs(name: string): Promise<void> {
 
 // ---- TUS upload (Blob.slice — only CHUNK_SIZE bytes in memory at a time) ----
 
+async function getResumeOffset(fileId: string): Promise<number> {
+	const res = await fetch(`/upload/${fileId}/resume`, {
+		headers: { 'Tus-Resumable': '1.0.0', ...authHeaders() },
+	}).catch(() => null);
+	if (!res?.ok) return -1;
+	return parseInt(res.headers.get('Upload-Offset') ?? '-1', 10);
+}
+
+async function getUploadPartCount(fileId: string): Promise<number> {
+	const res = await fetch('/api/files/create/status', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', ...authHeaders() },
+		body: JSON.stringify({ fileId }),
+	}).catch(() => null);
+	if (!res?.ok) return -1;
+	const data = (await res.json().catch(() => null)) as { partCount: number } | null;
+	return data?.partCount ?? -1;
+}
+
 async function tusUpload(fileId: string, blob: Blob, filename: string, onProgress?: (uploaded: number) => void): Promise<boolean> {
 	const total = blob.size;
-	let offset = 0;
+	let offset = Math.max(0, await getResumeOffset(fileId));
+	onProgress?.(offset);
+
 	while (offset < total) {
 		const chunk = blob.slice(offset, offset + CHUNK_SIZE);
-		const res = await fetch(`/upload/${fileId}/resume`, {
-			method: 'PATCH',
-			headers: {
-				'Content-Type': 'application/offset+octet-stream',
-				'Upload-Offset': String(offset),
-				'Content-Length': String(chunk.size),
-				'Tus-Resumable': '1.0.0',
-				...authHeaders(),
-			},
-			body: chunk,
-		});
-		if (!res.ok) {
-			const err = (await res.json().catch(() => ({}))) as { error?: string };
-			uploadError.value = `アップロード失敗 (${filename}): ${err.error ?? res.status}`;
+		const chunkIndex = offset / CHUNK_SIZE; // 0始まりのチャンク番号
+		let success = false;
+
+		for (let attempt = 0; attempt < 3; attempt++) {
+			try {
+				const res = await fetch(`/upload/${fileId}/resume`, {
+					method: 'PATCH',
+					headers: {
+						'Content-Type': 'application/offset+octet-stream',
+						'Upload-Offset': String(offset),
+						'Content-Length': String(chunk.size),
+						'Tus-Resumable': '1.0.0',
+						...authHeaders(),
+					},
+					body: chunk,
+				});
+				if (res.ok) { success = true; break; }
+				if (res.status >= 400 && res.status < 500) {
+					const err = (await res.json().catch(() => ({}))) as { error?: string };
+					uploadError.value = `アップロード失敗 (${filename}): ${err.error ?? res.status}`;
+					return false;
+				}
+			} catch {
+				// ネットワークエラー — コミット済みパーツ数で受信確認
+				if (attempt < 2) {
+					await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+					const partCount = await getUploadPartCount(fileId);
+					if (partCount > chunkIndex) {
+						offset = partCount * CHUNK_SIZE;
+						onProgress?.(offset);
+						success = true;
+						break;
+					}
+				}
+			}
+			if (attempt < 2) await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+		}
+
+		if (!success) {
+			uploadError.value = `アップロード失敗 (${filename}): ネットワークエラー（リトライ上限）`;
 			return false;
 		}
+
 		offset += chunk.size;
 		onProgress?.(offset);
 	}
@@ -177,8 +225,11 @@ async function closeUpload(fileId: string): Promise<boolean> {
 async function uploadBlob(blob: Blob, path: string, onProgress?: (uploaded: number) => void): Promise<boolean> {
 	const fileId = await openUpload(path);
 	if (!fileId) return false;
-	if (!(await tusUpload(fileId, blob, path, onProgress))) return false;
-	return closeUpload(fileId);
+	if (!(await tusUpload(fileId, blob, path, onProgress)) || !(await closeUpload(fileId))) {
+		await deleteExistingFile(path);
+		return false;
+	}
+	return true;
 }
 
 /** Write stream to OPFS, upload as blob, delete temp file. */
@@ -254,37 +305,64 @@ class TusChunkQueue {
 		handle: FileSystemFileHandle,
 		tmpName: string,
 		offset: number,
-		partNum: number,
+		_partNum: number,
 		isFinal: boolean,
 	): Promise<boolean> {
-		const file = await handle.getFile();
-		const extraHeaders: Record<string, string> = {
-			'Content-Length': String(file.size),
-		};
-		if (isFinal) {
-			extraHeaders['Upload-Final'] = '1';
+		for (let attempt = 0; attempt < 3; attempt++) {
+			const file = await handle.getFile();
+			const extraHeaders: Record<string, string> = {
+				'Content-Length': String(file.size),
+			};
+			if (isFinal) extraHeaders['Upload-Final'] = '1';
+
+			try {
+				const res = await fetch(`/upload/${this.fileId}/resume`, {
+					method: 'PATCH',
+					headers: {
+						'Content-Type': 'application/offset+octet-stream',
+						'Upload-Offset': String(offset),
+						'Tus-Resumable': '1.0.0',
+						...authHeaders(),
+						...extraHeaders,
+					},
+					body: file,
+				});
+
+				if (res.ok) {
+					const root = await navigator.storage.getDirectory();
+					await root.removeEntry(tmpName).catch(() => {});
+					return true;
+				}
+
+				// 4xx は恒久的エラー
+				if (res.status >= 400 && res.status < 500) {
+					const root = await navigator.storage.getDirectory();
+					await root.removeEntry(tmpName).catch(() => {});
+					const err = (await res.json().catch(() => ({}))) as { error?: string };
+					uploadError.value = `アップロード失敗 (${this.path}): ${err.error ?? res.status}`;
+					return false;
+				}
+				// 5xx はリトライ
+			} catch {
+				// ネットワークエラー — コミット済みパーツ数で受信確認
+				if (attempt < 2) {
+					await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+					const partCount = await getUploadPartCount(this.fileId);
+					if (partCount > _partNum) {
+						const root = await navigator.storage.getDirectory();
+						await root.removeEntry(tmpName).catch(() => {});
+						return true;
+					}
+				}
+			}
+
+			if (attempt < 2) await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
 		}
-		const res = await fetch(`/upload/${this.fileId}/resume`, {
-			method: 'PATCH',
-			headers: {
-				'Content-Type': 'application/offset+octet-stream',
-				'Upload-Offset': String(offset),
-				'Tus-Resumable': '1.0.0',
-				...authHeaders(),
-				...extraHeaders,
-			},
-			body: file,
-		});
 
 		const root = await navigator.storage.getDirectory();
 		await root.removeEntry(tmpName).catch(() => {});
-
-		if (!res.ok) {
-			const err = (await res.json().catch(() => ({}))) as { error?: string };
-			uploadError.value = `アップロード失敗 (${this.path}): ${err.error ?? res.status}`;
-			return false;
-		}
-		return true;
+		uploadError.value = `アップロード失敗 (${this.path}): ネットワークエラー（リトライ上限）`;
+		return false;
 	}
 
 	async waitAll(): Promise<boolean> {
@@ -322,6 +400,7 @@ async function uploadChunkedStream(
 				const chunk = buf.slice(0, CHUNK_SIZE);
 				buf = buf.slice(CHUNK_SIZE);
 				if (!(await queue.appendChunk(chunk, offset, partNum++, false))) {
+					await deleteExistingFile(path);
 					return null;
 				}
 				offset += chunk.length;
@@ -334,6 +413,7 @@ async function uploadChunkedStream(
 					const chunk = isFinal ? buf : buf.slice(0, CHUNK_SIZE);
 					buf = buf.slice(chunk.length);
 					if (!(await queue.appendChunk(chunk, offset, partNum++, isFinal))) {
+						await deleteExistingFile(path);
 						return null;
 					}
 					offset += chunk.length;
@@ -346,6 +426,7 @@ async function uploadChunkedStream(
 	}
 
 	if (!(await queue.waitAll())) {
+		await deleteExistingFile(path);
 		return null;
 	}
 
@@ -372,10 +453,15 @@ async function uploadTarStream(
 	if (!indexRes.ok) {
 		const err = (await indexRes.json()) as { error?: string };
 		uploadError.value = err.error ?? 'インデックス登録失敗';
+		await deleteExistingFile(archivePath);
 		return false;
 	}
 
-	return closeUpload(fileId);
+	if (!(await closeUpload(fileId))) {
+		await deleteExistingFile(archivePath);
+		return false;
+	}
+	return true;
 }
 
 /** Upload BGZF stream in chunks, then register index. */
@@ -398,10 +484,15 @@ async function uploadBgzfStream(
 	if (!indexRes.ok) {
 		const err = (await indexRes.json()) as { error?: string };
 		uploadError.value = err.error ?? 'インデックス登録失敗';
+		await deleteExistingFile(archivePath);
 		return false;
 	}
 
-	return closeUpload(fileId);
+	if (!(await closeUpload(fileId))) {
+		await deleteExistingFile(archivePath);
+		return false;
+	}
+	return true;
 }
 
 // ---- startUpload ----

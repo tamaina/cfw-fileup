@@ -153,6 +153,41 @@ export const filesApiSchema = [
 		},
 	},
 	{
+		path: '/api/files/create/status',
+		method: 'post',
+		summary: 'Get upload status',
+		tags: ['Files'],
+		requestBody: {
+			'application/json': {
+				type: 'object',
+				properties: {
+					fileId: { type: 'string' },
+				},
+				required: ['fileId'],
+			} as const satisfies Schema,
+		},
+		responses: {
+			200: {
+				description: 'Success',
+				content: {
+					'application/json': {
+						schema: {
+							type: 'object',
+							properties: {
+								partCount: { type: 'integer' },
+								offset: { type: 'integer' },
+							},
+							required: ['partCount', 'offset'],
+						} as const satisfies Schema,
+					},
+				},
+			},
+			400: { description: 'Bad request' },
+			403: { description: 'Forbidden' },
+			404: { description: 'Not found' },
+		},
+	},
+	{
 		path: '/api/files/delete',
 		method: 'post',
 		summary: 'Delete file',

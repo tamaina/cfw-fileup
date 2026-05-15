@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import { eq, and, gte, desc, sql } from 'drizzle-orm';
+import { eq, and, gte, desc, sql, count } from 'drizzle-orm';
 import { buckets, files, targzFiles, tarFiles, uploadParts } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { getQuotaForUser } from '../utils/rate-limit';
@@ -265,6 +265,35 @@ app.post('/create/close', async (c) => {
 		.where(eq(buckets.id, bucket.id));
 
 	return c.json({ ok: true } as ExtractResponseType<typeof filesApiSchema, '/api/files/create/close', 'post', 200>);
+});
+
+app.post('/create/status', async (c) => {
+	const db = getDb(c.env);
+	const user = c.get('user');
+	type CreateStatusReq = ExtractRequestType<typeof filesApiSchema, '/api/files/create/status', 'post'>;
+	const body = (await c.req.json().catch(() => null)) as CreateStatusReq | null;
+
+	if (!body?.fileId) {
+		throw new HTTPException(400, { message: 'fileId is required' });
+	}
+
+	const file = await db.select().from(files).where(eq(files.id, body.fileId)).get();
+
+	if (!file) {
+		throw new HTTPException(404, { message: 'File not found' });
+	}
+
+	if (file.userId !== user.id && !user.isAdmin) {
+		throw new HTTPException(403, { message: 'Forbidden' });
+	}
+
+	const [{ partCount }] = await db
+		.select({ partCount: count() })
+		.from(uploadParts)
+		.where(eq(uploadParts.fileId, file.id));
+
+	const PART_SIZE = 5 * 1024 * 1024;
+	return c.json({ partCount, offset: partCount * PART_SIZE } as ExtractResponseType<typeof filesApiSchema, '/api/files/create/status', 'post', 200>);
 });
 
 app.post('/uploadings', async (c) => {

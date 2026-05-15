@@ -217,6 +217,97 @@ describe('POST /api/files/create/close', () => {
 	});
 });
 
+describe('POST /api/files/create/status', () => {
+	test('returns partCount 0 and offset 0 before any parts are uploaded', async () => {
+		const { token, bucketId } = await setupUserAndBucket();
+
+		const openRes = await app.request('/api/files/create/open', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ bucketId, path: 'upload.bin' }),
+		}, env);
+		const { fileId } = await openRes.json() as { fileId: string };
+
+		const res = await app.request('/api/files/create/status', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ fileId }),
+		}, env);
+		expect(res.status).toBe(200);
+		const body = await res.json() as Record<string, unknown>;
+		expect(body.partCount).toBe(0);
+		expect(body.offset).toBe(0);
+	});
+
+	test('returns correct partCount and offset after a part is uploaded', async () => {
+		const { token, bucketId } = await setupUserAndBucket();
+		const PART_SIZE = 5 * 1024 * 1024;
+
+		const openRes = await app.request('/api/files/create/open', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ bucketId, path: 'upload.bin' }),
+		}, env);
+		const { fileId } = await openRes.json() as { fileId: string };
+
+		// Upload one small part (server counts parts, not bytes)
+		const data = new Uint8Array([1, 2, 3, 4, 5]);
+		await app.request(`/upload/${fileId}/resume`, {
+			method: 'PATCH',
+			headers: {
+				Authorization: `Bearer ${token}`,
+				'Content-Type': 'application/offset+octet-stream',
+				'Upload-Offset': '0',
+				'Content-Length': String(data.length),
+			},
+			body: data.buffer,
+		}, env);
+
+		const res = await app.request('/api/files/create/status', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ fileId }),
+		}, env);
+		expect(res.status).toBe(200);
+		const body = await res.json() as Record<string, unknown>;
+		expect(body.partCount).toBe(1);
+		expect(body.offset).toBe(PART_SIZE);
+	});
+
+	test('nonexistent fileId returns 404', async () => {
+		const { data } = await signup('user1');
+		const token = String(data.token);
+
+		const res = await app.request('/api/files/create/status', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ fileId: 'nonexistent' }),
+		}, env);
+		expect(res.status).toBe(404);
+	});
+
+	test('unauthenticated access returns 401', async () => {
+		const res = await app.request('/api/files/create/status', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ fileId: 'some-id' }),
+		}, env);
+		expect(res.status).toBe(401);
+	});
+
+	test('missing fileId returns 400', async () => {
+		const { data } = await signup('user1');
+		const token = String(data.token);
+
+		const res = await app.request('/api/files/create/status', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({}),
+		}, env);
+		expect(res.status).toBe(400);
+	});
+});
+
 describe('POST /api/files/delete', () => {
 	test('owner can delete own file', async () => {
 		const { token, bucketId } = await setupUserAndBucket();
