@@ -25,6 +25,25 @@ const bucketSchema = {
 	required: ['id', 'name'],
 } as const satisfies Schema;
 
+const createBucketResponseSchema = {
+	type: 'object',
+	properties: {
+		bucketId: { type: 'string', description: 'Newly created bucket ID' },
+	},
+	required: ['bucketId'],
+} as const satisfies Schema;
+
+const listBucketsResponseSchema = {
+	type: 'object',
+	properties: {
+		buckets: {
+			type: 'array',
+			items: bucketSchema,
+		},
+	},
+	required: ['buckets'],
+} as const satisfies Schema;
+
 export const bucketsApiSchema = [
 	{
 		path: '/api/buckets/create',
@@ -38,15 +57,7 @@ export const bucketsApiSchema = [
 			201: {
 				description: 'Created',
 				content: {
-					'application/json': {
-						schema: {
-							type: 'object',
-							properties: {
-								bucketId: { type: 'string', description: 'Newly created bucket ID' },
-							},
-							required: ['bucketId'],
-						}
-					}
+					'application/json': { schema: createBucketResponseSchema }
 				}
 			},
 			400: { description: 'Bad request' },
@@ -62,18 +73,7 @@ export const bucketsApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': {
-						schema: {
-							type: 'object',
-							properties: {
-								buckets: {
-									type: 'array',
-									items: bucketSchema,
-								},
-							},
-							required: ['buckets'],
-						}
-					}
+					'application/json': { schema: listBucketsResponseSchema }
 				}
 			},
 			401: { description: 'Unauthorized' },
@@ -95,24 +95,5 @@ export const bucketsApiSchema = [
 		},
 	},
 ] as const;
-
-const createBucketResponseSchema = {
-	type: 'object',
-	properties: {
-		bucketId: { type: 'string', description: 'Newly created bucket ID' },
-	},
-	required: ['bucketId'],
-} as const satisfies Schema;
-
-const listBucketsResponseSchema = {
-	type: 'object',
-	properties: {
-		buckets: {
-			type: 'array',
-			items: bucketSchema,
-		},
-	},
-	required: ['buckets'],
-} as const satisfies Schema;
 
 export { createBucketSchema, deleteBucketSchema, bucketSchema, createBucketResponseSchema, listBucketsResponseSchema };

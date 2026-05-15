@@ -60,16 +60,7 @@ export const authApiSchema = [
 			201: {
 				description: 'User created',
 				content: {
-					'application/json': {
-						schema: {
-							type: 'object',
-							properties: {
-								userId: { type: 'string', description: 'User ID (EAID-X format)' },
-								token: { type: 'string', description: 'Authentication token' },
-							},
-							required: ['userId', 'token'],
-						}
-					}
+					'application/json': { schema: signupResponseSchema }
 				}
 			},
 			400: { description: 'Bad request' },
@@ -88,15 +79,7 @@ export const authApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': {
-						schema: {
-							type: 'object',
-							properties: {
-								token: { type: 'string', description: 'Authentication token' },
-							},
-							required: ['token'],
-						}
-					}
+					'application/json': { schema: signinResponseSchema }
 				}
 			},
 			401: { description: 'Invalid credentials' },
@@ -111,18 +94,7 @@ export const authApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': {
-						schema: {
-							type: 'object',
-							properties: {
-								id: { type: 'string', description: 'User ID' },
-								username: { type: 'string', description: 'Username' },
-								isAdmin: { type: 'boolean', description: 'Admin status' },
-								isSuspended: { type: 'boolean', description: 'Suspension status' },
-							},
-							required: ['id', 'username', 'isAdmin', 'isSuspended'],
-						}
-					}
+					'application/json': { schema: userProfileSchema }
 				}
 			},
 			401: { description: 'Unauthorized' },
