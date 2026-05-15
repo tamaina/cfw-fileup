@@ -1,7 +1,6 @@
 import type { Schema } from './schema-type';
 
-// Request schemas
-export const createOpenSchema = {
+const createOpenSchema = {
 	type: 'object',
 	properties: {
 		bucketId: { type: 'string' },
@@ -10,7 +9,7 @@ export const createOpenSchema = {
 	required: ['bucketId', 'path'],
 } as const satisfies Schema;
 
-export const targzIndexSchema = {
+const targzIndexSchema = {
 	type: 'object',
 	properties: {
 		fileId: { type: 'string' },
@@ -35,7 +34,7 @@ export const targzIndexSchema = {
 	required: ['fileId', 'files'],
 } as const satisfies Schema;
 
-export const tarIndexSchema = {
+const tarIndexSchema = {
 	type: 'object',
 	properties: {
 		fileId: { type: 'string' },
@@ -56,7 +55,7 @@ export const tarIndexSchema = {
 	required: ['fileId', 'files'],
 } as const satisfies Schema;
 
-export const createCloseSchema = {
+const createCloseSchema = {
 	type: 'object',
 	properties: {
 		fileId: { type: 'string' },
@@ -66,7 +65,7 @@ export const createCloseSchema = {
 	required: ['fileId', 'isPublic'],
 } as const satisfies Schema;
 
-export const deleteFileSchema = {
+const deleteFileSchema = {
 	type: 'object',
 	properties: {
 		bucketId: { type: 'string' },
@@ -75,26 +74,7 @@ export const deleteFileSchema = {
 	required: ['bucketId', 'path'],
 } as const satisfies Schema;
 
-// Response schemas
-export const fileSchema = {
-	type: 'object',
-	properties: {
-		id: { type: 'string', description: 'File ID' },
-		path: { type: 'string', description: 'File path in bucket' },
-		bucketId: { type: 'string', description: 'Bucket ID' },
-		userId: { type: 'string', description: 'Owner user ID' },
-		size: { type: 'number', nullable: true, description: 'File size in bytes' },
-		mimeType: { type: 'string', nullable: true, description: 'MIME type' },
-		isPublic: { type: 'boolean', description: 'Public accessibility' },
-		uploadExpiresAt: { type: 'number', description: 'Upload expiration timestamp' },
-		isClosed: { type: 'boolean', description: 'Upload completion status' },
-		isTargz: { type: 'boolean', description: 'tar.gz indexed file' },
-		isTar: { type: 'boolean', description: 'tar indexed file' },
-	},
-	required: ['id', 'path', 'bucketId', 'userId', 'isPublic', 'uploadExpiresAt', 'isClosed', 'isTargz', 'isTar'],
-} as const satisfies Schema;
-
-export const createOpenFileResponseSchema = {
+const createOpenFileResponseSchema = {
 	type: 'object',
 	properties: {
 		fileId: { type: 'string', description: 'File ID for upload' },
@@ -103,34 +83,105 @@ export const createOpenFileResponseSchema = {
 	required: ['fileId', 'uploadExpiry'],
 } as const satisfies Schema;
 
-export const okResponseSchema = {
+const okResponseSchema = {
 	type: 'object',
 	properties: {
-		ok: { type: 'boolean', description: 'Operation successful' },
+		ok: { type: 'boolean' },
 	},
 	required: ['ok'],
 } as const satisfies Schema;
 
-// API endpoint definitions
-export const filesDefinition = {
-	createOpen: {
-		request: createOpenSchema,
-		response: createOpenFileResponseSchema,
+export const filesApiSchema = [
+	{
+		path: '/api/files/create/open',
+		method: 'post',
+		summary: 'Open file for upload',
+		tags: ['Files'],
+		requestBody: {
+			'application/json': createOpenSchema,
+		},
+		responses: {
+			200: { description: 'Success', schema: createOpenFileResponseSchema },
+			400: { description: 'Bad request' },
+			403: { description: 'Forbidden' },
+			404: { description: 'Not found' },
+			429: { description: 'Quota exceeded' },
+		},
 	},
-	createTargzIndex: {
-		request: targzIndexSchema,
-		response: okResponseSchema,
+	{
+		path: '/api/files/create/targz-index',
+		method: 'post',
+		summary: 'Index tar.gz file',
+		tags: ['Files'],
+		requestBody: {
+			'application/json': targzIndexSchema,
+		},
+		responses: {
+			200: { description: 'Success', schema: okResponseSchema },
+			400: { description: 'Bad request' },
+			403: { description: 'Forbidden' },
+			404: { description: 'Not found' },
+			410: { description: 'Upload expired' },
+		},
 	},
-	createTarIndex: {
-		request: tarIndexSchema,
-		response: okResponseSchema,
+	{
+		path: '/api/files/create/tar-index',
+		method: 'post',
+		summary: 'Index tar file',
+		tags: ['Files'],
+		requestBody: {
+			'application/json': tarIndexSchema,
+		},
+		responses: {
+			200: { description: 'Success', schema: okResponseSchema },
+			400: { description: 'Bad request' },
+			403: { description: 'Forbidden' },
+			404: { description: 'Not found' },
+			410: { description: 'Upload expired' },
+		},
 	},
-	createClose: {
-		request: createCloseSchema,
-		response: okResponseSchema,
+	{
+		path: '/api/files/create/close',
+		method: 'post',
+		summary: 'Close file upload',
+		tags: ['Files'],
+		requestBody: {
+			'application/json': createCloseSchema,
+		},
+		responses: {
+			200: { description: 'Success', schema: okResponseSchema },
+			400: { description: 'Bad request' },
+			403: { description: 'Forbidden' },
+			404: { description: 'Not found' },
+			410: { description: 'Upload expired' },
+			429: { description: 'Quota exceeded' },
+		},
 	},
-	delete: {
-		request: deleteFileSchema,
-		response: okResponseSchema,
+	{
+		path: '/api/files/delete',
+		method: 'post',
+		summary: 'Delete file',
+		tags: ['Files'],
+		requestBody: {
+			'application/json': deleteFileSchema,
+		},
+		responses: {
+			200: { description: 'Success', schema: okResponseSchema },
+			400: { description: 'Bad request' },
+			403: { description: 'Forbidden' },
+			404: { description: 'Not found' },
+		},
 	},
-} as const;
+	{
+		path: '/api/files/uploadings',
+		method: 'post',
+		summary: 'List user files',
+		tags: ['Files'],
+		responses: {
+			200: { description: 'Success', schema: { type: 'object', properties: { files: { type: 'array' } }, required: ['files'] } },
+			401: { description: 'Unauthorized' },
+		},
+	},
+] as const;
+
+export { createOpenSchema, targzIndexSchema, tarIndexSchema, createCloseSchema, deleteFileSchema, createOpenFileResponseSchema, okResponseSchema };

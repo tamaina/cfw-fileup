@@ -1,18 +1,24 @@
 import type { Schema } from './schema-type';
 
-// Response schemas
-export const metaResponseSchema = {
+const metaResponseSchema = {
 	type: 'object',
 	properties: {
-		registrationEnabled: { type: 'boolean' as const, description: 'Whether new user registration is enabled' },
-		passphraseRequired: { type: 'boolean' as const, description: 'Whether signup passphrase is required' },
+		registrationEnabled: { type: 'boolean', description: 'Whether new user registration is enabled' },
+		passphraseRequired: { type: 'boolean', description: 'Whether signup passphrase is required' },
 	},
 	required: ['registrationEnabled', 'passphraseRequired'],
 } as const satisfies Schema;
 
-// API endpoint definitions
-export const metaDefinition = {
-	getMeta: {
-		response: metaResponseSchema,
+export const metaApiSchema = [
+	{
+		path: '/api/meta',
+		method: 'get',
+		summary: 'Get server metadata',
+		tags: ['Meta'],
+		responses: {
+			200: { description: 'Success', schema: metaResponseSchema },
+		},
 	},
-} as const;
+] as const;
+
+export { metaResponseSchema };

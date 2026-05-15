@@ -1,7 +1,6 @@
 import type { Schema } from './schema-type';
 
-// Request schemas
-export const createBucketSchema = {
+const createBucketSchema = {
 	type: 'object',
 	properties: {
 		bucketName: { type: 'string', minLength: 1, maxLength: 64 },
@@ -9,7 +8,7 @@ export const createBucketSchema = {
 	required: ['bucketName'],
 } as const satisfies Schema;
 
-export const deleteBucketSchema = {
+const deleteBucketSchema = {
 	type: 'object',
 	properties: {
 		bucketId: { type: 'string' },
@@ -17,18 +16,16 @@ export const deleteBucketSchema = {
 	required: ['bucketId'],
 } as const satisfies Schema;
 
-// Response schemas
-export const bucketSchema = {
+const bucketSchema = {
 	type: 'object',
 	properties: {
 		id: { type: 'string', description: 'Bucket ID' },
 		name: { type: 'string', description: 'Bucket name' },
-		userId: { type: 'string', description: 'Owner user ID' },
 	},
-	required: ['id', 'name', 'userId'],
+	required: ['id', 'name'],
 } as const satisfies Schema;
 
-export const createBucketResponseSchema = {
+const createBucketResponseSchema = {
 	type: 'object',
 	properties: {
 		bucketId: { type: 'string', description: 'Newly created bucket ID' },
@@ -36,29 +33,63 @@ export const createBucketResponseSchema = {
 	required: ['bucketId'],
 } as const satisfies Schema;
 
-export const listBucketsResponseSchema = {
+const listBucketsResponseSchema = {
 	type: 'object',
 	properties: {
 		buckets: {
 			type: 'array',
-			items: { ref: 'Bucket' },
-			description: 'List of buckets',
+			items: bucketSchema,
 		},
 	},
 	required: ['buckets'],
 } as const satisfies Schema;
 
-// API endpoint definitions
-export const bucketsDefinition = {
-	create: {
-		request: createBucketSchema,
-		response: createBucketResponseSchema,
+const okResponseSchema = {
+	type: 'object',
+	properties: { ok: { type: 'boolean' } },
+	required: ['ok'],
+} as const satisfies Schema;
+
+export const bucketsApiSchema = [
+	{
+		path: '/api/buckets/create',
+		method: 'post',
+		summary: 'Create bucket',
+		tags: ['Buckets'],
+		requestBody: {
+			'application/json': createBucketSchema,
+		},
+		responses: {
+			201: { description: 'Created', schema: createBucketResponseSchema },
+			400: { description: 'Bad request' },
+			429: { description: 'Quota exceeded' },
+		},
 	},
-	list: {
-		response: listBucketsResponseSchema,
+	{
+		path: '/api/buckets/list',
+		method: 'post',
+		summary: 'List buckets',
+		tags: ['Buckets'],
+		responses: {
+			200: { description: 'Success', schema: listBucketsResponseSchema },
+			401: { description: 'Unauthorized' },
+		},
 	},
-	delete: {
-		request: deleteBucketSchema,
-		response: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] },
+	{
+		path: '/api/buckets/delete',
+		method: 'post',
+		summary: 'Delete bucket',
+		tags: ['Buckets'],
+		requestBody: {
+			'application/json': deleteBucketSchema,
+		},
+		responses: {
+			200: { description: 'Success', schema: okResponseSchema },
+			400: { description: 'Bad request' },
+			403: { description: 'Forbidden' },
+			404: { description: 'Not found' },
+		},
 	},
-} as const;
+] as const;
+
+export { createBucketSchema, deleteBucketSchema, bucketSchema, createBucketResponseSchema, listBucketsResponseSchema };

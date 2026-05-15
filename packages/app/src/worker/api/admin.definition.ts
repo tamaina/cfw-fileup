@@ -1,7 +1,6 @@
 import type { Schema } from './schema-type';
 
-// Request schemas
-export const suspendUserSchema = {
+const suspendUserSchema = {
 	type: 'object',
 	properties: {
 		userId: { type: 'string' },
@@ -9,7 +8,7 @@ export const suspendUserSchema = {
 	required: ['userId'],
 } as const satisfies Schema;
 
-export const deleteFileAdminSchema = {
+const deleteFileAdminSchema = {
 	type: 'object',
 	properties: {
 		fileId: { type: 'string' },
@@ -17,7 +16,7 @@ export const deleteFileAdminSchema = {
 	required: ['fileId'],
 } as const satisfies Schema;
 
-export const deleteBucketAdminSchema = {
+const deleteBucketAdminSchema = {
 	type: 'object',
 	properties: {
 		bucketId: { type: 'string' },
@@ -25,7 +24,7 @@ export const deleteBucketAdminSchema = {
 	required: ['bucketId'],
 } as const satisfies Schema;
 
-export const toggleRegistrationSchema = {
+const toggleRegistrationSchema = {
 	type: 'object',
 	properties: {
 		enabled: { type: 'boolean' },
@@ -33,7 +32,7 @@ export const toggleRegistrationSchema = {
 	required: ['enabled'],
 } as const satisfies Schema;
 
-export const updateSettingSchema = {
+const updateSettingSchema = {
 	type: 'object',
 	properties: {
 		key: { type: 'string' },
@@ -42,8 +41,7 @@ export const updateSettingSchema = {
 	required: ['key', 'value'],
 } as const satisfies Schema;
 
-// Response schemas
-export const appSettingSchema = {
+const appSettingSchema = {
 	type: 'object',
 	properties: {
 		key: { type: 'string', description: 'Setting key' },
@@ -52,22 +50,18 @@ export const appSettingSchema = {
 	required: ['key', 'value'],
 } as const satisfies Schema;
 
-export const getSettingsResponseSchema = {
+const getSettingsResponseSchema = {
 	type: 'array',
-	items: { ref: 'AppSetting' },
-	description: 'List of application settings',
+	items: appSettingSchema,
 } as const satisfies Schema;
 
-export const updateSettingResponseSchema = {
+const okResponseSchema = {
 	type: 'object',
-	properties: {
-		key: { type: 'string', description: 'Updated setting key' },
-		value: { type: 'string', description: 'Updated setting value' },
-	},
-	required: ['key', 'value'],
+	properties: { ok: { type: 'boolean' } },
+	required: ['ok'],
 } as const satisfies Schema;
 
-export const quotaSchema = {
+const quotaSchema = {
 	type: 'object',
 	properties: {
 		maxBuckets: { type: 'integer', nullable: true, description: 'Max buckets per user' },
@@ -78,37 +72,127 @@ export const quotaSchema = {
 	required: ['maxBuckets', 'maxBucketSizeBytes', 'maxFilesPerBucket', 'maxDailyUploads'],
 } as const satisfies Schema;
 
-// API endpoint definitions
-export const adminDefinition = {
-	suspendUser: {
-		request: suspendUserSchema,
-		response: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] },
+export const adminApiSchema = [
+	{
+		path: '/api/admin/suspend-user',
+		method: 'post',
+		summary: 'Suspend user',
+		tags: ['Admin'],
+		requestBody: {
+			'application/json': suspendUserSchema,
+		},
+		responses: {
+			200: { description: 'Success', schema: okResponseSchema },
+			400: { description: 'Bad request' },
+			404: { description: 'Not found' },
+		},
 	},
-	deleteFile: {
-		request: deleteFileAdminSchema,
-		response: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] },
+	{
+		path: '/api/admin/delete-file',
+		method: 'post',
+		summary: 'Delete file (admin)',
+		tags: ['Admin'],
+		requestBody: {
+			'application/json': deleteFileAdminSchema,
+		},
+		responses: {
+			200: { description: 'Success', schema: okResponseSchema },
+			400: { description: 'Bad request' },
+			404: { description: 'Not found' },
+		},
 	},
-	deleteBucket: {
-		request: deleteBucketAdminSchema,
-		response: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] },
+	{
+		path: '/api/admin/delete-bucket',
+		method: 'post',
+		summary: 'Delete bucket (admin)',
+		tags: ['Admin'],
+		requestBody: {
+			'application/json': deleteBucketAdminSchema,
+		},
+		responses: {
+			200: { description: 'Success', schema: okResponseSchema },
+			400: { description: 'Bad request' },
+			404: { description: 'Not found' },
+		},
 	},
-	toggleRegistration: {
-		request: toggleRegistrationSchema,
-		response: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] },
+	{
+		path: '/api/admin/update-setting',
+		method: 'post',
+		summary: 'Update setting',
+		tags: ['Admin'],
+		requestBody: {
+			'application/json': updateSettingSchema,
+		},
+		responses: {
+			200: { description: 'Success', schema: okResponseSchema },
+			400: { description: 'Bad request' },
+		},
 	},
-	setSetting: {
-		request: updateSettingSchema,
-		response: updateSettingResponseSchema,
+	{
+		path: '/api/admin/get-settings',
+		method: 'get',
+		summary: 'Get all settings',
+		tags: ['Admin'],
+		responses: {
+			200: { description: 'Success', schema: getSettingsResponseSchema },
+		},
 	},
-	getSettings: {
-		response: getSettingsResponseSchema,
+	{
+		path: '/api/admin/set-user-quota/:userId',
+		method: 'post',
+		summary: 'Set user quota',
+		tags: ['Admin'],
+		requestBody: {
+			'application/json': quotaSchema,
+		},
+		responses: {
+			200: { description: 'Success', schema: okResponseSchema },
+			400: { description: 'Bad request' },
+			404: { description: 'Not found' },
+		},
 	},
-	setUserQuota: {
-		request: quotaSchema,
-		response: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] },
+	{
+		path: '/api/admin/set-global-quota',
+		method: 'post',
+		summary: 'Set global quota',
+		tags: ['Admin'],
+		requestBody: {
+			'application/json': quotaSchema,
+		},
+		responses: {
+			200: { description: 'Success', schema: okResponseSchema },
+			400: { description: 'Bad request' },
+		},
 	},
-	setGlobalQuota: {
-		request: quotaSchema,
-		response: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] },
+	{
+		path: '/api/admin/get-user-quota/:userId',
+		method: 'get',
+		summary: 'Get user quota',
+		tags: ['Admin'],
+		responses: {
+			200: { description: 'Success', schema: quotaSchema },
+			404: { description: 'Not found' },
+		},
 	},
-} as const;
+	{
+		path: '/api/admin/get-global-quota',
+		method: 'get',
+		summary: 'Get global quota',
+		tags: ['Admin'],
+		responses: {
+			200: { description: 'Success', schema: quotaSchema },
+		},
+	},
+	{
+		path: '/api/admin/delete-user-quota/:userId',
+		method: 'post',
+		summary: 'Delete user quota',
+		tags: ['Admin'],
+		responses: {
+			200: { description: 'Success', schema: okResponseSchema },
+			404: { description: 'Not found' },
+		},
+	},
+] as const;
+
+export { suspendUserSchema, deleteFileAdminSchema, deleteBucketAdminSchema, toggleRegistrationSchema, updateSettingSchema, appSettingSchema, quotaSchema, getSettingsResponseSchema, okResponseSchema };
