@@ -6,8 +6,8 @@ import { getDb } from '../utils/db';
 import { getQuotaForUser } from '../utils/rate-limit';
 import { authMiddleware } from '../middleware/auth';
 import { genEaidx } from '../../shared/eaid-x';
-import type { SchemaType, ExtractRequestSchema } from './schema-type';
-import { bucketsApiSchema, createBucketSchema, deleteBucketSchema } from './buckets.definition';
+import type { ExtractRequestType } from './schema-type';
+import { bucketsApiSchema } from './buckets.definition';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -16,8 +16,8 @@ app.use(authMiddleware);
 app.post('/create', async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
-	type CreateBucketReq = ExtractRequestSchema<typeof bucketsApiSchema, '/api/buckets/create', 'post'>;
-	const body = (await c.req.json()) as SchemaType<CreateBucketReq>;
+	type CreateBucketReq = ExtractRequestType<typeof bucketsApiSchema, '/api/buckets/create', 'post'>;
+	const body = (await c.req.json()) as CreateBucketReq;
 
 	if (!body.bucketName) {
 		throw new HTTPException(400, { message: 'bucketName is required' });
@@ -58,8 +58,8 @@ app.post('/create', async (c) => {
 app.post('/delete', async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
-	type DeleteBucketReq = ExtractRequestSchema<typeof bucketsApiSchema, '/api/buckets/delete', 'post'>;
-	const body = (await c.req.json()) as SchemaType<DeleteBucketReq>;
+	type DeleteBucketReq = ExtractRequestType<typeof bucketsApiSchema, '/api/buckets/delete', 'post'>;
+	const body = (await c.req.json()) as DeleteBucketReq;
 
 	if (!body.bucketId) {
 		throw new HTTPException(400, { message: 'bucketId is required' });

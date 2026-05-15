@@ -5,15 +5,15 @@ import { users, tokens, appSettings } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { hashPassword, verifyPassword, generateToken } from '../utils/crypto';
 import { genEaidx } from '../../shared/eaid-x';
-import type { SchemaType, ExtractRequestSchema } from './schema-type';
-import { authApiSchema, signupSchema, signinSchema } from './auth.definition';
+import type { SchemaType, ExtractRequestType, ExtractResponseType } from './schema-type';
+import { authApiSchema } from './auth.definition';
 
 const app = new Hono<{ Bindings: Env }>();
 
 app.post('/signup', async (c) => {
 	const db = getDb(c.env);
-	type SignupReq = ExtractRequestSchema<typeof authApiSchema, '/api/signup', 'post'>;
-	const body = (await c.req.json()) as SchemaType<SignupReq>;
+	type SignupReq = ExtractRequestType<typeof authApiSchema, '/api/signup', 'post'>;
+	const body = (await c.req.json()) as SignupReq;
 
 	if (!body.username || !body.password) {
 		throw new HTTPException(400, { message: 'username and password are required' });
@@ -106,8 +106,8 @@ app.post('/signup', async (c) => {
 
 app.post('/signin', async (c) => {
 	const db = getDb(c.env);
-	type SigninReq = ExtractRequestSchema<typeof authApiSchema, '/api/signin', 'post'>;
-	const body = (await c.req.json()) as SchemaType<SigninReq>;
+	type SigninReq = ExtractRequestType<typeof authApiSchema, '/api/signin', 'post'>;
+	const body = (await c.req.json()) as SigninReq;
 
 	if (!body.username || !body.password) {
 		throw new HTTPException(400, { message: 'username and password are required' });

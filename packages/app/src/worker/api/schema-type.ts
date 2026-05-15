@@ -247,3 +247,17 @@ export type ExtractResponseSchema<
 				: R
 		: never
 	: never;
+
+// Direct type extraction utilities - returns SchemaType directly
+export type ExtractRequestType<
+	T extends readonly any[],
+	Path extends string,
+	Method extends string
+> = SchemaType<ExtractRequestSchema<T, Path, Method> extends infer S extends Schema ? S : never>;
+
+export type ExtractResponseType<
+	T extends readonly any[],
+	Path extends string,
+	Method extends string,
+	Status extends string | number = 200
+> = SchemaType<ExtractResponseSchema<T, Path, Method, Status> extends infer S extends Schema ? S : never>;

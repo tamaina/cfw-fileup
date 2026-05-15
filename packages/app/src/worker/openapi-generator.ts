@@ -5,17 +5,6 @@
 
 import type { Schema } from './api/schema-type';
 import { refs } from './api/schema-type';
-import { signupResponseSchema, signinResponseSchema, userProfileSchema } from './api/auth.definition';
-import { bucketSchema, createBucketResponseSchema, listBucketsResponseSchema } from './api/buckets.definition';
-import {
-	createOpenFileResponseSchema,
-} from './api/files.definition';
-import {
-	appSettingSchema,
-	getSettingsResponseSchema,
-	quotaSchema,
-} from './api/admin.definition';
-import { metaResponseSchema } from './api/meta.definition';
 
 interface OpenAPISchema {
 	type?: string;
@@ -60,26 +49,87 @@ interface OpenAPIPath {
 	[method: string]: OpenAPIOperation;
 }
 
-// Schemas imported from API definition files
+// Schemas referenced in OpenAPI spec
 const schemas: Record<string, Schema> = {
-	SignupResponse: signupResponseSchema,
-	SigninResponse: signinResponseSchema,
-	UserProfile: userProfileSchema,
-	Bucket: bucketSchema,
-	CreateBucketResponse: createBucketResponseSchema,
-	ListBucketsResponse: listBucketsResponseSchema,
-	CreateOpenFileResponse: createOpenFileResponseSchema,
+	SignupResponse: {
+		type: 'object',
+		properties: {
+			userId: { type: 'string', description: 'User ID (EAID-X format)' },
+			token: { type: 'string', description: 'Authentication token' },
+		},
+		required: ['userId', 'token'],
+	} as const,
+	SigninResponse: {
+		type: 'object',
+		properties: {
+			token: { type: 'string', description: 'Authentication token' },
+		},
+		required: ['token'],
+	} as const,
+	UserProfile: {
+		type: 'object',
+		properties: {
+			id: { type: 'string', description: 'User ID' },
+			username: { type: 'string', description: 'Username' },
+			isAdmin: { type: 'boolean', description: 'Admin status' },
+			isSuspended: { type: 'boolean', description: 'Suspension status' },
+		},
+		required: ['id', 'username', 'isAdmin', 'isSuspended'],
+	} as const,
+	Bucket: {
+		type: 'object',
+		properties: {
+			id: { type: 'string', description: 'Bucket ID' },
+			name: { type: 'string', description: 'Bucket name' },
+		},
+		required: ['id', 'name'],
+	} as const,
+	CreateBucketResponse: {
+		type: 'object',
+		properties: {
+			bucketId: { type: 'string', description: 'Newly created bucket ID' },
+		},
+		required: ['bucketId'],
+	} as const,
+	ListBucketsResponse: {
+		type: 'object',
+		properties: {
+			buckets: {
+				type: 'array',
+				items: {
+					type: 'object',
+					properties: {
+						id: { type: 'string', description: 'Bucket ID' },
+						name: { type: 'string', description: 'Bucket name' },
+					},
+					required: ['id', 'name'],
+				},
+			},
+		},
+		required: ['buckets'],
+	} as const,
+	CreateOpenFileResponse: {
+		type: 'object',
+		properties: {
+			fileId: { type: 'string', description: 'File ID' },
+		},
+		required: ['fileId'],
+	} as const,
 	OkResponse: refs.OkResponse,
-	AppSetting: appSettingSchema,
-	GetSettingsResponse: getSettingsResponseSchema,
-	Quota: refs.Quota,
-	MetaResponse: metaResponseSchema,
 	ErrorResponse: {
 		type: 'object',
 		properties: {
 			message: { type: 'string', description: 'Error message' },
 		},
 		required: ['message'],
+	} as const,
+	MetaResponse: {
+		type: 'object',
+		properties: {
+			registrationEnabled: { type: 'boolean', description: 'Whether new user registration is enabled' },
+			passphraseRequired: { type: 'boolean', description: 'Whether signup passphrase is required' },
+		},
+		required: ['registrationEnabled', 'passphraseRequired'],
 	} as const,
 };
 

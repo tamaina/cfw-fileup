@@ -6,8 +6,8 @@ import { getDb } from '../utils/db';
 import { getQuotaForUser } from '../utils/rate-limit';
 import { authMiddleware } from '../middleware/auth';
 import { genEaidx } from '../../shared/eaid-x';
-import type { SchemaType, ExtractRequestSchema } from './schema-type';
-import { filesApiSchema, createOpenSchema, targzIndexSchema, tarIndexSchema, createCloseSchema, deleteFileSchema } from './files.definition';
+import type { ExtractRequestType } from './schema-type';
+import { filesApiSchema } from './files.definition';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -16,8 +16,8 @@ app.use(authMiddleware);
 app.post('/create/open', async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
-	type CreateOpenReq = ExtractRequestSchema<typeof filesApiSchema, '/api/files/create/open', 'post'>;
-	const body = (await c.req.json()) as SchemaType<CreateOpenReq>;
+	type CreateOpenReq = ExtractRequestType<typeof filesApiSchema, '/api/files/create/open', 'post'>;
+	const body = (await c.req.json()) as CreateOpenReq;
 
 	if (!body.bucketId || !body.path) {
 		throw new HTTPException(400, { message: 'bucketId and path are required' });
@@ -89,8 +89,8 @@ app.post('/create/open', async (c) => {
 app.post('/create/targz-index', async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
-	type TargzIndexReq = ExtractRequestSchema<typeof filesApiSchema, '/api/files/create/targz-index', 'post'>;
-	const body = (await c.req.json()) as SchemaType<TargzIndexReq>;
+	type TargzIndexReq = ExtractRequestType<typeof filesApiSchema, '/api/files/create/targz-index', 'post'>;
+	const body = (await c.req.json()) as TargzIndexReq;
 
 	if (!body.fileId || !body.files) {
 		throw new HTTPException(400, { message: 'fileId and files are required' });
@@ -142,8 +142,8 @@ app.post('/create/targz-index', async (c) => {
 app.post('/create/tar-index', async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
-	type TarIndexReq = ExtractRequestSchema<typeof filesApiSchema, '/api/files/create/tar-index', 'post'>;
-	const body = (await c.req.json()) as SchemaType<TarIndexReq>;
+	type TarIndexReq = ExtractRequestType<typeof filesApiSchema, '/api/files/create/tar-index', 'post'>;
+	const body = (await c.req.json()) as TarIndexReq;
 
 	if (!body.fileId || !body.files) {
 		throw new HTTPException(400, { message: 'fileId and files are required' });
@@ -178,8 +178,8 @@ app.post('/create/tar-index', async (c) => {
 app.post('/create/close', async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
-	type CreateCloseReq = ExtractRequestSchema<typeof filesApiSchema, '/api/files/create/close', 'post'>;
-	const body = (await c.req.json()) as SchemaType<CreateCloseReq>;
+	type CreateCloseReq = ExtractRequestType<typeof filesApiSchema, '/api/files/create/close', 'post'>;
+	const body = (await c.req.json()) as CreateCloseReq;
 
 	if (!body.fileId) {
 		throw new HTTPException(400, { message: 'fileId is required' });
@@ -291,8 +291,8 @@ app.post('/uploadings', async (c) => {
 app.post('/delete', async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
-	type DeleteFileReq = ExtractRequestSchema<typeof filesApiSchema, '/api/files/delete', 'post'>;
-	const body = (await c.req.json()) as SchemaType<DeleteFileReq>;
+	type DeleteFileReq = ExtractRequestType<typeof filesApiSchema, '/api/files/delete', 'post'>;
+	const body = (await c.req.json()) as DeleteFileReq;
 
 	if (!body.bucketId || !body.path) {
 		throw new HTTPException(400, { message: 'bucketId and path are required' });

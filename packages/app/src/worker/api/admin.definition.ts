@@ -1,60 +1,5 @@
 import type { Schema } from './schema-type';
 
-const suspendUserSchema = {
-	type: 'object',
-	properties: {
-		userId: { type: 'string' },
-	},
-	required: ['userId'],
-} as const satisfies Schema;
-
-const deleteFileAdminSchema = {
-	type: 'object',
-	properties: {
-		fileId: { type: 'string' },
-	},
-	required: ['fileId'],
-} as const satisfies Schema;
-
-const deleteBucketAdminSchema = {
-	type: 'object',
-	properties: {
-		bucketId: { type: 'string' },
-	},
-	required: ['bucketId'],
-} as const satisfies Schema;
-
-const toggleRegistrationSchema = {
-	type: 'object',
-	properties: {
-		enabled: { type: 'boolean' },
-	},
-	required: ['enabled'],
-} as const satisfies Schema;
-
-const updateSettingSchema = {
-	type: 'object',
-	properties: {
-		key: { type: 'string' },
-		value: { type: 'string' },
-	},
-	required: ['key', 'value'],
-} as const satisfies Schema;
-
-const appSettingSchema = {
-	type: 'object',
-	properties: {
-		key: { type: 'string', description: 'Setting key' },
-		value: { type: 'string', description: 'Setting value' },
-	},
-	required: ['key', 'value'],
-} as const satisfies Schema;
-
-const getSettingsResponseSchema = {
-	type: 'array',
-	items: appSettingSchema,
-} as const satisfies Schema;
-
 const quotaSchema = {
 	type: 'object',
 	properties: {
@@ -73,7 +18,13 @@ export const adminApiSchema = [
 		summary: 'Suspend user',
 		tags: ['Admin'],
 		requestBody: {
-			'application/json': suspendUserSchema,
+			'application/json': {
+				type: 'object',
+				properties: {
+					userId: { type: 'string' },
+				},
+				required: ['userId'],
+			} as const satisfies Schema,
 		},
 		responses: {
 			200: {
@@ -92,7 +43,13 @@ export const adminApiSchema = [
 		summary: 'Delete file (admin)',
 		tags: ['Admin'],
 		requestBody: {
-			'application/json': deleteFileAdminSchema,
+			'application/json': {
+				type: 'object',
+				properties: {
+					fileId: { type: 'string' },
+				},
+				required: ['fileId'],
+			} as const satisfies Schema,
 		},
 		responses: {
 			200: {
@@ -111,7 +68,13 @@ export const adminApiSchema = [
 		summary: 'Delete bucket (admin)',
 		tags: ['Admin'],
 		requestBody: {
-			'application/json': deleteBucketAdminSchema,
+			'application/json': {
+				type: 'object',
+				properties: {
+					bucketId: { type: 'string' },
+				},
+				required: ['bucketId'],
+			} as const satisfies Schema,
 		},
 		responses: {
 			200: {
@@ -130,7 +93,14 @@ export const adminApiSchema = [
 		summary: 'Update setting',
 		tags: ['Admin'],
 		requestBody: {
-			'application/json': updateSettingSchema,
+			'application/json': {
+				type: 'object',
+				properties: {
+					key: { type: 'string' },
+					value: { type: 'string' },
+				},
+				required: ['key', 'value'],
+			} as const satisfies Schema,
 		},
 		responses: {
 			200: {
@@ -243,7 +213,13 @@ export const adminApiSchema = [
 		summary: 'Toggle registration',
 		tags: ['Admin'],
 		requestBody: {
-			'application/json': toggleRegistrationSchema,
+			'application/json': {
+				type: 'object',
+				properties: {
+					enabled: { type: 'boolean' },
+				},
+				required: ['enabled'],
+			} as const satisfies Schema,
 		},
 		responses: {
 			200: {
@@ -256,5 +232,3 @@ export const adminApiSchema = [
 		},
 	},
 ] as const;
-
-export { suspendUserSchema, deleteFileAdminSchema, deleteBucketAdminSchema, updateSettingSchema, appSettingSchema, quotaSchema, getSettingsResponseSchema, toggleRegistrationSchema };

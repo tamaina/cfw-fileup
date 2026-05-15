@@ -5,8 +5,8 @@ import { users, tokens, files, buckets, appSettings, userQuotas, globalQuotas } 
 import { getDb } from '../utils/db';
 import { getQuotaForUser, getGlobalQuota } from '../utils/rate-limit';
 import { authMiddleware, adminMiddleware } from '../middleware/auth';
-import type { SchemaType, ExtractRequestSchema } from './schema-type';
-import { adminApiSchema, suspendUserSchema, deleteFileAdminSchema, deleteBucketAdminSchema, updateSettingSchema, toggleRegistrationSchema } from './admin.definition';
+import type { ExtractRequestType } from './schema-type';
+import { adminApiSchema } from './admin.definition';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -15,8 +15,8 @@ app.use(adminMiddleware);
 
 app.post('/suspend-user', async (c) => {
 	const db = getDb(c.env);
-	type SuspendUserReq = ExtractRequestSchema<typeof adminApiSchema, '/api/admin/suspend-user', 'post'>;
-	const body = (await c.req.json()) as SchemaType<SuspendUserReq>;
+	type SuspendUserReq = ExtractRequestType<typeof adminApiSchema, '/api/admin/suspend-user', 'post'>;
+	const body = (await c.req.json()) as SuspendUserReq;
 
 	if (!body.userId) {
 		throw new HTTPException(400, { message: 'userId is required' });
@@ -37,8 +37,8 @@ app.post('/suspend-user', async (c) => {
 
 app.post('/delete-file', async (c) => {
 	const db = getDb(c.env);
-	type DeleteFileAdminReq = ExtractRequestSchema<typeof adminApiSchema, '/api/admin/delete-file', 'post'>;
-	const body = (await c.req.json()) as SchemaType<DeleteFileAdminReq>;
+	type DeleteFileAdminReq = ExtractRequestType<typeof adminApiSchema, '/api/admin/delete-file', 'post'>;
+	const body = (await c.req.json()) as DeleteFileAdminReq;
 
 	if (!body.fileId) {
 		throw new HTTPException(400, { message: 'fileId is required' });
@@ -63,8 +63,8 @@ app.post('/delete-file', async (c) => {
 
 app.post('/delete-bucket', async (c) => {
 	const db = getDb(c.env);
-	type DeleteBucketAdminReq = ExtractRequestSchema<typeof adminApiSchema, '/api/admin/delete-bucket', 'post'>;
-	const body = (await c.req.json()) as SchemaType<DeleteBucketAdminReq>;
+	type DeleteBucketAdminReq = ExtractRequestType<typeof adminApiSchema, '/api/admin/delete-bucket', 'post'>;
+	const body = (await c.req.json()) as DeleteBucketAdminReq;
 
 	if (!body.bucketId) {
 		throw new HTTPException(400, { message: 'bucketId is required' });
@@ -186,8 +186,8 @@ app.post('/delete-user-quota/:userId', async (c) => {
 
 app.post('/toggle-registration', async (c) => {
 	const db = getDb(c.env);
-	type ToggleRegistrationReq = ExtractRequestSchema<typeof adminApiSchema, '/api/admin/toggle-registration', 'post'>;
-	const body = (await c.req.json()) as SchemaType<ToggleRegistrationReq>;
+	type ToggleRegistrationReq = ExtractRequestType<typeof adminApiSchema, '/api/admin/toggle-registration', 'post'>;
+	const body = (await c.req.json()) as ToggleRegistrationReq;
 
 	if (body.enabled === undefined || body.enabled === null) {
 		throw new HTTPException(400, { message: 'enabled is required' });
@@ -211,8 +211,8 @@ app.post('/toggle-registration', async (c) => {
 
 app.post('/update-setting', async (c) => {
 	const db = getDb(c.env);
-	type UpdateSettingReq = ExtractRequestSchema<typeof adminApiSchema, '/api/admin/update-setting', 'post'>;
-	const body = (await c.req.json()) as SchemaType<UpdateSettingReq>;
+	type UpdateSettingReq = ExtractRequestType<typeof adminApiSchema, '/api/admin/update-setting', 'post'>;
+	const body = (await c.req.json()) as UpdateSettingReq;
 
 	if (!body.key || body.value === undefined) {
 		throw new HTTPException(400, { message: 'key and value are required' });

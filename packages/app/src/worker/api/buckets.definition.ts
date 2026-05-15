@@ -1,49 +1,5 @@
 import type { Schema } from './schema-type';
 
-const createBucketSchema = {
-	type: 'object',
-	properties: {
-		bucketName: { type: 'string', minLength: 1, maxLength: 64 },
-	},
-	required: ['bucketName'],
-} as const satisfies Schema;
-
-const deleteBucketSchema = {
-	type: 'object',
-	properties: {
-		bucketId: { type: 'string' },
-	},
-	required: ['bucketId'],
-} as const satisfies Schema;
-
-const bucketSchema = {
-	type: 'object',
-	properties: {
-		id: { type: 'string', description: 'Bucket ID' },
-		name: { type: 'string', description: 'Bucket name' },
-	},
-	required: ['id', 'name'],
-} as const satisfies Schema;
-
-const createBucketResponseSchema = {
-	type: 'object',
-	properties: {
-		bucketId: { type: 'string', description: 'Newly created bucket ID' },
-	},
-	required: ['bucketId'],
-} as const satisfies Schema;
-
-const listBucketsResponseSchema = {
-	type: 'object',
-	properties: {
-		buckets: {
-			type: 'array',
-			items: bucketSchema,
-		},
-	},
-	required: ['buckets'],
-} as const satisfies Schema;
-
 export const bucketsApiSchema = [
 	{
 		path: '/api/buckets/create',
@@ -51,13 +7,27 @@ export const bucketsApiSchema = [
 		summary: 'Create bucket',
 		tags: ['Buckets'],
 		requestBody: {
-			'application/json': createBucketSchema,
+			'application/json': {
+				type: 'object',
+				properties: {
+					bucketName: { type: 'string', minLength: 1, maxLength: 64 },
+				},
+				required: ['bucketName'],
+			} as const satisfies Schema,
 		},
 		responses: {
 			201: {
 				description: 'Created',
 				content: {
-					'application/json': { schema: createBucketResponseSchema }
+					'application/json': {
+						schema: {
+							type: 'object',
+							properties: {
+								bucketId: { type: 'string', description: 'Newly created bucket ID' },
+							},
+							required: ['bucketId'],
+						} as const satisfies Schema
+					}
 				}
 			},
 			400: { description: 'Bad request' },
@@ -73,7 +43,25 @@ export const bucketsApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': { schema: listBucketsResponseSchema }
+					'application/json': {
+						schema: {
+							type: 'object',
+							properties: {
+								buckets: {
+									type: 'array',
+									items: {
+										type: 'object',
+										properties: {
+											id: { type: 'string', description: 'Bucket ID' },
+											name: { type: 'string', description: 'Bucket name' },
+										},
+										required: ['id', 'name'],
+									} as const satisfies Schema,
+								},
+							},
+							required: ['buckets'],
+						} as const satisfies Schema
+					}
 				}
 			},
 			401: { description: 'Unauthorized' },
@@ -85,7 +73,13 @@ export const bucketsApiSchema = [
 		summary: 'Delete bucket',
 		tags: ['Buckets'],
 		requestBody: {
-			'application/json': deleteBucketSchema,
+			'application/json': {
+				type: 'object',
+				properties: {
+					bucketId: { type: 'string' },
+				},
+				required: ['bucketId'],
+			} as const satisfies Schema,
 		},
 		responses: {
 			200: { description: 'Success', schema: { ref: 'OkResponse' } },
@@ -95,5 +89,3 @@ export const bucketsApiSchema = [
 		},
 	},
 ] as const;
-
-export { createBucketSchema, deleteBucketSchema, bucketSchema, createBucketResponseSchema, listBucketsResponseSchema };
