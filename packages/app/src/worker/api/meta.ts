@@ -2,17 +2,7 @@ import { Hono } from 'hono';
 import { eq, count } from 'drizzle-orm';
 import { appSettings, users } from '../scheme/index';
 import { getDb } from '../utils/db';
-import type { Schema } from './schema-type';
-
-// API Response Schemas
-export const metaResponseSchema = {
-	type: 'object',
-	properties: {
-		registrationEnabled: { type: 'boolean', description: 'Whether new user registration is enabled' },
-		passphraseRequired: { type: 'boolean', description: 'Whether signup passphrase is required' },
-	},
-	required: ['registrationEnabled', 'passphraseRequired'],
-} as const satisfies Schema;
+import { metaResponseSchema } from './meta.definition';
 
 const app = new Hono<{ Bindings: Env }>();
 

@@ -5,55 +5,14 @@ import { users, tokens, appSettings } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { hashPassword, verifyPassword, generateToken } from '../utils/crypto';
 import { genEaidx, parseEaidxFull } from '../../shared/eaid-x';
-import type { Schema, SchemaType } from './schema-type';
-
-// API Response Schemas
-export const signupResponseSchema = {
-	type: 'object',
-	properties: {
-		userId: { type: 'string', description: 'User ID (EAID-X format)' },
-		token: { type: 'string', description: 'Authentication token' },
-	},
-	required: ['userId', 'token'],
-} as const satisfies Schema;
-
-export const signinResponseSchema = {
-	type: 'object',
-	properties: {
-		token: { type: 'string', description: 'Authentication token' },
-	},
-	required: ['token'],
-} as const satisfies Schema;
-
-export const userProfileSchema = {
-	type: 'object',
-	properties: {
-		id: { type: 'string', description: 'User ID' },
-		username: { type: 'string', description: 'Username' },
-		isAdmin: { type: 'boolean', description: 'Admin status' },
-		isSuspended: { type: 'boolean', description: 'Suspension status' },
-	},
-	required: ['id', 'username', 'isAdmin', 'isSuspended'],
-} as const satisfies Schema;
-
-const signupSchema = {
-	type: 'object',
-	properties: {
-		username: { type: 'string', minLength: 1, maxLength: 32 },
-		password: { type: 'string', minLength: 8 },
-		passphrase: { type: 'string', optional: true },
-	},
-	required: ['username', 'password'],
-} as const satisfies Schema;
-
-const signinSchema = {
-	type: 'object',
-	properties: {
-		username: { type: 'string' },
-		password: { type: 'string' },
-	},
-	required: ['username', 'password'],
-} as const satisfies Schema;
+import type { SchemaType } from './schema-type';
+import {
+	signupSchema,
+	signinSchema,
+	signupResponseSchema,
+	signinResponseSchema,
+	userProfileSchema,
+} from './auth.definition';
 
 const app = new Hono<{ Bindings: Env }>();
 

@@ -4,6 +4,20 @@
  */
 
 import type { Schema } from './api/schema-type';
+import { signupResponseSchema, signinResponseSchema, userProfileSchema } from './api/auth.definition';
+import { bucketSchema, createBucketResponseSchema, listBucketsResponseSchema } from './api/buckets.definition';
+import {
+	fileSchema,
+	createOpenFileResponseSchema,
+	okResponseSchema,
+} from './api/files.definition';
+import {
+	appSettingSchema,
+	getSettingsResponseSchema,
+	updateSettingResponseSchema,
+	quotaSchema,
+} from './api/admin.definition';
+import { metaResponseSchema } from './api/meta.definition';
 
 interface OpenAPISchema {
 	type?: string;
@@ -26,11 +40,8 @@ interface OpenAPIParameter {
 
 interface OpenAPIResponse {
 	description: string;
-	content?: {
-		'application/json': {
-			schema: OpenAPISchema;
-		};
-	};
+	content?: Record<string, { schema?: OpenAPISchema }>;
+	headers?: Record<string, { description?: string; schema?: OpenAPISchema }>;
 }
 
 interface OpenAPIOperation {
@@ -40,11 +51,7 @@ interface OpenAPIOperation {
 	parameters?: OpenAPIParameter[];
 	requestBody?: {
 		required?: boolean;
-		content: {
-			'application/json': {
-				schema: OpenAPISchema;
-			};
-		};
+		content: Record<string, { schema?: OpenAPISchema }>;
 	};
 	responses: Record<string, OpenAPIResponse>;
 	security?: Array<Record<string, string[]>>;
@@ -55,145 +62,22 @@ interface OpenAPIPath {
 	[method: string]: OpenAPIOperation;
 }
 
-// Schemas imported from API files
+// Schemas imported from API definition files
 const schemas: Record<string, Schema> = {
-	SignupResponse: {
-		type: 'object',
-		properties: {
-			userId: { type: 'string', description: 'User ID (EAID-X format)' },
-			token: { type: 'string', description: 'Authentication token' },
-		},
-		required: ['userId', 'token'],
-	} as const,
-
-	SigninResponse: {
-		type: 'object',
-		properties: {
-			token: { type: 'string', description: 'Authentication token' },
-		},
-		required: ['token'],
-	} as const,
-
-	UserProfile: {
-		type: 'object',
-		properties: {
-			id: { type: 'string', description: 'User ID' },
-			username: { type: 'string', description: 'Username' },
-			isAdmin: { type: 'boolean', description: 'Admin status' },
-			isSuspended: { type: 'boolean', description: 'Suspension status' },
-		},
-		required: ['id', 'username', 'isAdmin', 'isSuspended'],
-	} as const,
-
-	Bucket: {
-		type: 'object',
-		properties: {
-			id: { type: 'string', description: 'Bucket ID' },
-			name: { type: 'string', description: 'Bucket name' },
-			userId: { type: 'string', description: 'Owner user ID' },
-		},
-		required: ['id', 'name', 'userId'],
-	} as const,
-
-	CreateBucketResponse: {
-		type: 'object',
-		properties: {
-			bucketId: { type: 'string', description: 'Newly created bucket ID' },
-		},
-		required: ['bucketId'],
-	} as const,
-
-	ListBucketsResponse: {
-		type: 'object',
-		properties: {
-			buckets: {
-				type: 'array',
-				items: { $ref: '#/components/schemas/Bucket' },
-				description: 'List of buckets',
-			},
-		},
-		required: ['buckets'],
-	} as const,
-
-	File: {
-		type: 'object',
-		properties: {
-			id: { type: 'string', description: 'File ID' },
-			path: { type: 'string', description: 'File path in bucket' },
-			bucketId: { type: 'string', description: 'Bucket ID' },
-			userId: { type: 'string', description: 'Owner user ID' },
-			size: { type: 'number', nullable: true, description: 'File size in bytes' },
-			mimeType: { type: 'string', nullable: true, description: 'MIME type' },
-			isPublic: { type: 'boolean', description: 'Public accessibility' },
-			uploadExpiresAt: { type: 'number', description: 'Upload expiration timestamp' },
-			isClosed: { type: 'boolean', description: 'Upload completion status' },
-			isTargz: { type: 'boolean', description: 'tar.gz indexed file' },
-			isTar: { type: 'boolean', description: 'tar indexed file' },
-		},
-		required: ['id', 'path', 'bucketId', 'userId', 'isPublic', 'uploadExpiresAt', 'isClosed', 'isTargz', 'isTar'],
-	} as const,
-
-	CreateOpenFileResponse: {
-		type: 'object',
-		properties: {
-			fileId: { type: 'string', description: 'File ID for upload' },
-			uploadExpiry: { type: 'number', description: 'Upload expiration timestamp' },
-		},
-		required: ['fileId', 'uploadExpiry'],
-	} as const,
-
-	OkResponse: {
-		type: 'object',
-		properties: {
-			ok: { type: 'boolean', description: 'Operation successful' },
-		},
-		required: ['ok'],
-	} as const,
-
-	AppSetting: {
-		type: 'object',
-		properties: {
-			key: { type: 'string', description: 'Setting key' },
-			value: { type: 'string', description: 'Setting value' },
-		},
-		required: ['key', 'value'],
-	} as const,
-
-	GetSettingsResponse: {
-		type: 'array',
-		items: { $ref: '#/components/schemas/AppSetting' },
-		description: 'List of application settings',
-	} as const,
-
-	UpdateSettingResponse: {
-		type: 'object',
-		properties: {
-			key: { type: 'string', description: 'Updated setting key' },
-			value: { type: 'string', description: 'Updated setting value' },
-		},
-		required: ['key', 'value'],
-	} as const,
-
-	Quota: {
-		type: 'object',
-		properties: {
-			maxBuckets: { type: 'integer', nullable: true, description: 'Max buckets per user' },
-			maxBucketSizeBytes: { type: 'integer', nullable: true, description: 'Max bucket size in bytes' },
-			maxFilesPerBucket: { type: 'integer', nullable: true, description: 'Max files per bucket' },
-			maxDailyUploads: { type: 'integer', nullable: true, description: 'Max daily uploads' },
-		},
-		required: ['maxBuckets', 'maxBucketSizeBytes', 'maxFilesPerBucket', 'maxDailyUploads'],
-	} as const,
-
-	MetaResponse: {
-		type: 'object',
-		properties: {
-			registrationEnabled: { type: 'boolean', description: 'Whether new user registration is enabled' },
-			passphraseRequired: { type: 'boolean', description: 'Whether signup passphrase is required' },
-		},
-		required: ['registrationEnabled', 'passphraseRequired'],
-	} as const,
-
+	SignupResponse: signupResponseSchema,
+	SigninResponse: signinResponseSchema,
+	UserProfile: userProfileSchema,
+	Bucket: bucketSchema,
+	CreateBucketResponse: createBucketResponseSchema,
+	ListBucketsResponse: listBucketsResponseSchema,
+	File: fileSchema,
+	CreateOpenFileResponse: createOpenFileResponseSchema,
+	OkResponse: okResponseSchema,
+	AppSetting: appSettingSchema,
+	GetSettingsResponse: getSettingsResponseSchema,
+	UpdateSettingResponse: updateSettingResponseSchema,
+	Quota: quotaSchema,
+	MetaResponse: metaResponseSchema,
 	ErrorResponse: {
 		type: 'object',
 		properties: {

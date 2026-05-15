@@ -6,54 +6,8 @@ import { getDb } from '../utils/db';
 import { getQuotaForUser } from '../utils/rate-limit';
 import { authMiddleware } from '../middleware/auth';
 import { genEaidx, parseEaidxFull } from '../../shared/eaid-x';
-import type { Schema, SchemaType } from './schema-type';
-
-// API Response Schemas
-export const bucketSchema = {
-	type: 'object',
-	properties: {
-		id: { type: 'string', description: 'Bucket ID' },
-		name: { type: 'string', description: 'Bucket name' },
-		userId: { type: 'string', description: 'Owner user ID' },
-	},
-	required: ['id', 'name', 'userId'],
-} as const satisfies Schema;
-
-export const createBucketResponseSchema = {
-	type: 'object',
-	properties: {
-		bucketId: { type: 'string', description: 'Newly created bucket ID' },
-	},
-	required: ['bucketId'],
-} as const satisfies Schema;
-
-export const listBucketsResponseSchema = {
-	type: 'object',
-	properties: {
-		buckets: {
-			type: 'array',
-			items: { type: 'ref', ref: 'Bucket' },
-			description: 'List of buckets',
-		},
-	},
-	required: ['buckets'],
-} as const satisfies Schema;
-
-const createBucketSchema = {
-	type: 'object',
-	properties: {
-		bucketName: { type: 'string', minLength: 1, maxLength: 64 },
-	},
-	required: ['bucketName'],
-} as const satisfies Schema;
-
-const deleteBucketSchema = {
-	type: 'object',
-	properties: {
-		bucketId: { type: 'string' },
-	},
-	required: ['bucketId'],
-} as const satisfies Schema;
+import type { SchemaType } from './schema-type';
+import { createBucketSchema, deleteBucketSchema } from './buckets.definition';
 
 const app = new Hono<{ Bindings: Env }>();
 

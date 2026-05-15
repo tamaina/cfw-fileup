@@ -5,84 +5,14 @@ import { users, tokens, files, buckets, appSettings, userQuotas, globalQuotas } 
 import { getDb } from '../utils/db';
 import { getQuotaForUser, getGlobalQuota } from '../utils/rate-limit';
 import { authMiddleware, adminMiddleware } from '../middleware/auth';
-import type { Schema, SchemaType } from './schema-type';
-
-// API Response Schemas
-export const appSettingSchema = {
-	type: 'object',
-	properties: {
-		key: { type: 'string', description: 'Setting key' },
-		value: { type: 'string', description: 'Setting value' },
-	},
-	required: ['key', 'value'],
-} as const satisfies Schema;
-
-export const getSettingsResponseSchema = {
-	type: 'array',
-	items: { type: 'ref', ref: 'AppSetting' },
-	description: 'List of application settings',
-} as const satisfies Schema;
-
-export const updateSettingResponseSchema = {
-	type: 'object',
-	properties: {
-		key: { type: 'string', description: 'Updated setting key' },
-		value: { type: 'string', description: 'Updated setting value' },
-	},
-	required: ['key', 'value'],
-} as const satisfies Schema;
-
-export const quotaSchema = {
-	type: 'object',
-	properties: {
-		maxBuckets: { type: 'integer', nullable: true, description: 'Max buckets per user' },
-		maxBucketSizeBytes: { type: 'integer', nullable: true, description: 'Max bucket size in bytes' },
-		maxFilesPerBucket: { type: 'integer', nullable: true, description: 'Max files per bucket' },
-		maxDailyUploads: { type: 'integer', nullable: true, description: 'Max daily uploads' },
-	},
-	required: ['maxBuckets', 'maxBucketSizeBytes', 'maxFilesPerBucket', 'maxDailyUploads'],
-} as const satisfies Schema;
-
-const suspendUserSchema = {
-	type: 'object',
-	properties: {
-		userId: { type: 'string' },
-	},
-	required: ['userId'],
-} as const satisfies Schema;
-
-const deleteFileSchema = {
-	type: 'object',
-	properties: {
-		fileId: { type: 'string' },
-	},
-	required: ['fileId'],
-} as const satisfies Schema;
-
-const deleteBucketSchema = {
-	type: 'object',
-	properties: {
-		bucketId: { type: 'string' },
-	},
-	required: ['bucketId'],
-} as const satisfies Schema;
-
-const toggleRegistrationSchema = {
-	type: 'object',
-	properties: {
-		enabled: { type: 'boolean' },
-	},
-	required: ['enabled'],
-} as const satisfies Schema;
-
-const updateSettingSchema = {
-	type: 'object',
-	properties: {
-		key: { type: 'string' },
-		value: { type: 'string' },
-	},
-	required: ['key', 'value'],
-} as const satisfies Schema;
+import type { SchemaType } from './schema-type';
+import {
+	suspendUserSchema,
+	deleteFileAdminSchema,
+	deleteBucketAdminSchema,
+	toggleRegistrationSchema,
+	updateSettingSchema,
+} from './admin.definition';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -112,7 +42,7 @@ app.post('/suspend-user', async (c) => {
 
 app.post('/delete-file', async (c) => {
 	const db = getDb(c.env);
-	const body = (await c.req.json()) as SchemaType<typeof deleteFileSchema>;
+	const body = (await c.req.json()) as SchemaType<typeof deleteFileAdminSchema>;
 
 	if (!body.fileId) {
 		throw new HTTPException(400, { message: 'fileId is required' });
@@ -137,7 +67,7 @@ app.post('/delete-file', async (c) => {
 
 app.post('/delete-bucket', async (c) => {
 	const db = getDb(c.env);
-	const body = (await c.req.json()) as SchemaType<typeof deleteBucketSchema>;
+	const body = (await c.req.json()) as SchemaType<typeof deleteBucketAdminSchema>;
 
 	if (!body.bucketId) {
 		throw new HTTPException(400, { message: 'bucketId is required' });
