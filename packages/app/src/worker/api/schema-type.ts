@@ -240,11 +240,11 @@ export type ExtractResponseSchema<
 	Status extends string | number = 200
 > = FindEndpointForResponse<T, Path, Method> extends { responses?: infer Responses }
 	? Responses extends Record<Status, infer R>
-		? R extends { content: { 'application/json': { schema: infer S } } }
+		? R extends { content: { 'application/json': { schema: infer S extends Schema } } }
 			? S
-			: R extends { schema: infer S }
+			: R extends { schema: infer S extends Schema }
 				? S
-				: R
+				: never
 		: never
 	: never;
 
@@ -260,4 +260,4 @@ export type ExtractResponseType<
 	Path extends string,
 	Method extends string,
 	Status extends string | number = 200
-> = SchemaType<ExtractResponseSchema<T, Path, Method, Status> extends infer S extends Schema ? S : never>;
+> = SchemaType<ExtractResponseSchema<T, Path, Method, Status>>;
