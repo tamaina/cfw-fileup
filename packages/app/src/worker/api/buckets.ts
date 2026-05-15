@@ -5,7 +5,7 @@ import { buckets, files } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { getQuotaForUser } from '../utils/rate-limit';
 import { authMiddleware } from '../middleware/auth';
-import { genEaidx, parseEaidxFull } from '../../shared/eaid-x';
+import { genEaidx } from '../../shared/eaid-x';
 import type { Schema, SchemaType } from './schema-type';
 
 const createBucketSchema = {
@@ -59,13 +59,11 @@ app.post('/create', async (c) => {
 	}
 
 	const bucketId = genEaidx(Date.now());
-	const bucketEaidx = parseEaidxFull(bucketId);
 
 	await db.insert(buckets).values({
 		id: bucketId,
 		userId: user.id,
 		name: body.bucketName,
-		createdAt: bucketEaidx.date,
 	});
 
 	return c.json({ bucketId });

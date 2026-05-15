@@ -11,26 +11,24 @@ export async function setupDb(): Promise<void> {
 			username text NOT NULL UNIQUE,
 			password_hash text NOT NULL,
 			is_admin integer DEFAULT false NOT NULL,
-			is_suspended integer DEFAULT false NOT NULL,
-			created_at integer NOT NULL
+			is_suspended integer DEFAULT false NOT NULL
 		)`),
 		env.DB.prepare(`CREATE TABLE IF NOT EXISTS tokens (
 			id text PRIMARY KEY NOT NULL,
 			user_id text NOT NULL,
 			token text NOT NULL UNIQUE,
-			created_at integer NOT NULL,
 			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 		)`),
 		env.DB.prepare(`CREATE TABLE IF NOT EXISTS buckets (
 			id text PRIMARY KEY NOT NULL,
 			user_id text NOT NULL,
 			name text NOT NULL UNIQUE,
-			created_at integer NOT NULL,
 			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 		)`),
 		env.DB.prepare(`CREATE TABLE IF NOT EXISTS files (
 			id text PRIMARY KEY NOT NULL,
 			bucket_id text NOT NULL,
+			user_id text NOT NULL,
 			path text NOT NULL,
 			r2_key text NOT NULL UNIQUE,
 			size integer,
@@ -40,9 +38,10 @@ export async function setupDb(): Promise<void> {
 			upload_expires_at integer NOT NULL,
 			is_closed integer DEFAULT false NOT NULL,
 			is_targz integer DEFAULT false NOT NULL,
+			is_tar integer DEFAULT false NOT NULL,
 			upload_id text,
-			created_at integer NOT NULL,
-			FOREIGN KEY (bucket_id) REFERENCES buckets(id) ON DELETE CASCADE
+			FOREIGN KEY (bucket_id) REFERENCES buckets(id) ON DELETE CASCADE,
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 		)`),
 		env.DB.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS files_bucket_path_idx ON files (bucket_id, path)`),
 		env.DB.prepare(`CREATE TABLE IF NOT EXISTS targz_files (

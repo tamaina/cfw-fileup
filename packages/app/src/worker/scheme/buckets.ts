@@ -5,5 +5,4 @@ export const buckets = sqliteTable('buckets', {
 	id: text('id').primaryKey(),
 	userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
 	name: text('name').notNull().unique(),
-	createdAt: integer('created_at').notNull(),
 });
