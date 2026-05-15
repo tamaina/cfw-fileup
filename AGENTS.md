@@ -68,6 +68,17 @@ R2はS3互換だがenv.R2から操作すべき。
 - `worker/scheme` — Drizzle ORMスキーマ定義
 - `worker/utils` — Worker内で使うユーティリティ関数
 
+#### Database Schema
+
+`src/worker/scheme/` contains Drizzle ORM table definitions.
+
+**Important:** `createdAt` timestamps in `users` and `tokens` tables are derived from EAID-X IDs, not from `Date.now()`. This ensures consistency between the ID generation timestamp and the stored timestamp:
+
+- User creation: `users.createdAt` ← `parseEaidxFull(userId).date`
+- Token creation: `tokens.createdAt` ← `parseEaidxFull(tokenId).date`
+
+Use `parseEaidxFull()` from `src/shared/eaid-x.ts` to extract the timestamp from any EAID-X ID.
+
 #### Tests
 
 ```sh
