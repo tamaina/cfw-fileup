@@ -40,6 +40,11 @@ const CurrentPage = computed(() => {
       &nbsp;|&nbsp;
       <NirA to="/my/uploadings">アップロード中</NirA>
       &nbsp;
+      <template v-if="authStore.user?.isAdmin">
+        |&nbsp;
+        <NirA to="/admin">管理</NirA>
+        &nbsp;
+      </template>
       <template v-if="authStore.user">
         <span>{{ authStore.user.username }}</span>
         &nbsp;

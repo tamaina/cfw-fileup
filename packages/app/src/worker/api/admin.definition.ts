@@ -208,6 +208,20 @@ export const adminApiSchema = [
 		},
 	},
 	{
+		path: '/api/admin/list-users',
+		method: 'get',
+		summary: 'List all users',
+		tags: ['Admin'],
+		responses: {
+			200: {
+				description: 'Success',
+				content: {
+					'application/json': { schema: { ref: 'UserList' } },
+				},
+			},
+		},
+	},
+	{
 		path: '/api/admin/toggle-registration',
 		method: 'post',
 		summary: 'Toggle registration',

@@ -7,6 +7,7 @@ import { getQuotaForUser, getGlobalQuota } from '../utils/rate-limit';
 import { authMiddleware, adminMiddleware } from '../middleware/auth';
 import type { ExtractRequestType, ExtractResponseType } from './schema-type';
 import { adminApiSchema } from './admin.definition';
+import { KNOWN_SETTINGS, KNOWN_SETTING_KEYS } from '../../shared/app-settings';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -91,14 +92,11 @@ app.post('/delete-bucket', async (c) => {
 	return c.json({ ok: true } as ExtractResponseType<typeof adminApiSchema, '/api/admin/delete-bucket', 'post', 200>);
 });
 
-app.post('/set-user-quota', async (c) => {
+app.post('/set-user-quota/:userId', async (c) => {
 	const db = getDb(c.env);
 	const body = (await c.req.json()) as Record<string, unknown>;
 
-	const userId = body.userId as string;
-	if (!userId) {
-		throw new HTTPException(400, { message: 'userId is required' });
-	}
+	const userId = c.req.param('userId');
 
 	const user = await db.select().from(users).where(eq(users.id, userId)).get();
 	if (!user) {
@@ -184,6 +182,17 @@ app.post('/delete-user-quota/:userId', async (c) => {
 	return c.json({ ok: true } as ExtractResponseType<typeof adminApiSchema, '/api/admin/delete-user-quota/:userId', 'post', 200>);
 });
 
+app.get('/list-users', async (c) => {
+	const db = getDb(c.env);
+	const allUsers = await db.select({
+		id: users.id,
+		username: users.username,
+		isAdmin: users.isAdmin,
+		isSuspended: users.isSuspended,
+	}).from(users).all();
+	return c.json(allUsers);
+});
+
 app.post('/toggle-registration', async (c) => {
 	const db = getDb(c.env);
 	type ToggleRegistrationReq = ExtractRequestType<typeof adminApiSchema, '/api/admin/toggle-registration', 'post'>;
@@ -216,6 +225,15 @@ app.post('/update-setting', async (c) => {
 
 	if (!body.key || body.value === undefined) {
 		throw new HTTPException(400, { message: 'key and value are required' });
+	}
+
+	if (!KNOWN_SETTING_KEYS.includes(body.key)) {
+		throw new HTTPException(400, { message: `Unknown setting key: ${body.key}` });
+	}
+
+	const settingDef = KNOWN_SETTINGS.find((s) => s.key === body.key)!;
+	if (settingDef.type === 'boolean' && body.value !== 'true' && body.value !== 'false') {
+		throw new HTTPException(400, { message: `Value for "${body.key}" must be "true" or "false"` });
 	}
 
 	await db

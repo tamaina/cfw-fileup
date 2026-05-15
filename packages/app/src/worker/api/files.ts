@@ -62,7 +62,7 @@ app.post('/create/open', async (c) => {
 		const dailyUploadCount = await db
 			.select()
 			.from(files)
-			.where(and(eq(files.bucketId, bucket.id), gte(files.id, genEaidx(dayStart))))
+			.where(and(eq(files.userId, user.id), gte(files.id, genEaidx(dayStart))))
 			.then((result) => result.length);
 
 		if (dailyUploadCount >= quota.maxDailyUploads) {

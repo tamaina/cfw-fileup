@@ -48,9 +48,29 @@ export const ROUTE_DEF = [
 		component: page(() => import('@/pages/browse.vue')),
 	},
 	{
+		path: '/admin',
+		name: 'admin',
+		component: page(() => import('@/pages/admin-index.vue')),
+	},
+	{
 		path: '/admin/settings',
 		name: 'admin-settings',
 		component: page(() => import('@/pages/admin-settings.vue')),
+	},
+	{
+		path: '/admin/users',
+		name: 'admin-users',
+		component: page(() => import('@/pages/admin-users.vue')),
+	},
+	{
+		path: '/admin/global-quota',
+		name: 'admin-global-quota',
+		component: page(() => import('@/pages/admin-global-quota.vue')),
+	},
+	{
+		path: '/admin/users/:userId',
+		name: 'admin-user-quota',
+		component: page(() => import('@/pages/admin-user-quota.vue')),
 	},
 	{
 		path: '/api-doc',

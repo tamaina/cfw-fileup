@@ -32,7 +32,7 @@ async function submit(): Promise<void> {
 			password: form.password,
 		};
 		if (mode.value === 'signup' && form.passphrase) {
-			body.passphrase = form.passphrase;
+			body.passphrase = form.passphrase ?? '';
 		}
 		const res = await fetch(path, {
 			method: 'POST',
@@ -72,8 +72,8 @@ async function submit(): Promise<void> {
         </label>
       </div>
       <div v-if="mode === 'signup' && passphraseRequired">
-        <label>合言葉(必須)<br>
-          <input v-model="form.passphrase" type="text" autocomplete="off" required>
+        <label>合言葉<br>
+          <input v-model="form.passphrase" type="text" autocomplete="off">
         </label>
       </div>
       <p v-if="error" style="color:red">{{ error }}</p>
