@@ -1,23 +1,20 @@
 import { Hono } from 'hono';
-import { eq, count } from 'drizzle-orm';
-import { appSettings, users } from '../scheme/index';
+import { eq } from 'drizzle-orm';
+import { appSettings } from '../scheme/index';
 import { getDb } from '../utils/db';
-import { metaResponseSchema } from './meta.definition';
+import { metaApiSchema } from './meta.definition';
 
 const app = new Hono<{ Bindings: Env }>();
 
 app.get('/meta', async (c) => {
-	try {
-		const db = getDb(c.env);
+	const db = getDb(c.env);
 
+	try {
 		const registrationEnabledSetting = await db
 			.select()
 			.from(appSettings)
 			.where(eq(appSettings.key, 'registration_enabled'))
 			.get();
-
-		const userCountResult = await db.select({ count: count() }).from(users);
-		const isFirstUser = (userCountResult[0]?.count ?? 0) === 0;
 
 		const requireSignupPassphraseSetting = await db
 			.select()
@@ -26,14 +23,13 @@ app.get('/meta', async (c) => {
 			.get();
 
 		const requireSignupPassphrase = requireSignupPassphraseSetting?.value === 'true';
-		const passphraseRequired = requireSignupPassphrase && !isFirstUser;
+		const passphraseRequired = requireSignupPassphrase;
 
 		return c.json({
 			registrationEnabled: registrationEnabledSetting?.value !== 'false',
 			passphraseRequired: !!passphraseRequired,
 		});
-	} catch (err) {
-		console.error('Error fetching meta:', err);
+	} catch {
 		return c.json({
 			registrationEnabled: true,
 			passphraseRequired: false,

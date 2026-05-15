@@ -5,32 +5,15 @@ import { users, tokens, appSettings } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { hashPassword, verifyPassword, generateToken } from '../utils/crypto';
 import { genEaidx } from '../../shared/eaid-x';
-import type { Schema, SchemaType } from './schema-type';
-
-const signupSchema = {
-	type: 'object',
-	properties: {
-		username: { type: 'string', minLength: 1, maxLength: 32 },
-		password: { type: 'string', minLength: 8 },
-		passphrase: { type: 'string', optional: true },
-	},
-	required: ['username', 'password'],
-} as const satisfies Schema;
-
-const signinSchema = {
-	type: 'object',
-	properties: {
-		username: { type: 'string' },
-		password: { type: 'string' },
-	},
-	required: ['username', 'password'],
-} as const satisfies Schema;
+import type { SchemaType, ExtractRequestSchema } from './schema-type';
+import { authApiSchema, signupSchema, signinSchema } from './auth.definition';
 
 const app = new Hono<{ Bindings: Env }>();
 
 app.post('/signup', async (c) => {
 	const db = getDb(c.env);
-	const body = (await c.req.json()) as SchemaType<typeof signupSchema>;
+	type SignupReq = ExtractRequestSchema<typeof authApiSchema, '/api/signup', 'post'>;
+	const body = (await c.req.json()) as SchemaType<SignupReq>;
 
 	if (!body.username || !body.password) {
 		throw new HTTPException(400, { message: 'username and password are required' });
@@ -123,7 +106,8 @@ app.post('/signup', async (c) => {
 
 app.post('/signin', async (c) => {
 	const db = getDb(c.env);
-	const body = (await c.req.json()) as SchemaType<typeof signinSchema>;
+	type SigninReq = ExtractRequestSchema<typeof authApiSchema, '/api/signin', 'post'>;
+	const body = (await c.req.json()) as SchemaType<SigninReq>;
 
 	if (!body.username || !body.password) {
 		throw new HTTPException(400, { message: 'username and password are required' });
@@ -154,6 +138,16 @@ app.post('/signin', async (c) => {
 	});
 
 	return c.json({ token: tokenValue });
+});
+
+app.get('/account/me', async (c) => {
+	const user = c.get('user');
+	return c.json({
+		id: user.id,
+		username: user.username,
+		isAdmin: user.isAdmin,
+		isSuspended: user.isSuspended,
+	});
 });
 
 export default app;

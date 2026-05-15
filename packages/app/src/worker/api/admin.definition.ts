@@ -193,6 +193,19 @@ export const adminApiSchema = [
 			404: { description: 'Not found' },
 		},
 	},
+	{
+		path: '/api/admin/toggle-registration',
+		method: 'post',
+		summary: 'Toggle registration',
+		tags: ['Admin'],
+		requestBody: {
+			'application/json': toggleRegistrationSchema,
+		},
+		responses: {
+			200: { description: 'Success', schema: okResponseSchema },
+			400: { description: 'Bad request' },
+		},
+	},
 ] as const;
 
-export { suspendUserSchema, deleteFileAdminSchema, deleteBucketAdminSchema, toggleRegistrationSchema, updateSettingSchema, appSettingSchema, quotaSchema, getSettingsResponseSchema, okResponseSchema };
+export { suspendUserSchema, deleteFileAdminSchema, deleteBucketAdminSchema, updateSettingSchema, appSettingSchema, quotaSchema, getSettingsResponseSchema, okResponseSchema, toggleRegistrationSchema };

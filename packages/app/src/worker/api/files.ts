@@ -6,81 +6,8 @@ import { getDb } from '../utils/db';
 import { getQuotaForUser } from '../utils/rate-limit';
 import { authMiddleware } from '../middleware/auth';
 import { genEaidx } from '../../shared/eaid-x';
-import type { Schema, SchemaType } from './schema-type';
-
-const createOpenSchema = {
-	type: 'object',
-	properties: {
-		bucketId: { type: 'string' },
-		path: { type: 'string' },
-	},
-	required: ['bucketId', 'path'],
-} as const satisfies Schema;
-
-const targzIndexSchema = {
-	type: 'object',
-	properties: {
-		fileId: { type: 'string' },
-		files: {
-			type: 'array',
-			items: {
-				type: 'object',
-				properties: {
-					path: { type: 'string' },
-					mimeType: { type: 'string' },
-					aStart: { type: 'integer' },
-					aFirstEnd: { type: 'integer' },
-					aFinalStart: { type: 'integer' },
-					aEnd: { type: 'integer' },
-					rStartOffset: { type: 'integer' },
-					rEndOffset: { type: 'integer' },
-				},
-				required: ['path', 'mimeType', 'aStart', 'aFirstEnd', 'aFinalStart', 'aEnd', 'rStartOffset', 'rEndOffset'],
-			},
-		},
-	},
-	required: ['fileId', 'files'],
-} as const satisfies Schema;
-
-const tarIndexSchema = {
-	type: 'object',
-	properties: {
-		fileId: { type: 'string' },
-		files: {
-			type: 'array',
-			items: {
-				type: 'object',
-				properties: {
-					path: { type: 'string' },
-					mimeType: { type: 'string' },
-					offset: { type: 'integer' },
-					size: { type: 'integer' },
-				},
-				required: ['path', 'mimeType', 'offset', 'size'],
-			},
-		},
-	},
-	required: ['fileId', 'files'],
-} as const satisfies Schema;
-
-const createCloseSchema = {
-	type: 'object',
-	properties: {
-		fileId: { type: 'string' },
-		isPublic: { type: 'boolean' },
-		passphrase: { type: 'string', optional: true },
-	},
-	required: ['fileId', 'isPublic'],
-} as const satisfies Schema;
-
-const deleteFileSchema = {
-	type: 'object',
-	properties: {
-		bucketId: { type: 'string' },
-		path: { type: 'string' },
-	},
-	required: ['bucketId', 'path'],
-} as const satisfies Schema;
+import type { SchemaType, ExtractRequestSchema } from './schema-type';
+import { filesApiSchema, createOpenSchema, targzIndexSchema, tarIndexSchema, createCloseSchema, deleteFileSchema } from './files.definition';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -89,7 +16,8 @@ app.use(authMiddleware);
 app.post('/create/open', async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
-	const body = (await c.req.json()) as SchemaType<typeof createOpenSchema>;
+	type CreateOpenReq = ExtractRequestSchema<typeof filesApiSchema, '/api/files/create/open', 'post'>;
+	const body = (await c.req.json()) as SchemaType<CreateOpenReq>;
 
 	if (!body.bucketId || !body.path) {
 		throw new HTTPException(400, { message: 'bucketId and path are required' });
@@ -161,15 +89,14 @@ app.post('/create/open', async (c) => {
 app.post('/create/targz-index', async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
-	const body = (await c.req.json()) as unknown;
+	type TargzIndexReq = ExtractRequestSchema<typeof filesApiSchema, '/api/files/create/targz-index', 'post'>;
+	const body = (await c.req.json()) as SchemaType<TargzIndexReq>;
 
-	const typedBody = body as SchemaType<typeof targzIndexSchema>;
-
-	if (!typedBody.fileId || !typedBody.files) {
+	if (!body.fileId || !body.files) {
 		throw new HTTPException(400, { message: 'fileId and files are required' });
 	}
 
-	const file = await db.select().from(files).where(eq(files.id, typedBody.fileId)).get();
+	const file = await db.select().from(files).where(eq(files.id, body.fileId)).get();
 
 	if (!file) {
 		throw new HTTPException(404, { message: 'File not found' });
@@ -189,10 +116,10 @@ app.post('/create/targz-index', async (c) => {
 		throw new HTTPException(410, { message: 'Upload expired' });
 	}
 
-	const fileIds = typedBody.files.map(() => genEaidx(Date.now()));
+	const fileIds = body.files.map(() => genEaidx(Date.now()));
 
-	for (let i = 0; i < typedBody.files.length; i++) {
-		const entry = typedBody.files[i];
+	for (let i = 0; i < body.files.length; i++) {
+		const entry = body.files[i];
 		await db.insert(targzFiles).values({
 			id: fileIds[i],
 			fileId: file.id,
@@ -215,7 +142,8 @@ app.post('/create/targz-index', async (c) => {
 app.post('/create/tar-index', async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
-	const body = (await c.req.json()) as SchemaType<typeof tarIndexSchema>;
+	type TarIndexReq = ExtractRequestSchema<typeof filesApiSchema, '/api/files/create/tar-index', 'post'>;
+	const body = (await c.req.json()) as SchemaType<TarIndexReq>;
 
 	if (!body.fileId || !body.files) {
 		throw new HTTPException(400, { message: 'fileId and files are required' });
@@ -250,7 +178,8 @@ app.post('/create/tar-index', async (c) => {
 app.post('/create/close', async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
-	const body = (await c.req.json()) as SchemaType<typeof createCloseSchema>;
+	type CreateCloseReq = ExtractRequestSchema<typeof filesApiSchema, '/api/files/create/close', 'post'>;
+	const body = (await c.req.json()) as SchemaType<CreateCloseReq>;
 
 	if (!body.fileId) {
 		throw new HTTPException(400, { message: 'fileId is required' });
@@ -362,7 +291,8 @@ app.post('/uploadings', async (c) => {
 app.post('/delete', async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
-	const body = (await c.req.json()) as SchemaType<typeof deleteFileSchema>;
+	type DeleteFileReq = ExtractRequestSchema<typeof filesApiSchema, '/api/files/delete', 'post'>;
+	const body = (await c.req.json()) as SchemaType<DeleteFileReq>;
 
 	if (!body.bucketId || !body.path) {
 		throw new HTTPException(400, { message: 'bucketId and path are required' });
