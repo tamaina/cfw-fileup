@@ -5,48 +5,14 @@ import { users, tokens, files, buckets, appSettings, userQuotas, globalQuotas } 
 import { getDb } from '../utils/db';
 import { getQuotaForUser, getGlobalQuota } from '../utils/rate-limit';
 import { authMiddleware, adminMiddleware } from '../middleware/auth';
-import type { Schema, SchemaType } from './schema-type';
-
-const suspendUserSchema = {
-	type: 'object',
-	properties: {
-		userId: { type: 'string' },
-	},
-	required: ['userId'],
-} as const satisfies Schema;
-
-const deleteFileSchema = {
-	type: 'object',
-	properties: {
-		fileId: { type: 'string' },
-	},
-	required: ['fileId'],
-} as const satisfies Schema;
-
-const deleteBucketSchema = {
-	type: 'object',
-	properties: {
-		bucketId: { type: 'string' },
-	},
-	required: ['bucketId'],
-} as const satisfies Schema;
-
-const toggleRegistrationSchema = {
-	type: 'object',
-	properties: {
-		enabled: { type: 'boolean' },
-	},
-	required: ['enabled'],
-} as const satisfies Schema;
-
-const updateSettingSchema = {
-	type: 'object',
-	properties: {
-		key: { type: 'string' },
-		value: { type: 'string' },
-	},
-	required: ['key', 'value'],
-} as const satisfies Schema;
+import type { SchemaType } from './schema-type';
+import {
+	suspendUserSchema,
+	deleteFileAdminSchema,
+	deleteBucketAdminSchema,
+	toggleRegistrationSchema,
+	updateSettingSchema,
+} from './admin.definition';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -76,7 +42,7 @@ app.post('/suspend-user', async (c) => {
 
 app.post('/delete-file', async (c) => {
 	const db = getDb(c.env);
-	const body = (await c.req.json()) as SchemaType<typeof deleteFileSchema>;
+	const body = (await c.req.json()) as SchemaType<typeof deleteFileAdminSchema>;
 
 	if (!body.fileId) {
 		throw new HTTPException(400, { message: 'fileId is required' });
@@ -101,7 +67,7 @@ app.post('/delete-file', async (c) => {
 
 app.post('/delete-bucket', async (c) => {
 	const db = getDb(c.env);
-	const body = (await c.req.json()) as SchemaType<typeof deleteBucketSchema>;
+	const body = (await c.req.json()) as SchemaType<typeof deleteBucketAdminSchema>;
 
 	if (!body.bucketId) {
 		throw new HTTPException(400, { message: 'bucketId is required' });
@@ -246,32 +212,43 @@ app.post('/delete-user-quota/:userId', async (c) => {
 });
 
 app.post('/update-setting', async (c) => {
-	const db = getDb(c.env);
-	const body = (await c.req.json()) as SchemaType<typeof updateSettingSchema>;
+	try {
+		const db = getDb(c.env);
+		const body = (await c.req.json()) as SchemaType<typeof updateSettingSchema>;
 
-	if (!body.key || body.value === undefined) {
-		throw new HTTPException(400, { message: 'key and value are required' });
+		if (!body.key || body.value === undefined) {
+			throw new HTTPException(400, { message: 'key and value are required' });
+		}
+
+		await db
+			.insert(appSettings)
+			.values({
+				key: body.key,
+				value: body.value,
+			})
+			.onConflictDoUpdate({
+				target: appSettings.key,
+				set: { value: body.value },
+			});
+
+		return c.json({ key: body.key, value: body.value });
+	} catch (err) {
+		if (err instanceof HTTPException) throw err;
+		console.error('Error updating setting:', err);
+		throw new HTTPException(500, { message: 'Failed to update setting' });
 	}
-
-	await db
-		.insert(appSettings)
-		.values({
-			key: body.key,
-			value: body.value,
-		})
-		.onConflictDoUpdate({
-			target: appSettings.key,
-			set: { value: body.value },
-		});
-
-	return c.json({ ok: true });
 });
 
 app.get('/get-settings', async (c) => {
-	const db = getDb(c.env);
-	const settings = await db.select().from(appSettings);
+	try {
+		const db = getDb(c.env);
+		const settings = await db.select().from(appSettings);
 
-	return c.json(settings);
+		return c.json(settings);
+	} catch (err) {
+		console.error('Error fetching settings:', err);
+		throw new HTTPException(500, { message: 'Failed to fetch settings' });
+	}
 });
 
 export default app;

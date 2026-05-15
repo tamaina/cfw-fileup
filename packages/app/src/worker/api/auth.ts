@@ -47,6 +47,7 @@ app.post('/signup', async (c) => {
 	const userCount = await db.select({ count: count() }).from(users);
 	const isFirstUser = (userCount[0]?.count ?? 0) === 0;
 
+	// Get or initialize require_signup_passphrase setting
 	let requireSignupPassphraseSetting = await db
 		.select()
 		.from(appSettings)
@@ -62,6 +63,7 @@ app.post('/signup', async (c) => {
 		requireSignupPassphraseSetting = { key: 'require_signup_passphrase', value: defaultValue };
 	}
 
+	// Check passphrase requirement (first user is always exempt)
 	const requireSignupPassphrase = requireSignupPassphraseSetting?.value === 'true';
 	const signupPassphrase = c.env.SIGNUP_PASSPHRASE;
 
@@ -87,7 +89,6 @@ app.post('/signup', async (c) => {
 	}
 
 	const userId = genEaidx(Date.now());
-	const userEaidx = parseEaidxFull(userId);
 	const passwordHash = await hashPassword(body.password);
 
 	await db.insert(users).values({

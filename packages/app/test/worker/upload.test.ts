@@ -97,6 +97,7 @@ describe('PATCH /upload/:fileId/resume', () => {
 			headers: {
 				Authorization: `Bearer ${token}`,
 				'Upload-Offset': '0',
+				'Content-Length': String(data.length),
 				'Content-Type': 'application/offset+octet-stream',
 				'Content-Length': String(data.length),
 			},

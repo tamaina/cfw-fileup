@@ -5,8 +5,24 @@
 // https://github.com/misskey-dev/misskey/blob/e2335567005ccd6e45db1556ae1095bb00d87e52/packages/backend/src/misc/json-schema.ts
 
 export const refs = {
-  // AnApiSchema: OpenApiDefObj
-};
+  Bucket: {
+    type: 'object',
+    properties: {
+      id: { type: 'string' as const, description: 'Bucket ID' },
+      name: { type: 'string' as const, description: 'Bucket name' },
+      userId: { type: 'string' as const, description: 'Owner user ID' },
+    },
+    required: ['id', 'name', 'userId'],
+  } as const,
+  AppSetting: {
+    type: 'object',
+    properties: {
+      key: { type: 'string' as const, description: 'Setting key' },
+      value: { type: 'string' as const, description: 'Setting value' },
+    },
+    required: ['key', 'value'],
+  } as const,
+} as const;
 
 export type Packed<x extends keyof typeof refs> = SchemaType<typeof refs[x]>;
 
