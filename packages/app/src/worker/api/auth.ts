@@ -7,6 +7,35 @@ import { hashPassword, verifyPassword, generateToken } from '../utils/crypto';
 import { genEaidx, parseEaidxFull } from '../../shared/eaid-x';
 import type { Schema, SchemaType } from './schema-type';
 
+// API Response Schemas
+export const signupResponseSchema = {
+	type: 'object',
+	properties: {
+		userId: { type: 'string', description: 'User ID (EAID-X format)' },
+		token: { type: 'string', description: 'Authentication token' },
+	},
+	required: ['userId', 'token'],
+} as const satisfies Schema;
+
+export const signinResponseSchema = {
+	type: 'object',
+	properties: {
+		token: { type: 'string', description: 'Authentication token' },
+	},
+	required: ['token'],
+} as const satisfies Schema;
+
+export const userProfileSchema = {
+	type: 'object',
+	properties: {
+		id: { type: 'string', description: 'User ID' },
+		username: { type: 'string', description: 'Username' },
+		isAdmin: { type: 'boolean', description: 'Admin status' },
+		isSuspended: { type: 'boolean', description: 'Suspension status' },
+	},
+	required: ['id', 'username', 'isAdmin', 'isSuspended'],
+} as const satisfies Schema;
+
 const signupSchema = {
 	type: 'object',
 	properties: {

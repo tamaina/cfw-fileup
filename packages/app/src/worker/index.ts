@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { genEaidx } from '../shared/eaid-x';
+import { generateOpenAPISpec } from './openapi-generator';
 import authRoutes from './api/auth';
 import bucketRoutes from './api/buckets';
 import fileRoutes from './api/files';
@@ -39,6 +40,11 @@ app.get('/ping', (c) => {
 
 app.get('/id', (c) => {
 	return c.text(genEaidx(Date.now()));
+});
+
+app.get('/api/openapi.json', (c) => {
+	const spec = generateOpenAPISpec();
+	return c.json(spec);
 });
 
 app.route('/api', authRoutes);

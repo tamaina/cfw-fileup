@@ -7,6 +7,42 @@ import { getQuotaForUser, getGlobalQuota } from '../utils/rate-limit';
 import { authMiddleware, adminMiddleware } from '../middleware/auth';
 import type { Schema, SchemaType } from './schema-type';
 
+// API Response Schemas
+export const appSettingSchema = {
+	type: 'object',
+	properties: {
+		key: { type: 'string', description: 'Setting key' },
+		value: { type: 'string', description: 'Setting value' },
+	},
+	required: ['key', 'value'],
+} as const satisfies Schema;
+
+export const getSettingsResponseSchema = {
+	type: 'array',
+	items: { type: 'ref', ref: 'AppSetting' },
+	description: 'List of application settings',
+} as const satisfies Schema;
+
+export const updateSettingResponseSchema = {
+	type: 'object',
+	properties: {
+		key: { type: 'string', description: 'Updated setting key' },
+		value: { type: 'string', description: 'Updated setting value' },
+	},
+	required: ['key', 'value'],
+} as const satisfies Schema;
+
+export const quotaSchema = {
+	type: 'object',
+	properties: {
+		maxBuckets: { type: 'integer', nullable: true, description: 'Max buckets per user' },
+		maxBucketSizeBytes: { type: 'integer', nullable: true, description: 'Max bucket size in bytes' },
+		maxFilesPerBucket: { type: 'integer', nullable: true, description: 'Max files per bucket' },
+		maxDailyUploads: { type: 'integer', nullable: true, description: 'Max daily uploads' },
+	},
+	required: ['maxBuckets', 'maxBucketSizeBytes', 'maxFilesPerBucket', 'maxDailyUploads'],
+} as const satisfies Schema;
+
 const suspendUserSchema = {
 	type: 'object',
 	properties: {

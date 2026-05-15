@@ -8,6 +8,42 @@ import { authMiddleware } from '../middleware/auth';
 import { genEaidx, parseEaidxFull } from '../../shared/eaid-x';
 import type { Schema, SchemaType } from './schema-type';
 
+// API Response Schemas
+export const fileSchema = {
+	type: 'object',
+	properties: {
+		id: { type: 'string', description: 'File ID' },
+		path: { type: 'string', description: 'File path in bucket' },
+		bucketId: { type: 'string', description: 'Bucket ID' },
+		userId: { type: 'string', description: 'Owner user ID' },
+		size: { type: 'number', nullable: true, description: 'File size in bytes' },
+		mimeType: { type: 'string', nullable: true, description: 'MIME type' },
+		isPublic: { type: 'boolean', description: 'Public accessibility' },
+		uploadExpiresAt: { type: 'number', description: 'Upload expiration timestamp' },
+		isClosed: { type: 'boolean', description: 'Upload completion status' },
+		isTargz: { type: 'boolean', description: 'tar.gz indexed file' },
+		isTar: { type: 'boolean', description: 'tar indexed file' },
+	},
+	required: ['id', 'path', 'bucketId', 'userId', 'isPublic', 'uploadExpiresAt', 'isClosed', 'isTargz', 'isTar'],
+} as const satisfies Schema;
+
+export const createOpenFileResponseSchema = {
+	type: 'object',
+	properties: {
+		fileId: { type: 'string', description: 'File ID for upload' },
+		uploadExpiry: { type: 'number', description: 'Upload expiration timestamp' },
+	},
+	required: ['fileId', 'uploadExpiry'],
+} as const satisfies Schema;
+
+export const okResponseSchema = {
+	type: 'object',
+	properties: {
+		ok: { type: 'boolean', description: 'Operation successful' },
+	},
+	required: ['ok'],
+} as const satisfies Schema;
+
 const createOpenSchema = {
 	type: 'object',
 	properties: {
