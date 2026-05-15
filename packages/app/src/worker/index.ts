@@ -47,6 +47,31 @@ app.get('/api/openapi.json', (c) => {
 	return c.json(spec);
 });
 
+app.get('/api-docs.html', (c) => {
+	return c.html(`<!DOCTYPE html>
+<html>
+	<head>
+		<title>CFW FileUp API Documentation</title>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<style>
+			html {
+				font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+				background: #fff;
+			}
+			body {
+				margin: 0;
+				padding: 0;
+			}
+		</style>
+	</head>
+	<body>
+		<script id="api-reference" data-url="/api/openapi.json"></script>
+		<script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+	</body>
+</html>`);
+});
+
 app.route('/api', authRoutes);
 app.route('/api', metaRoutes);
 app.route('/api/buckets', bucketRoutes);
