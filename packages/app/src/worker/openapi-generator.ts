@@ -7,14 +7,12 @@ import type { Schema } from './api/schema-type';
 import { signupResponseSchema, signinResponseSchema, userProfileSchema } from './api/auth.definition';
 import { bucketSchema, createBucketResponseSchema, listBucketsResponseSchema } from './api/buckets.definition';
 import {
-	fileSchema,
 	createOpenFileResponseSchema,
 	okResponseSchema,
 } from './api/files.definition';
 import {
 	appSettingSchema,
 	getSettingsResponseSchema,
-	updateSettingResponseSchema,
 	quotaSchema,
 } from './api/admin.definition';
 import { metaResponseSchema } from './api/meta.definition';
@@ -70,12 +68,10 @@ const schemas: Record<string, Schema> = {
 	Bucket: bucketSchema,
 	CreateBucketResponse: createBucketResponseSchema,
 	ListBucketsResponse: listBucketsResponseSchema,
-	File: fileSchema,
 	CreateOpenFileResponse: createOpenFileResponseSchema,
 	OkResponse: okResponseSchema,
 	AppSetting: appSettingSchema,
 	GetSettingsResponse: getSettingsResponseSchema,
-	UpdateSettingResponse: updateSettingResponseSchema,
 	Quota: quotaSchema,
 	MetaResponse: metaResponseSchema,
 	ErrorResponse: {
@@ -538,7 +534,7 @@ export function generateOpenAPISpec(): Record<string, any> {
 					description: 'Setting updated successfully',
 					content: {
 						'application/json': {
-							schema: schemaToOpenAPI(schemas.UpdateSettingResponse),
+							schema: schemaToOpenAPI(schemas.OkResponse),
 						},
 					},
 				},

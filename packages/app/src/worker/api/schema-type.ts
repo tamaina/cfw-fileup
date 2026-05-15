@@ -175,33 +175,47 @@ export type SchemaTypeDef<p extends Schema> =
 export type SchemaType<p extends Schema> = NullOrUndefined<p, SchemaTypeDef<p>>;
 
 // API Schema extraction utilities
+type FindEndpoint<T extends readonly any[], Path extends string, Method extends string> =
+	T extends readonly [infer First, ...infer Rest]
+		? First extends { path: infer P; method: infer M; requestBody?: any }
+			? P extends Path
+				? M extends Method
+					? First
+					: FindEndpoint<Rest, Path, Method>
+				: FindEndpoint<Rest, Path, Method>
+			: FindEndpoint<Rest, Path, Method>
+		: never;
+
 export type ExtractRequestSchema<
 	T extends readonly any[],
 	Path extends string,
 	Method extends string
-> = T extends readonly [infer First extends { path: infer P; method: infer M; requestBody?: any }, ...infer Rest]
-	? P extends Path
-		? M extends Method
-			? First['requestBody'] extends { 'application/json': infer S }
-				? S
-				: never
-			: ExtractRequestSchema<Rest, Path, Method>
-		: ExtractRequestSchema<Rest, Path, Method>
+> = FindEndpoint<T, Path, Method> extends { requestBody?: infer RB }
+	? RB extends { 'application/json': infer S }
+		? S
+		: never
 	: never;
+
+type FindEndpointForResponse<T extends readonly any[], Path extends string, Method extends string> =
+	T extends readonly [infer First, ...infer Rest]
+		? First extends { path: infer P; method: infer M; responses?: any }
+			? P extends Path
+				? M extends Method
+					? First
+					: FindEndpointForResponse<Rest, Path, Method>
+				: FindEndpointForResponse<Rest, Path, Method>
+			: FindEndpointForResponse<Rest, Path, Method>
+		: never;
 
 export type ExtractResponseSchema<
 	T extends readonly any[],
 	Path extends string,
 	Method extends string,
 	Status extends string | number = 200
-> = T extends readonly [infer First extends { path: infer P; method: infer M; responses?: any }, ...infer Rest]
-	? P extends Path
-		? M extends Method
-			? First['responses'] extends Record<Status, infer R>
-				? R extends { schema: infer S }
-					? S
-					: R
-				: never
-			: ExtractResponseSchema<Rest, Path, Method, Status>
-		: ExtractResponseSchema<Rest, Path, Method, Status>
+> = FindEndpointForResponse<T, Path, Method> extends { responses?: infer Responses }
+	? Responses extends Record<Status, infer R>
+		? R extends { schema: infer S }
+			? S
+			: R
+		: never
 	: never;
