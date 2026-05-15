@@ -39,6 +39,15 @@ const toggleRegistrationSchema = {
 	required: ['enabled'],
 } as const satisfies Schema;
 
+const updateSettingSchema = {
+	type: 'object',
+	properties: {
+		key: { type: 'string' },
+		value: { type: 'string' },
+	},
+	required: ['key', 'value'],
+} as const satisfies Schema;
+
 const app = new Hono<{ Bindings: Env }>();
 
 app.use(authMiddleware);
@@ -234,6 +243,35 @@ app.post('/delete-user-quota/:userId', async (c) => {
 	await db.delete(userQuotas).where(eq(userQuotas.userId, userId));
 
 	return c.json({ ok: true });
+});
+
+app.post('/update-setting', async (c) => {
+	const db = getDb(c.env);
+	const body = (await c.req.json()) as SchemaType<typeof updateSettingSchema>;
+
+	if (!body.key || body.value === undefined) {
+		throw new HTTPException(400, { message: 'key and value are required' });
+	}
+
+	await db
+		.insert(appSettings)
+		.values({
+			key: body.key,
+			value: body.value,
+		})
+		.onConflictDoUpdate({
+			target: appSettings.key,
+			set: { value: body.value },
+		});
+
+	return c.json({ ok: true });
+});
+
+app.get('/get-settings', async (c) => {
+	const db = getDb(c.env);
+	const settings = await db.select().from(appSettings);
+
+	return c.json(settings);
 });
 
 export default app;

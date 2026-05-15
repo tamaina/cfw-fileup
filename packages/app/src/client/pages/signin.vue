@@ -8,6 +8,19 @@ const mode = ref<'signin' | 'signup'>('signin');
 const form = reactive({ username: '', password: '', passphrase: '' });
 const error = ref('');
 const loading = ref(false);
+const passphraseRequired = ref(false);
+
+async function fetchMeta(): Promise<void> {
+	try {
+		const res = await fetch('/api/meta');
+		const data = (await res.json()) as { passphraseRequired?: boolean };
+		passphraseRequired.value = data.passphraseRequired ?? false;
+	} catch (e) {
+		console.error('Failed to fetch meta:', e);
+	}
+}
+
+fetchMeta();
 
 async function submit(): Promise<void> {
 	error.value = '';
@@ -58,9 +71,9 @@ async function submit(): Promise<void> {
           <input v-model="form.password" type="password" required autocomplete="current-password">
         </label>
       </div>
-      <div v-if="mode === 'signup'">
-        <label>合言葉(任意)<br>
-          <input v-model="form.passphrase" type="text" autocomplete="off">
+      <div v-if="mode === 'signup' && passphraseRequired">
+        <label>合言葉(必須)<br>
+          <input v-model="form.passphrase" type="text" autocomplete="off" required>
         </label>
       </div>
       <p v-if="error" style="color:red">{{ error }}</p>
