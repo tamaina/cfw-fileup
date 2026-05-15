@@ -7,6 +7,7 @@ import fileRoutes from './api/files';
 import accountRoutes from './api/account';
 import adminRoutes from './api/admin';
 import directoryRoutes from './api/directories';
+import metaRoutes from './api/meta';
 import downloadRoutes from './routes/download';
 import uploadRoutes from './routes/upload';
 
@@ -41,6 +42,7 @@ app.get('/id', (c) => {
 });
 
 app.route('/api', authRoutes);
+app.route('/api', metaRoutes);
 app.route('/api/buckets', bucketRoutes);
 app.route('/api/files', fileRoutes);
 app.route('/api/account', accountRoutes);

@@ -48,6 +48,11 @@ export const ROUTE_DEF = [
 		component: page(() => import('@/pages/browse.vue')),
 	},
 	{
+		path: '/admin/settings',
+		name: 'admin-settings',
+		component: page(() => import('@/pages/admin-settings.vue')),
+	},
+	{
 		path: '/:(*)',
 		component: page(() => import('@/pages/not-found.vue')),
 	},
