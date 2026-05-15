@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import { eq, and, gte, desc } from 'drizzle-orm';
+import { eq, and, gte, desc, sql } from 'drizzle-orm';
 import { buckets, files, targzFiles, tarFiles, uploadParts } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { getQuotaForUser } from '../utils/rate-limit';
@@ -241,13 +241,12 @@ app.post('/create/close', async (c) => {
 	}
 
 	if (quota.maxBucketSizeBytes !== null) {
-		const bucketFiles = await db.select().from(files).where(eq(files.bucketId, bucket.id));
-		const totalSize = bucketFiles.reduce((sum, f) => sum + (f.size ?? 0), 0) + (r2Object.size ?? 0);
-
-		if (totalSize > quota.maxBucketSizeBytes) {
+		if (bucket.usedBytes + (r2Object.size ?? 0) > quota.maxBucketSizeBytes) {
 			throw new HTTPException(429, { message: 'Bucket size limit exceeded' });
 		}
 	}
+
+	const fileSize = r2Object.size ?? 0;
 
 	await db
 		.update(files)
@@ -255,10 +254,15 @@ app.post('/create/close', async (c) => {
 			isClosed: true,
 			isPublic: body.isPublic ?? true,
 			passphrase: body.passphrase ?? null,
-			size: r2Object.size ?? 0,
+			size: fileSize,
 			mimeType: r2Object.httpMetadata?.contentType,
 		})
 		.where(eq(files.id, file.id));
+
+	await db
+		.update(buckets)
+		.set({ usedBytes: sql`${buckets.usedBytes} + ${fileSize}` })
+		.where(eq(buckets.id, bucket.id));
 
 	return c.json({ ok: true } as ExtractResponseType<typeof filesApiSchema, '/api/files/create/close', 'post', 200>);
 });
@@ -325,6 +329,13 @@ app.post('/delete', async (c) => {
 	}
 
 	await db.delete(files).where(eq(files.id, file.id));
+
+	if (file.isClosed && file.size) {
+		await db
+			.update(buckets)
+			.set({ usedBytes: sql`MAX(0, ${buckets.usedBytes} - ${file.size})` })
+			.where(eq(buckets.id, bucket.id));
+	}
 
 	return c.json({ ok: true } as ExtractResponseType<typeof filesApiSchema, '/api/files/delete', 'post', 200>);
 });

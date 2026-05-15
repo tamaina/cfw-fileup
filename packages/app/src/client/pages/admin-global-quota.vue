@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
+import { Button } from '@vuetify/v0';
 import { authStore, authHeaders } from '../store/auth';
 import NirA from '@/components/nira.vue';
 
@@ -66,40 +67,50 @@ async function saveQuota(): Promise<void> {
 
 <template>
   <div>
-    <h2>グローバルクォータ設定</h2>
-    <NirA to="/admin">← 管理パネルに戻る</NirA>
+    <NirA to="/admin" class="back-link">← 管理パネルに戻る</NirA>
 
-    <div v-if="!authStore.user?.isAdmin" style="color:red; margin-top:12px">
+    <div class="section-header">
+      <h2 class="section-title">グローバルクォータ設定</h2>
+    </div>
+
+    <div v-if="!authStore.user?.isAdmin" class="alert alert-error">
       管理者権限が必要です。
     </div>
 
     <template v-else>
-      <p style="color:#666; margin-top:12px; font-size:0.9em">
+      <p class="text-muted mb-4" style="font-size:0.875rem">
         全ユーザーに適用されるデフォルト値です。ユーザー個別設定がある場合はそちらが優先されます。空欄は無制限。
       </p>
 
-      <p v-if="error" style="color:red">{{ error }}</p>
-      <p v-if="success" style="color:green">{{ success }}</p>
+      <div v-if="error" class="alert alert-error mb-4">{{ error }}</div>
+      <div v-if="success" class="alert alert-success mb-4">{{ success }}</div>
 
-      <div v-if="loading">読み込み中...</div>
-      <form v-else @submit.prevent="saveQuota" style="display:grid; gap:10px; max-width:400px; margin-top:16px">
-        <label>
-          バケット数上限<br>
-          <input v-model="quota.maxBuckets" type="number" min="0" placeholder="無制限" style="width:100%">
-        </label>
-        <label>
-          バケットサイズ上限 (bytes)<br>
-          <input v-model="quota.maxBucketSizeBytes" type="number" min="0" placeholder="無制限" style="width:100%">
-        </label>
-        <label>
-          バケットあたりファイル数上限<br>
-          <input v-model="quota.maxFilesPerBucket" type="number" min="0" placeholder="無制限" style="width:100%">
-        </label>
-        <label>
-          1日あたりアップロード数上限<br>
-          <input v-model="quota.maxDailyUploads" type="number" min="0" placeholder="無制限" style="width:100%">
-        </label>
-        <button type="submit" :disabled="saving">保存</button>
+      <div v-if="loading" class="page-loading">
+        <span class="spinner" />読み込み中...
+      </div>
+      <form v-else @submit.prevent="saveQuota" style="display:flex; flex-direction:column; gap:12px; max-width:400px">
+        <div class="form-group">
+          <label class="form-label">バケット数上限</label>
+          <input v-model="quota.maxBuckets" class="form-input" type="number" min="0" placeholder="無制限">
+        </div>
+        <div class="form-group">
+          <label class="form-label">バケットサイズ上限 (bytes)</label>
+          <input v-model="quota.maxBucketSizeBytes" class="form-input" type="number" min="0" placeholder="無制限">
+        </div>
+        <div class="form-group">
+          <label class="form-label">バケットあたりファイル数上限</label>
+          <input v-model="quota.maxFilesPerBucket" class="form-input" type="number" min="0" placeholder="無制限">
+        </div>
+        <div class="form-group">
+          <label class="form-label">1日あたりアップロード数上限</label>
+          <input v-model="quota.maxDailyUploads" class="form-input" type="number" min="0" placeholder="無制限">
+        </div>
+        <div>
+          <Button.Root type="submit" class="btn btn-primary" :loading="saving">
+            <Button.Loading>保存中...</Button.Loading>
+            <Button.Content>保存する</Button.Content>
+          </Button.Root>
+        </div>
       </form>
     </template>
   </div>

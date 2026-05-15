@@ -54,12 +54,14 @@ export const bucketsApiSchema = [
 										properties: {
 											id: { type: 'string', description: 'Bucket ID' },
 											name: { type: 'string', description: 'Bucket name' },
+											usedBytes: { type: 'integer', description: 'Total bytes used in this bucket' },
 										},
-										required: ['id', 'name'],
+										required: ['id', 'name', 'usedBytes'],
 									} as const satisfies Schema,
 								},
+								maxBucketSizeBytes: { type: 'integer', nullable: true, description: 'Max bucket size in bytes from quota' },
 							},
-							required: ['buckets'],
+							required: ['buckets', 'maxBucketSizeBytes'],
 						} as const satisfies Schema
 					}
 				}

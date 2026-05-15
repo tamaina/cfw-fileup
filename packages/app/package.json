@@ -18,6 +18,7 @@
     "cf-typegen": "wrangler types ./src/worker/worker-configuration.d.ts"
   },
   "dependencies": {
+    "@vuetify/v0": "1.0.0-alpha.4",
     "bgzf": "workspace:*"
   },
   "devDependencies": {

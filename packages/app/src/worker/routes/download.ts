@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import { eq, and, like } from 'drizzle-orm';
+import { eq, and, like, sql } from 'drizzle-orm';
 import { buckets, files, targzFiles, directories } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { authMiddleware } from '../middleware/auth';
@@ -329,6 +329,13 @@ app.delete('/d/:bucketName/*', authMiddleware, async (c) => {
 	}
 
 	await db.delete(files).where(eq(files.id, file.id));
+
+	if (file.isClosed && file.size) {
+		await db
+			.update(buckets)
+			.set({ usedBytes: sql`MAX(0, ${buckets.usedBytes} - ${file.size})` })
+			.where(eq(buckets.id, bucket.id));
+	}
 
 	return c.json({ ok: true });
 });

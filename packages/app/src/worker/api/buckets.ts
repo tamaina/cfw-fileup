@@ -92,12 +92,18 @@ app.post('/list', async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
 
-	const userBuckets = await db
-		.select({ id: buckets.id, name: buckets.name })
-		.from(buckets)
-		.where(eq(buckets.userId, user.id));
+	const [userBuckets, quota] = await Promise.all([
+		db
+			.select({ id: buckets.id, name: buckets.name, usedBytes: buckets.usedBytes })
+			.from(buckets)
+			.where(eq(buckets.userId, user.id)),
+		getQuotaForUser(c.env, user.id),
+	]);
 
-	return c.json({ buckets: userBuckets } as ExtractResponseType<typeof bucketsApiSchema, '/api/buckets/list', 'post', 200>);
+	return c.json({
+		buckets: userBuckets,
+		maxBucketSizeBytes: quota.maxBucketSizeBytes,
+	} as ExtractResponseType<typeof bucketsApiSchema, '/api/buckets/list', 'post', 200>);
 });
 
 export default app;

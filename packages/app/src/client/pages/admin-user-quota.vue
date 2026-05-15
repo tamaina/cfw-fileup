@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
+import { Button } from '@vuetify/v0';
 import { authStore, authHeaders } from '../store/auth';
 import NirA from '@/components/nira.vue';
+import ConfirmDialog from '@/components/confirm-dialog.vue';
 
 const props = defineProps<{ userId: string }>();
 
@@ -19,6 +21,7 @@ const deleting = ref(false);
 const error = ref('');
 const success = ref('');
 const hasUserQuota = ref(false);
+const resetDialog = ref(false);
 
 onMounted(fetchQuota);
 
@@ -26,7 +29,6 @@ async function fetchQuota(): Promise<void> {
 	loading.value = true;
 	error.value = '';
 	try {
-		// Check if user-specific quota exists by comparing with global
 		const [userRes, globalRes] = await Promise.all([
 			fetch(`/api/admin/get-user-quota/${props.userId}`, { headers: authHeaders() }),
 			fetch('/api/admin/get-global-quota', { headers: authHeaders() }),
@@ -35,7 +37,6 @@ async function fetchQuota(): Promise<void> {
 		const userData = await userRes.json() as Record<string, number | null>;
 		const globalData = globalRes.ok ? await globalRes.json() as Record<string, number | null> : {};
 
-		// user-specific quota exists if any value differs from global (or global is null and user is set)
 		hasUserQuota.value =
 			userData.maxBuckets !== (globalData.maxBuckets ?? null) ||
 			userData.maxBucketSizeBytes !== (globalData.maxBucketSizeBytes ?? null) ||
@@ -81,8 +82,8 @@ async function saveQuota(): Promise<void> {
 	}
 }
 
-async function deleteQuota(): Promise<void> {
-	if (!confirm('このユーザーのクォータ設定をリセットしてグローバルデフォルトに戻しますか？')) return;
+async function executeReset(): Promise<void> {
+	resetDialog.value = false;
 	deleting.value = true;
 	error.value = '';
 	success.value = '';
@@ -105,59 +106,75 @@ async function deleteQuota(): Promise<void> {
 
 <template>
   <div>
-    <h2>ユーザークォータ設定</h2>
-    <NirA to="/admin/users">← ユーザー一覧に戻る</NirA>
+    <NirA to="/admin/users" class="back-link">← ユーザー一覧に戻る</NirA>
 
-    <div v-if="!authStore.user?.isAdmin" style="color:red; margin-top:12px">
+    <div class="section-header">
+      <h2 class="section-title">ユーザークォータ設定</h2>
+    </div>
+
+    <div v-if="!authStore.user?.isAdmin" class="alert alert-error">
       管理者権限が必要です。
     </div>
 
     <template v-else>
-      <p style="color:#666; margin-top:12px; font-size:0.9em">
-        ユーザーID: <code>{{ userId }}</code>
-      </p>
-      <p v-if="!hasUserQuota && !loading" style="color:#666; font-size:0.9em">
-        現在はグローバルデフォルトが適用されています。
-      </p>
-      <p v-if="hasUserQuota && !loading" style="color:#6200ea; font-size:0.9em">
-        このユーザーには個別クォータが設定されています。
-      </p>
+      <div class="flex gap-2 items-center mb-4">
+        <span class="text-muted" style="font-size:0.875rem">ユーザーID:</span>
+        <code class="font-mono" style="font-size:0.875rem; background:var(--color-bg); padding:2px 8px; border-radius:4px; border:1px solid var(--color-border)">{{ userId }}</code>
+        <span v-if="!hasUserQuota && !loading" class="badge badge-muted">グローバルデフォルト適用中</span>
+        <span v-if="hasUserQuota && !loading" class="badge badge-admin">個別クォータ設定あり</span>
+      </div>
 
-      <p v-if="error" style="color:red">{{ error }}</p>
-      <p v-if="success" style="color:green">{{ success }}</p>
+      <div v-if="error" class="alert alert-error mb-4">{{ error }}</div>
+      <div v-if="success" class="alert alert-success mb-4">{{ success }}</div>
 
-      <div v-if="loading">読み込み中...</div>
-      <form v-else @submit.prevent="saveQuota" style="display:grid; gap:10px; max-width:400px; margin-top:16px">
-        <p style="color:#666; font-size:0.9em; margin:0">空欄は無制限（またはグローバルデフォルト準拠）。</p>
-        <label>
-          バケット数上限<br>
-          <input v-model="quota.maxBuckets" type="number" min="0" placeholder="無制限" style="width:100%">
-        </label>
-        <label>
-          バケットサイズ上限 (bytes)<br>
-          <input v-model="quota.maxBucketSizeBytes" type="number" min="0" placeholder="無制限" style="width:100%">
-        </label>
-        <label>
-          バケットあたりファイル数上限<br>
-          <input v-model="quota.maxFilesPerBucket" type="number" min="0" placeholder="無制限" style="width:100%">
-        </label>
-        <label>
-          1日あたりアップロード数上限<br>
-          <input v-model="quota.maxDailyUploads" type="number" min="0" placeholder="無制限" style="width:100%">
-        </label>
-        <div style="display:flex; gap:8px">
-          <button type="submit" :disabled="saving">保存</button>
-          <button
+      <div v-if="loading" class="page-loading">
+        <span class="spinner" />読み込み中...
+      </div>
+      <form v-else @submit.prevent="saveQuota" style="display:flex; flex-direction:column; gap:12px; max-width:400px">
+        <p class="text-muted" style="font-size:0.875rem; margin:0">空欄は無制限（またはグローバルデフォルト準拠）。</p>
+        <div class="form-group">
+          <label class="form-label">バケット数上限</label>
+          <input v-model="quota.maxBuckets" class="form-input" type="number" min="0" placeholder="無制限">
+        </div>
+        <div class="form-group">
+          <label class="form-label">バケットサイズ上限 (bytes)</label>
+          <input v-model="quota.maxBucketSizeBytes" class="form-input" type="number" min="0" placeholder="無制限">
+        </div>
+        <div class="form-group">
+          <label class="form-label">バケットあたりファイル数上限</label>
+          <input v-model="quota.maxFilesPerBucket" class="form-input" type="number" min="0" placeholder="無制限">
+        </div>
+        <div class="form-group">
+          <label class="form-label">1日あたりアップロード数上限</label>
+          <input v-model="quota.maxDailyUploads" class="form-input" type="number" min="0" placeholder="無制限">
+        </div>
+        <div class="flex gap-2">
+          <Button.Root type="submit" class="btn btn-primary" :loading="saving">
+            <Button.Loading>保存中...</Button.Loading>
+            <Button.Content>保存する</Button.Content>
+          </Button.Root>
+          <Button.Root
             v-if="hasUserQuota"
             type="button"
-            :disabled="deleting"
-            @click="deleteQuota"
-            style="color:red"
+            class="btn btn-ghost-danger"
+            :loading="deleting"
+            @click="resetDialog = true"
           >
-            リセット（グローバルに戻す）
-          </button>
+            <Button.Loading>リセット中...</Button.Loading>
+            <Button.Content>リセット（グローバルに戻す）</Button.Content>
+          </Button.Root>
         </div>
       </form>
     </template>
+
+    <ConfirmDialog
+      v-model:open="resetDialog"
+      title="クォータをリセット"
+      message="このユーザーのクォータ設定をリセットしてグローバルデフォルトに戻しますか？"
+      confirm-label="リセットする"
+      :danger="true"
+      @confirm="executeReset"
+      @cancel="resetDialog = false"
+    />
   </div>
 </template>

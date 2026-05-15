@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, reactive } from 'vue';
+import { Button } from '@vuetify/v0';
 import { setToken, fetchCurrentUser } from '../store/auth';
 import { navigateTo } from '../navigate';
-
 
 const mode = ref<'signin' | 'signup'>('signin');
 const form = reactive({ username: '', password: '', passphrase: '' });
@@ -32,7 +32,7 @@ async function submit(): Promise<void> {
 			password: form.password,
 		};
 		if (mode.value === 'signup' && form.passphrase) {
-			body.passphrase = form.passphrase ?? '';
+			body.passphrase = form.passphrase;
 		}
 		const res = await fetch(path, {
 			method: 'POST',
@@ -58,33 +58,67 @@ async function submit(): Promise<void> {
 </script>
 
 <template>
-  <div>
-    <h2>{{ mode === 'signin' ? 'サインイン' : 'サインアップ' }}</h2>
-    <form @submit.prevent="submit">
-      <div>
-        <label>ユーザー名<br>
-          <input v-model="form.username" type="text" required autocomplete="username">
-        </label>
+  <div style="display:flex; justify-content:center; padding-top:48px">
+    <div class="card max-w-sm" style="width:100%">
+      <h2 style="margin-bottom:20px; text-align:center">
+        {{ mode === 'signin' ? 'サインイン' : 'アカウント作成' }}
+      </h2>
+
+      <form @submit.prevent="submit" style="display:flex; flex-direction:column; gap:14px">
+        <div class="form-group">
+          <label class="form-label" for="username">ユーザー名</label>
+          <input
+            id="username"
+            v-model="form.username"
+            class="form-input"
+            type="text"
+            required
+            autocomplete="username"
+            placeholder="username"
+          >
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="password">パスワード</label>
+          <input
+            id="password"
+            v-model="form.password"
+            class="form-input"
+            type="password"
+            required
+            autocomplete="current-password"
+            placeholder="••••••••"
+          >
+        </div>
+
+        <div v-if="mode === 'signup' && passphraseRequired" class="form-group">
+          <label class="form-label" for="passphrase">合言葉</label>
+          <input
+            id="passphrase"
+            v-model="form.passphrase"
+            class="form-input"
+            type="text"
+            autocomplete="off"
+          >
+        </div>
+
+        <div v-if="error" class="alert alert-error">{{ error }}</div>
+
+        <Button.Root type="submit" class="btn btn-primary w-full" :loading="loading">
+          <Button.Loading>処理中...</Button.Loading>
+          <Button.Content>{{ mode === 'signin' ? 'サインイン' : 'アカウント作成' }}</Button.Content>
+        </Button.Root>
+      </form>
+
+      <div style="margin-top:16px; text-align:center; font-size:0.875rem; color:var(--color-text-muted)">
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm"
+          @click="mode = mode === 'signin' ? 'signup' : 'signin'"
+        >
+          {{ mode === 'signin' ? 'アカウントを作成する' : 'サインインページへ' }}
+        </button>
       </div>
-      <div>
-        <label>パスワード<br>
-          <input v-model="form.password" type="password" required autocomplete="current-password">
-        </label>
-      </div>
-      <div v-if="mode === 'signup' && passphraseRequired">
-        <label>合言葉<br>
-          <input v-model="form.passphrase" type="text" autocomplete="off">
-        </label>
-      </div>
-      <p v-if="error" style="color:red">{{ error }}</p>
-      <button type="submit" :disabled="loading">
-        {{ loading ? '処理中...' : (mode === 'signin' ? 'サインイン' : 'サインアップ') }}
-      </button>
-    </form>
-    <p>
-      <button type="button" @click="mode = mode === 'signin' ? 'signup' : 'signin'">
-        {{ mode === 'signin' ? 'アカウントを作成する' : 'サインインページへ' }}
-      </button>
-    </p>
+    </div>
   </div>
 </template>

@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
+import { Button } from '@vuetify/v0';
 import NirA from '@/components/nira.vue';
 import { authStore, authHeaders } from '@/store/auth';
 import { setPendingUpload } from '@/store/pending-upload';
 import { mainRouter } from '@/router';
+import ConfirmDialog from '@/components/confirm-dialog.vue';
 
 const props = defineProps<{
 	bucketName: string;
@@ -32,6 +34,10 @@ const deleteError = ref('');
 const bucketId = ref<string | null>(null);
 const newDirName = ref('');
 const mkdirError = ref('');
+
+const deleteDialog = ref(false);
+const deleteTarget = ref<DisplayEntry | null>(null);
+const archiveDeleteDialog = ref(false);
 
 async function loadBucketId(): Promise<void> {
 	if (!authStore.user) return;
@@ -64,9 +70,16 @@ async function createDirectory(): Promise<void> {
 	await load();
 }
 
-async function deleteEntry(entry: DisplayEntry): Promise<void> {
-	const label = entry.isDir ? `フォルダ「${entry.name}」とその中身` : `ファイル「${entry.name}」`;
-	if (!confirm(`${label}を削除しますか？`)) return;
+function requestDeleteEntry(entry: DisplayEntry): void {
+	deleteTarget.value = entry;
+	deleteDialog.value = true;
+}
+
+async function executeDeleteEntry(): Promise<void> {
+	if (!deleteTarget.value) return;
+	const entry = deleteTarget.value;
+	deleteDialog.value = false;
+	deleteTarget.value = null;
 	deleteError.value = '';
 
 	if (entry.isDir) {
@@ -179,8 +192,8 @@ function onDrop(e: DragEvent): void {
 	mainRouter.pushByPath(`/my/buckets/${props.bucketName}/upload`);
 }
 
-async function deleteArchive(): Promise<void> {
-	if (!confirm(`アーカイブ「${props.filePath}」を削除しますか？`)) return;
+async function executeDeleteArchive(): Promise<void> {
+	archiveDeleteDialog.value = false;
 	deleteError.value = '';
 	const res = await fetch(`/d/${props.bucketName}/${props.filePath}`, {
 		method: 'DELETE',
@@ -205,70 +218,117 @@ watch(() => [props.bucketName, props.filePath], () => { load(); loadBucketId(); 
 
 <template>
   <div>
-    <div v-if="isTargz" style="margin-bottom:8px; display:flex; gap:8px; align-items:center">
-      <a :href="downloadUrl" download>ダウンロード</a>
-      <button v-if="authStore.user" type="button" @click="deleteArchive">削除</button>
-      <span v-if="deleteError" style="color:red; font-size:0.9em">{{ deleteError }}</span>
+    <!-- tar.gz アーカイブ操作 -->
+    <div v-if="isTargz" class="flex gap-2 items-center mb-3 flex-wrap">
+      <a :href="downloadUrl" download class="btn btn-secondary btn-sm">ダウンロード</a>
+      <Button.Root v-if="authStore.user" class="btn btn-ghost-danger btn-sm" @click="archiveDeleteDialog = true">
+        <Button.Content>削除</Button.Content>
+      </Button.Root>
+      <span v-if="deleteError" class="alert alert-error" style="padding:4px 10px; font-size:0.8rem">{{ deleteError }}</span>
     </div>
 
-    <div v-if="!isTargz && authStore.user" style="margin-bottom:8px; display:flex; gap:8px; align-items:center; flex-wrap:wrap">
-      <button type="button" @click="goUpload">アップロード</button>
-      <form style="display:flex; gap:4px; align-items:center" @submit.prevent="createDirectory">
-        <input v-model="newDirName" type="text" placeholder="新しいフォルダ名" style="width:160px">
-        <button type="submit" :disabled="!newDirName.trim() || !bucketId">作成</button>
+    <!-- 通常ディレクトリ操作 -->
+    <div v-if="!isTargz && authStore.user" class="flex gap-2 items-center mb-3 flex-wrap">
+      <Button.Root class="btn btn-primary btn-sm" @click="goUpload">
+        <Button.Content>アップロード</Button.Content>
+      </Button.Root>
+      <form class="flex gap-2 items-center" @submit.prevent="createDirectory">
+        <input
+          v-model="newDirName"
+          class="form-input form-input-mono"
+          type="text"
+          placeholder="新しいフォルダ名"
+          style="width:180px"
+        >
+        <Button.Root type="submit" class="btn btn-secondary btn-sm" :disabled="!newDirName.trim() || !bucketId">
+          <Button.Content>フォルダ作成</Button.Content>
+        </Button.Root>
       </form>
-      <span v-if="mkdirError" style="color:red; font-size:0.9em">{{ mkdirError }}</span>
+      <span v-if="mkdirError" class="text-danger" style="font-size:0.8rem">{{ mkdirError }}</span>
     </div>
 
-    <p v-if="loading">読み込み中...</p>
-    <p v-else-if="error" style="color:red">{{ error }}</p>
+    <div v-if="loading" class="page-loading">
+      <span class="spinner" />読み込み中...
+    </div>
+    <div v-else-if="error" class="alert alert-error">{{ error }}</div>
     <template v-else>
-      <p v-if="deleteError" style="color:red; font-size:0.9em">{{ deleteError }}</p>
+      <div v-if="deleteError" class="alert alert-error mb-3">{{ deleteError }}</div>
+
       <div
-        style="position:relative"
+        class="drop-zone"
         @dragover="onDragOver"
         @dragleave="onDragLeave"
         @drop="onDrop"
       >
-        <div
-          v-if="isDragOver"
-          style="position:absolute; inset:0; background:rgba(0,100,255,0.08); border:2px dashed #4477ff; border-radius:4px; display:flex; align-items:center; justify-content:center; pointer-events:none; z-index:1"
-        >
-          ここにドロップしてアップロード
+        <div v-if="isDragOver" class="drop-zone-overlay">ここにドロップしてアップロード</div>
+
+        <div class="card" style="padding:0; overflow:hidden">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>名前</th>
+                <th class="col-right">サイズ</th>
+                <th>種類</th>
+                <th v-if="!isTargz && authStore.user && bucketId" class="col-actions"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="parentPath()">
+                <td colspan="4">
+                  <NirA :to="parentPath()!" class="text-muted font-mono" style="font-size:0.875rem">..</NirA>
+                </td>
+              </tr>
+              <tr v-for="entry in entries" :key="entry.key">
+                <td>
+                  <NirA :to="entry.link" style="font-weight:500">
+                    <span v-if="entry.isDir" style="margin-right:4px">📁</span>{{ entry.name }}
+                  </NirA>
+                </td>
+                <td class="col-right col-muted">
+                  {{ entry.size != null ? entry.size.toLocaleString() + ' B' : '' }}
+                </td>
+                <td>
+                  <span v-if="entry.label" class="badge badge-muted">{{ entry.label }}</span>
+                </td>
+                <td v-if="!isTargz && authStore.user && bucketId" class="col-actions">
+                  <Button.Root class="btn btn-ghost-danger btn-sm" @click="requestDeleteEntry(entry)">
+                    <Button.Content>削除</Button.Content>
+                  </Button.Root>
+                </td>
+              </tr>
+              <tr v-if="entries.length === 0">
+                <td :colspan="!isTargz && authStore.user && bucketId ? 4 : 3">
+                  <div class="empty-state">
+                    <p>エントリがありません。</p>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-        <table style="border-collapse:collapse; width:100%">
-          <thead>
-            <tr>
-              <th style="text-align:left; padding:4px 8px">名前</th>
-              <th style="text-align:right; padding:4px 8px">サイズ</th>
-              <th style="text-align:left; padding:4px 8px">種類</th>
-              <th v-if="!isTargz && authStore.user && bucketId" style="padding:4px 8px"></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="parentPath()">
-              <td style="padding:4px 8px" colspan="4">
-                <NirA :to="parentPath()!">..</NirA>
-              </td>
-            </tr>
-            <tr v-for="entry in entries" :key="entry.key">
-              <td style="padding:4px 8px">
-                <NirA :to="entry.link">{{ entry.isDir ? '📁 ' : '' }}{{ entry.name }}</NirA>
-              </td>
-              <td style="text-align:right; padding:4px 8px; color:#666">
-                {{ entry.size != null ? entry.size.toLocaleString() + ' B' : '' }}
-              </td>
-              <td style="padding:4px 8px; color:#666">{{ entry.label }}</td>
-              <td v-if="!isTargz && authStore.user && bucketId" style="padding:4px 8px">
-                <button type="button" style="font-size:0.8em" @click="deleteEntry(entry)">削除</button>
-              </td>
-            </tr>
-            <tr v-if="entries.length === 0">
-              <td colspan="4" style="padding:8px; color:#888">エントリがありません。</td>
-            </tr>
-          </tbody>
-        </table>
       </div>
     </template>
+
+    <!-- 削除確認ダイアログ（エントリ） -->
+    <ConfirmDialog
+      v-model:open="deleteDialog"
+      :title="deleteTarget?.isDir ? 'フォルダを削除' : 'ファイルを削除'"
+      :message="deleteTarget ? (deleteTarget.isDir ? `フォルダ「${deleteTarget.name}」とその中身を削除しますか？` : `ファイル「${deleteTarget.name}」を削除しますか？`) : ''"
+      confirm-label="削除する"
+      :danger="true"
+      @confirm="executeDeleteEntry"
+      @cancel="deleteDialog = false"
+    />
+
+    <!-- 削除確認ダイアログ（アーカイブ） -->
+    <ConfirmDialog
+      v-model:open="archiveDeleteDialog"
+      title="アーカイブを削除"
+      :message="`「${filePath}」を削除しますか？`"
+      confirm-label="削除する"
+      :danger="true"
+      @confirm="executeDeleteArchive"
+      @cancel="archiveDeleteDialog = false"
+    />
   </div>
 </template>

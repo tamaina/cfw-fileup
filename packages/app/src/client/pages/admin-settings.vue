@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
+import { Button } from '@vuetify/v0';
 import { authStore, authHeaders } from '../store/auth';
 import NirA from '@/components/nira.vue';
 import { KNOWN_SETTINGS } from '../../shared/app-settings';
@@ -21,7 +22,6 @@ async function fetchSettings(): Promise<void> {
 		const data = await res.json() as { key: string; value: string }[];
 		const map: Record<string, string> = {};
 		for (const s of data) map[s.key] = s.value;
-		// fill in defaults for known settings not yet in DB
 		for (const s of KNOWN_SETTINGS) {
 			map[s.key] ??= s.defaultValue;
 		}
@@ -60,58 +60,71 @@ function onCheckboxChange(key: string, checked: boolean): void {
 
 <template>
   <div>
-    <h2>アプリ設定</h2>
-    <NirA to="/admin">← 管理パネルに戻る</NirA>
+    <NirA to="/admin" class="back-link">← 管理パネルに戻る</NirA>
 
-    <div v-if="!authStore.user?.isAdmin" style="color:red; margin-top:12px">
+    <div class="section-header">
+      <h2 class="section-title">アプリ設定</h2>
+    </div>
+
+    <div v-if="!authStore.user?.isAdmin" class="alert alert-error">
       管理者権限が必要です。
     </div>
 
     <template v-else>
-      <p v-if="error" style="color:red; margin-top:12px">{{ error }}</p>
-      <p v-if="success" style="color:green; margin-top:12px">{{ success }}</p>
+      <div v-if="error" class="alert alert-error mb-4">{{ error }}</div>
+      <div v-if="success" class="alert alert-success mb-4">{{ success }}</div>
 
-      <div v-if="loading" style="margin-top:12px">読み込み中...</div>
+      <div v-if="loading" class="page-loading">
+        <span class="spinner" />読み込み中...
+      </div>
 
-      <div v-else style="display:grid; gap:16px; margin-top:16px; max-width:480px">
+      <div v-else class="settings-grid">
         <div
           v-for="setting in KNOWN_SETTINGS"
           :key="setting.key"
-          style="display:flex; align-items:center; justify-content:space-between; padding:10px; border:1px solid #ddd; border-radius:4px"
+          class="setting-row"
         >
-          <label :for="`setting-${setting.key}`" style="cursor:pointer">
-            {{ setting.label }}
-            <span style="display:block; color:#888; font-size:0.8em">{{ setting.key }}</span>
-          </label>
+          <div class="setting-row-info">
+            <label :for="`setting-${setting.key}`" class="setting-row-label" style="cursor:pointer">
+              {{ setting.label }}
+            </label>
+            <div class="setting-row-key">{{ setting.key }}</div>
+          </div>
 
-          <template v-if="setting.type === 'boolean'">
-            <input
-              :id="`setting-${setting.key}`"
-              type="checkbox"
-              :checked="values[setting.key] === 'true'"
-              :disabled="saving[setting.key]"
-              style="width:18px; height:18px; cursor:pointer"
-              @change="onCheckboxChange(setting.key, ($event.target as HTMLInputElement).checked)"
-            >
-          </template>
-
-          <template v-else>
-            <div style="display:flex; gap:8px">
+          <div class="setting-row-control">
+            <template v-if="setting.type === 'boolean'">
               <input
                 :id="`setting-${setting.key}`"
-                v-model="values[setting.key]"
-                type="text"
-                style="padding:4px 8px"
-              >
-              <button
-                type="button"
+                type="checkbox"
+                :checked="values[setting.key] === 'true'"
                 :disabled="saving[setting.key]"
-                @click="saveSetting(setting.key)"
+                style="width:18px; height:18px; cursor:pointer; accent-color:var(--color-primary)"
+                @change="onCheckboxChange(setting.key, ($event.target as HTMLInputElement).checked)"
               >
-                保存
-              </button>
-            </div>
-          </template>
+            </template>
+
+            <template v-else>
+              <div class="flex gap-2">
+                <input
+                  :id="`setting-${setting.key}`"
+                  v-model="values[setting.key]"
+                  class="form-input"
+                  type="text"
+                  style="width:160px"
+                >
+                <Button.Root
+                  type="button"
+                  class="btn btn-primary btn-sm"
+                  :disabled="saving[setting.key]"
+                  :loading="saving[setting.key]"
+                  @click="saveSetting(setting.key)"
+                >
+                  <Button.Loading>保存中</Button.Loading>
+                  <Button.Content>保存</Button.Content>
+                </Button.Root>
+              </div>
+            </template>
+          </div>
         </div>
       </div>
     </template>

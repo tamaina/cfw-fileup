@@ -61,16 +61,18 @@ watch(() => [props.bucketName, props.filePath], fetchMeta);
 
 <template>
   <div>
-    <h2>
+    <nav class="breadcrumbs">
       <template v-for="(seg, i) in breadcrumbs" :key="i">
-        <span v-if="i > 0">/</span>
+        <span v-if="i > 0" class="breadcrumbs-sep">/</span>
         <NirA v-if="seg.link" :to="seg.link">{{ seg.name }}</NirA>
-        <span v-else>{{ seg.name }}</span>
+        <span v-else class="breadcrumbs-current">{{ seg.name }}</span>
       </template>
-    </h2>
+    </nav>
 
-    <p v-if="metaLoading">読み込み中...</p>
-    <p v-else-if="metaError" style="color:red">{{ metaError }}</p>
+    <div v-if="metaLoading" class="page-loading">
+      <span class="spinner" />読み込み中...
+    </div>
+    <div v-else-if="metaError" class="alert alert-error">{{ metaError }}</div>
     <template v-else>
       <BrowseDirectory v-if="isDirectory || isTargz" :bucketName="bucketName" :filePath="filePath" :isTargz="isTargz" />
       <BrowseFile v-else :bucketName="bucketName" :filePath="filePath" />

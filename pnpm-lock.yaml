@@ -21,6 +21,9 @@ importers:
 
   packages/app:
     dependencies:
+      '@vuetify/v0':
+        specifier: 1.0.0-alpha.4
+        version: 1.0.0-alpha.4(vue@3.5.34(typescript@6.0.3))
       bgzf:
         specifier: workspace:*
         version: link:../bgzf
@@ -909,6 +912,10 @@ packages:
   '@jridgewell/trace-mapping@0.3.9':
     resolution: {integrity: sha512-3Belt6tdc8bPgAtbcmdtNJlirVoTmEb5e2gC94PnkwEW9jI6CAHUeoG85tjWP5WquqfavoMtMwiG4P926ZKKuQ==}
 
+  '@js-temporal/polyfill@0.5.1':
+    resolution: {integrity: sha512-hloP58zRVCRSpgDxmqCWJNlizAlUgJFqG2ypq79DCvyv9tHjRYMDOcPFjzfl/A1/YxDvRCZz8wvZvmapQnKwFQ==}
+    engines: {node: '>=12'}
+
   '@misskey-dev/eslint-plugin@2.2.0':
     resolution: {integrity: sha512-NlDtaFRaO2r4KRnacTiYK2Ax/z95ZvhszQ3gfZ7VWWQzPvgoQHSEBT6q94i1/HPzWrcR+l+76c3Y3T1V/yVPeg==}
     peerDependencies:
@@ -1222,6 +1229,33 @@ packages:
 
   '@vue/shared@3.5.34':
     resolution: {integrity: sha512-24uqU4OIiX29ryC3MeWid/Xf2fa2EFRUVLb77nRhk+UrTVrh/XiGtFAFmJBAtBRbjwNdsPRP+jj/OL27Eg1NDA==}
+
+  '@vuetify/v0@1.0.0-alpha.4':
+    resolution: {integrity: sha512-geEbkO/JhycQ8wEGIQIa0jDFRsuUsL3mkMqqnVZH3ZUOuOQP3RdURHUH9/uzAY5MGMtvw9FH7Pl3GvSr5yz61g==}
+    peerDependencies:
+      '@adobe/leonardo-contrast-colors': '>=1.0.0'
+      '@ant-design/colors': '>=7.0.0'
+      '@flagsmith/flagsmith': ^11.0.0
+      '@material/material-color-utilities': '>=0.3.0'
+      launchdarkly-js-client-sdk: ^3.0.0
+      posthog-js: ^1.0.0
+      vue: '>=3.5.0'
+      vue-i18n: '>=10.0.0'
+    peerDependenciesMeta:
+      '@adobe/leonardo-contrast-colors':
+        optional: true
+      '@ant-design/colors':
+        optional: true
+      '@flagsmith/flagsmith':
+        optional: true
+      '@material/material-color-utilities':
+        optional: true
+      launchdarkly-js-client-sdk:
+        optional: true
+      posthog-js:
+        optional: true
+      vue-i18n:
+        optional: true
 
   acorn-jsx@5.3.2:
     resolution: {integrity: sha512-rq9s+JNhf0IChjtDXxllJ7g41oZk5SlXtp0LHwyA5cejwn7vKmKp4pPri6YEePv2PU65sAsegbXtIinmDFDXgQ==}
@@ -1927,6 +1961,9 @@ packages:
   js-yaml@4.1.1:
     resolution: {integrity: sha512-qQKT4zQxXl8lLwBtHMWwaTcGfFOZviOJet3Oy/xmGk2gZH677CJM9EvtfdSkgWcATZhj/55JZ0rmy3myCT5lsA==}
     hasBin: true
+
+  jsbi@4.3.2:
+    resolution: {integrity: sha512-9fqMSQbhJykSeii05nxKl4m6Eqn2P6rOlYiS+C5Dr/HPIU/7yZxu5qzbs40tgaFORiw2Amd0mirjxatXYMkIew==}
 
   json-buffer@3.0.1:
     resolution: {integrity: sha512-4bV5BfR2mqfQTJm+V5tPPdf+ZpuhiIvTuAB5g8kcrXOZpTT/QwwVRWBywX1ozr6lEuPdbHxwaJlm9G6mI2sfSQ==}
@@ -3131,6 +3168,11 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
+  '@js-temporal/polyfill@0.5.1':
+    dependencies:
+      jsbi: 4.3.2
+    optional: true
+
   '@misskey-dev/eslint-plugin@2.2.0(@eslint/compat@2.1.0(eslint@9.39.4))(@eslint/js@9.39.4)(@stylistic/eslint-plugin@5.10.0(eslint@9.39.4))(@typescript-eslint/eslint-plugin@8.59.3(@typescript-eslint/parser@8.59.3(eslint@9.39.4)(typescript@6.0.3))(eslint@9.39.4)(typescript@6.0.3))(@typescript-eslint/parser@8.59.3(eslint@9.39.4)(typescript@6.0.3))(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.59.3(eslint@9.39.4)(typescript@6.0.3))(eslint@9.39.4))(eslint@9.39.4)(globals@17.6.0)':
     dependencies:
       '@eslint/compat': 2.1.0(eslint@9.39.4)
@@ -3478,6 +3520,12 @@ snapshots:
       vue: 3.5.34(typescript@6.0.3)
 
   '@vue/shared@3.5.34': {}
+
+  '@vuetify/v0@1.0.0-alpha.4(vue@3.5.34(typescript@6.0.3))':
+    dependencies:
+      vue: 3.5.34(typescript@6.0.3)
+    optionalDependencies:
+      '@js-temporal/polyfill': 0.5.1
 
   acorn-jsx@5.3.2(acorn@8.16.0):
     dependencies:
@@ -4256,6 +4304,9 @@ snapshots:
   js-yaml@4.1.1:
     dependencies:
       argparse: 2.0.1
+
+  jsbi@4.3.2:
+    optional: true
 
   json-buffer@3.0.1: {}
 

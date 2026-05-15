@@ -68,6 +68,11 @@ R2はS3互換だがenv.R2から操作すべき。
 - `worker/scheme` — Drizzle ORMスキーマ定義
 - `worker/utils` — Worker内で使うユーティリティ関数
 
+#### API
+API routes are defined in `src/worker/index.ts` using Hono's routing. Each route handler is imported from `src/worker/api/`.
+
+`worker/api/**/*.definition.ts` files contain OpenAPI like endpoint and schema definitions. It uses for documentation and type definition with SchemaType.
+
 #### Database Schema
 
 `src/worker/scheme/` contains Drizzle ORM table definitions.
@@ -102,6 +107,7 @@ pnpm --filter app run test:worker
 - Vue 3 with Composition API
 - Vite for bundling
 - nirax は、Misskeyプロジェクトから持ち出してきたrouterライブラリ。router.definition.tsにルート定義あり。
+- Vuetify 0 for UI
 
 #### Tests
 

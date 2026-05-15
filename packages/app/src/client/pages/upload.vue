@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
+import { Button, Progress } from '@vuetify/v0';
 import { authHeaders, authStore } from '../store/auth';
 import NirA from '@/components/nira.vue';
 import { TarArchiver, BgzfTarArchiver, type TarIndex, type TarGzIndex, type ArchiveProgress } from 'bgzf';
@@ -513,101 +514,135 @@ onMounted(async () => {
 
 <template>
   <div>
-    <h2>アップロード - {{ selectedBucketName }}</h2>
+    <div class="section-header">
+      <h2 class="section-title">アップロード</h2>
+    </div>
 
-    <p v-if="!authStore.user">ログインが必要です。</p>
-    <p v-else-if="loadError" style="color:red">{{ loadError }}</p>
+    <div v-if="!authStore.user" class="alert alert-info">ログインが必要です。</div>
+    <div v-else-if="loadError" class="alert alert-error">{{ loadError }}</div>
     <template v-else>
-      <div style="margin-bottom:12px">
-        <label>
-          バケット:
-          <select v-model="selectedBucketName">
+      <!-- バケット選択 -->
+      <div class="upload-section">
+        <p class="upload-section-title">バケット</p>
+        <div class="form-group" style="max-width:280px">
+          <select v-model="selectedBucketName" class="form-input">
             <option v-for="b in buckets" :key="b.id" :value="b.name">{{ b.name }}</option>
           </select>
-        </label>
+        </div>
       </div>
 
-      <section>
-        <h3>ファイル選択</h3>
+      <!-- ファイル選択 -->
+      <div class="upload-section">
+        <p class="upload-section-title">ファイル選択</p>
 
-        <div>
-          <input
-            type="file"
-            multiple
-            @change="e => { selectedFiles = Array.from((e.target as HTMLInputElement).files ?? []); selectedDir = null; selectedDirName = ''; }"
-          >
-          <span v-if="selectedFiles.length > 0" style="margin-left:8px">{{ selectedFiles.length }} ファイル選択済み</span>
-        </div>
-
-        <div style="margin-top:8px">
-          <label style="font-size:0.9em">
-            アップロード先パス (任意):<br>
-            <code style="font-size:1em">{{ selectedBucketName }}/</code><input
-              v-model="uploadPrefix"
-              type="text"
-              placeholder="folder/path/"
-              style="font-family:monospace; width:240px"
+        <div class="flex items-center gap-2 flex-wrap">
+          <label class="btn btn-secondary" style="cursor:pointer">
+            ファイルを選択
+            <input
+              type="file"
+              multiple
+              style="display:none"
+              @change="e => { selectedFiles = Array.from((e.target as HTMLInputElement).files ?? []); selectedDir = null; selectedDirName = ''; }"
             >
           </label>
+          <span v-if="selectedFiles.length > 0" class="badge badge-info">
+            {{ selectedFiles.length }} ファイル選択済み
+          </span>
+
+          <template v-if="supportsFileAccessAPI">
+            <Button.Root class="btn btn-secondary" @click="pickDirectory">
+              <Button.Content>フォルダを選択</Button.Content>
+            </Button.Root>
+            <span v-if="selectedDirName" class="badge badge-info">{{ selectedDirName }}</span>
+          </template>
         </div>
 
-        <div v-if="supportsFileAccessAPI" style="margin-top:8px">
-          <button type="button" @click="pickDirectory">フォルダを選択 (File System Access API)</button>
-          <span v-if="selectedDirName" style="margin-left:8px">選択済み: {{ selectedDirName }}</span>
+        <div class="form-group mt-3" style="max-width:400px">
+          <label class="form-label">アップロード先パス (任意)</label>
+          <div class="form-row">
+            <span class="form-hint font-mono" style="white-space:nowrap; padding:8px 4px 8px 0">{{ selectedBucketName }}/</span>
+            <input
+              v-model="uploadPrefix"
+              class="form-input form-input-mono"
+              type="text"
+              placeholder="folder/path/"
+            >
+          </div>
         </div>
 
-        <div v-if="selectedDir || (selectedFiles && selectedFiles.length > 0)" style="margin-top:8px">
-          <p style="margin:0 0 4px">アップロード形式:</p>
-          <label style="display:block">
-            <input v-model="archiveMode" type="radio" value="individual">
-            個別ファイルとしてアップロード
-          </label>
-          <label v-if="!selectedDir" style="display:block">
-            <input v-model="archiveMode" type="radio" value="gz">
-            gzip 圧縮してアップロード (.gz)
-          </label>
-          <label v-if="selectedDir" style="display:block">
-            <input v-model="archiveMode" type="radio" value="tar">
-            tar にまとめてアップロード (無圧縮)
-          </label>
-          <label v-if="selectedDir" style="display:block">
-            <input v-model="archiveMode" type="radio" value="targz">
-            tar.gz にまとめてアップロード (BGZF形式・ランダムアクセス対応)
-          </label>
+        <div v-if="selectedDir || (selectedFiles && selectedFiles.length > 0)" class="mt-3">
+          <p class="form-label" style="margin-bottom:8px">アップロード形式</p>
+          <div style="display:flex; flex-direction:column; gap:6px">
+            <label class="checkbox-label">
+              <input v-model="archiveMode" type="radio" value="individual" style="accent-color:var(--color-primary)">
+              個別ファイルとしてアップロード
+            </label>
+            <label v-if="!selectedDir" class="checkbox-label">
+              <input v-model="archiveMode" type="radio" value="gz" style="accent-color:var(--color-primary)">
+              gzip 圧縮してアップロード <span class="badge badge-muted" style="margin-left:4px">.gz</span>
+            </label>
+            <label v-if="selectedDir" class="checkbox-label">
+              <input v-model="archiveMode" type="radio" value="tar" style="accent-color:var(--color-primary)">
+              tar にまとめてアップロード <span class="badge badge-muted" style="margin-left:4px">無圧縮</span>
+            </label>
+            <label v-if="selectedDir" class="checkbox-label">
+              <input v-model="archiveMode" type="radio" value="targz" style="accent-color:var(--color-primary)">
+              tar.gz にまとめてアップロード <span class="badge badge-info" style="margin-left:4px">BGZF・ランダムアクセス対応</span>
+            </label>
+          </div>
         </div>
-      </section>
+      </div>
 
-      <section style="margin-top:16px">
-        <h3>オプション</h3>
-        <label>
-          <input v-model="isPublic" type="checkbox">
-          公開ファイル
-        </label>
-        <div style="margin-top:8px">
-          <label>合言葉(任意)<br>
-            <input v-model="passphrase" type="text" placeholder="非公開ファイルのパスワード">
+      <!-- オプション -->
+      <div class="upload-section">
+        <p class="upload-section-title">オプション</p>
+        <div style="display:flex; flex-direction:column; gap:10px">
+          <label class="checkbox-label">
+            <input v-model="isPublic" type="checkbox" style="accent-color:var(--color-primary)">
+            公開ファイル
           </label>
+          <div class="form-group" style="max-width:320px">
+            <label class="form-label" for="upload-passphrase">合言葉 (任意)</label>
+            <input
+              id="upload-passphrase"
+              v-model="passphrase"
+              class="form-input"
+              type="text"
+              placeholder="非公開ファイルのパスワード"
+            >
+          </div>
         </div>
-      </section>
+      </div>
 
-      <div style="margin-top:16px">
-        <button
-          type="button"
+      <!-- 開始ボタン -->
+      <div class="mt-4">
+        <Button.Root
+          class="btn btn-primary btn-lg"
           :disabled="!!uploadProgress && !uploadDone && !uploadError"
           @click="startUpload"
         >
-          アップロード開始
-        </button>
+          <Button.Content>アップロード開始</Button.Content>
+        </Button.Root>
       </div>
 
-      <div v-if="uploadProgress" style="margin-top:12px">
-        <p>
+      <!-- 進捗 -->
+      <div v-if="uploadProgress" class="upload-progress-box mt-4">
+        <p class="upload-progress-filename">
           <template v-if="uploadProgress.totalFiles > 0">
-            {{ uploadProgress.fileIndex }}/{{ uploadProgress.totalFiles }}:
+            <span class="badge badge-info" style="margin-right:6px">{{ uploadProgress.fileIndex }}/{{ uploadProgress.totalFiles }}</span>
           </template>
-          {{ uploadProgress.filename }}
+          {{ uploadProgress.filename || 'アーカイブ作成中...' }}
         </p>
-        <p>
+        <Progress.Root
+          class="progress-root"
+          :model-value="uploadProgress.totalBytes > 0 ? Math.round(uploadProgress.uploadedBytes / uploadProgress.totalBytes * 100) : 0"
+          :max="100"
+        >
+          <Progress.Track class="progress-track">
+            <Progress.Fill class="progress-fill" />
+          </Progress.Track>
+        </Progress.Root>
+        <p class="upload-progress-meta">
           {{ formatBytes(uploadProgress.uploadedBytes) }}
           <template v-if="uploadProgress.totalBytes > 0">
             / {{ formatBytes(uploadProgress.totalBytes) }}
@@ -617,11 +652,11 @@ onMounted(async () => {
         </p>
       </div>
 
-      <p v-if="uploadError" style="color:red; margin-top:8px">{{ uploadError }}</p>
-      <p v-if="uploadDone" style="color:green; margin-top:8px">
+      <div v-if="uploadError" class="alert alert-error mt-3">{{ uploadError }}</div>
+      <div v-if="uploadDone" class="alert alert-success mt-3">
         アップロード完了！
-        <NirA :to="`/v/${selectedBucketName}/`">ファイル一覧を見る</NirA>
-      </p>
+        <NirA :to="`/v/${selectedBucketName}/`" style="margin-left:8px; font-weight:600">ファイル一覧を見る →</NirA>
+      </div>
     </template>
   </div>
 </template>

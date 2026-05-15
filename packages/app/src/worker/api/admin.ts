@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { users, tokens, files, buckets, appSettings, userQuotas, globalQuotas } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { getQuotaForUser, getGlobalQuota } from '../utils/rate-limit';
@@ -58,6 +58,13 @@ app.post('/delete-file', async (c) => {
 	}
 
 	await db.delete(files).where(eq(files.id, body.fileId));
+
+	if (file.isClosed && file.size) {
+		await db
+			.update(buckets)
+			.set({ usedBytes: sql`MAX(0, ${buckets.usedBytes} - ${file.size})` })
+			.where(eq(buckets.id, file.bucketId));
+	}
 
 	return c.json({ ok: true } as ExtractResponseType<typeof adminApiSchema, '/api/admin/delete-file', 'post', 200>);
 });

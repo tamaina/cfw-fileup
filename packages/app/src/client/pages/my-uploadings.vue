@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
+import { Button } from '@vuetify/v0';
 import NirA from '@/components/nira.vue';
 import { authStore, authHeaders } from '@/store/auth';
+import ConfirmDialog from '@/components/confirm-dialog.vue';
 
 interface UploadEntry {
 	id: string;
@@ -20,6 +22,9 @@ const entries = ref<UploadEntry[]>([]);
 const loading = ref(true);
 const error = ref('');
 const deleteErrors = ref<Record<string, string>>({});
+
+const deleteDialog = ref(false);
+const deleteTarget = ref<UploadEntry | null>(null);
 
 function formatBytes(n: number): string {
 	if (n < 1024) return `${n} B`;
@@ -56,9 +61,16 @@ async function load(): Promise<void> {
 	}
 }
 
-async function deleteEntry(entry: UploadEntry): Promise<void> {
-	const label = entry.isClosed ? `ファイル「${entry.path}」` : `アップロード中のファイル「${entry.path}」`;
-	if (!confirm(`${label}を削除しますか？`)) return;
+function requestDelete(entry: UploadEntry): void {
+	deleteTarget.value = entry;
+	deleteDialog.value = true;
+}
+
+async function executeDelete(): Promise<void> {
+	if (!deleteTarget.value) return;
+	const entry = deleteTarget.value;
+	deleteDialog.value = false;
+	deleteTarget.value = null;
 	delete deleteErrors.value[entry.id];
 
 	const res = await fetch(`/d/${entry.bucketName}/${entry.path}`, {
@@ -78,48 +90,72 @@ onMounted(load);
 
 <template>
   <div>
-    <h2>マイアップロード</h2>
+    <div class="section-header">
+      <h2 class="section-title">マイアップロード</h2>
+    </div>
 
-    <p v-if="!authStore.user">ログインが必要です。</p>
+    <div v-if="!authStore.user" class="alert alert-info">ログインが必要です。</div>
     <template v-else>
-      <p v-if="loading">読み込み中...</p>
-      <p v-else-if="error" style="color:red">{{ error }}</p>
+      <div v-if="loading" class="page-loading">
+        <span class="spinner" />読み込み中...
+      </div>
+      <div v-else-if="error" class="alert alert-error">{{ error }}</div>
       <template v-else>
-        <p v-if="entries.length === 0" style="color:#888">アップロードはありません。</p>
-        <table v-else style="border-collapse:collapse; width:100%">
-          <thead>
-            <tr>
-              <th style="text-align:left; padding:4px 8px">バケット</th>
-              <th style="text-align:left; padding:4px 8px">パス</th>
-              <th style="text-align:right; padding:4px 8px">サイズ</th>
-              <th style="text-align:left; padding:4px 8px">種類</th>
-              <th style="text-align:left; padding:4px 8px">状態</th>
-              <th style="padding:4px 8px"></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="entry in entries" :key="entry.id">
-              <td style="padding:4px 8px">{{ entry.bucketName }}</td>
-              <td style="padding:4px 8px">
-                <NirA v-if="entry.isClosed" :to="browseLink(entry)">{{ entry.path }}</NirA>
-                <span v-else>{{ entry.path }}</span>
-              </td>
-              <td style="text-align:right; padding:4px 8px; color:#666">
-                {{ entry.size != null ? formatBytes(entry.size) : '' }}
-              </td>
-              <td style="padding:4px 8px; color:#666">{{ fileLabel(entry) }}</td>
-              <td style="padding:4px 8px">
-                <span v-if="entry.isClosed" style="color:green">完了</span>
-                <span v-else style="color:orange">アップロード中</span>
-              </td>
-              <td style="padding:4px 8px">
-                <button type="button" style="font-size:0.8em" @click="deleteEntry(entry)">削除</button>
-                <span v-if="deleteErrors[entry.id]" style="color:red; font-size:0.8em; margin-left:4px">{{ deleteErrors[entry.id] }}</span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div v-if="entries.length === 0" class="empty-state">
+          <p>アップロードはありません。</p>
+        </div>
+        <div v-else class="card" style="padding:0; overflow:hidden">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>バケット</th>
+                <th>パス</th>
+                <th class="col-right">サイズ</th>
+                <th>種類</th>
+                <th>状態</th>
+                <th class="col-actions"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="entry in entries" :key="entry.id">
+                <td class="col-muted">{{ entry.bucketName }}</td>
+                <td>
+                  <NirA v-if="entry.isClosed" :to="browseLink(entry)" class="font-mono">{{ entry.path }}</NirA>
+                  <span v-else class="col-muted font-mono">{{ entry.path }}</span>
+                </td>
+                <td class="col-right col-muted">
+                  {{ entry.size != null ? formatBytes(entry.size) : '' }}
+                </td>
+                <td>
+                  <span v-if="fileLabel(entry)" class="badge badge-muted">{{ fileLabel(entry) }}</span>
+                </td>
+                <td>
+                  <span v-if="entry.isClosed" class="badge badge-success">完了</span>
+                  <span v-else class="badge badge-warning">アップロード中</span>
+                </td>
+                <td class="col-actions">
+                  <div class="flex gap-2 items-center">
+                    <Button.Root class="btn btn-ghost-danger btn-sm" @click="requestDelete(entry)">
+                      <Button.Content>削除</Button.Content>
+                    </Button.Root>
+                    <span v-if="deleteErrors[entry.id]" class="text-danger" style="font-size:0.8rem">{{ deleteErrors[entry.id] }}</span>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </template>
     </template>
+
+    <ConfirmDialog
+      v-model:open="deleteDialog"
+      :title="deleteTarget?.isClosed ? 'ファイルを削除' : 'アップロードをキャンセル'"
+      :message="deleteTarget ? `「${deleteTarget.path}」を削除しますか？` : ''"
+      confirm-label="削除する"
+      :danger="true"
+      @confirm="executeDelete"
+      @cancel="deleteDialog = false"
+    />
   </div>
 </template>

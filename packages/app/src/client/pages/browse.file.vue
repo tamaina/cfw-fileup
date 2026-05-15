@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
+import { Button } from '@vuetify/v0';
 import { authStore, authHeaders } from '@/store/auth';
 import { mainRouter } from '@/router';
+import ConfirmDialog from '@/components/confirm-dialog.vue';
 
 const props = defineProps<{
 	bucketName: string;
@@ -19,6 +21,7 @@ const isText = computed(() => {
 });
 
 const deleteError = ref('');
+const deleteDialog = ref(false);
 
 const parentPath = computed(() => {
 	const parts = props.filePath.split('/');
@@ -28,8 +31,8 @@ const parentPath = computed(() => {
 		: `/v/${props.bucketName}/${parts.join('/')}/`;
 });
 
-async function deleteFile(): Promise<void> {
-	if (!confirm(`ファイル「${props.filePath}」を削除しますか？`)) return;
+async function executeDelete(): Promise<void> {
+	deleteDialog.value = false;
 	deleteError.value = '';
 	const res = await fetch(`/d/${props.bucketName}/${props.filePath}`, {
 		method: 'DELETE',
@@ -46,19 +49,28 @@ async function deleteFile(): Promise<void> {
 
 <template>
   <div>
-    <template v-if="isImage">
-      <img :src="downloadUrl" :alt="filePath" style="max-width:100%; max-height:600px;">
-      <br>
-    </template>
-    <p>
-      <a :href="downloadUrl" download>ダウンロード</a>
-    </p>
-    <p v-if="isText">
-      <a :href="downloadUrl" target="_blank">ブラウザで開く</a>
-    </p>
-    <p v-if="authStore.user">
-      <button type="button" @click="deleteFile">削除</button>
-      <span v-if="deleteError" style="color:red; margin-left:8px">{{ deleteError }}</span>
-    </p>
+    <div v-if="isImage" style="margin-bottom:16px">
+      <img :src="downloadUrl" :alt="filePath" class="file-preview-image">
+    </div>
+
+    <div class="file-actions">
+      <a :href="downloadUrl" download class="btn btn-primary">ダウンロード</a>
+      <a v-if="isText" :href="downloadUrl" target="_blank" class="btn btn-secondary">ブラウザで開く</a>
+      <Button.Root v-if="authStore.user" class="btn btn-ghost-danger" @click="deleteDialog = true">
+        <Button.Content>削除</Button.Content>
+      </Button.Root>
+    </div>
+
+    <div v-if="deleteError" class="alert alert-error mt-3">{{ deleteError }}</div>
+
+    <ConfirmDialog
+      v-model:open="deleteDialog"
+      title="ファイルを削除"
+      :message="`「${filePath}」を削除しますか？`"
+      confirm-label="削除する"
+      :danger="true"
+      @confirm="executeDelete"
+      @cancel="deleteDialog = false"
+    />
   </div>
 </template>

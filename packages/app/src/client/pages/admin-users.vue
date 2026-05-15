@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
+import { Button } from '@vuetify/v0';
 import { authStore, authHeaders } from '../store/auth';
 import NirA from '@/components/nira.vue';
+import ConfirmDialog from '@/components/confirm-dialog.vue';
 
 interface AdminUser {
 	id: string;
@@ -14,6 +16,9 @@ const userList = ref<AdminUser[]>([]);
 const loading = ref(true);
 const error = ref('');
 const actionError = ref('');
+
+const suspendDialog = ref(false);
+const suspendTarget = ref<AdminUser | null>(null);
 
 onMounted(fetchUsers);
 
@@ -31,8 +36,16 @@ async function fetchUsers(): Promise<void> {
 	}
 }
 
-async function suspendUser(userId: string, username: string): Promise<void> {
-	if (!confirm(`ユーザー "${username}" を停止しますか？ トークンも削除されます。`)) return;
+function requestSuspend(user: AdminUser): void {
+	suspendTarget.value = user;
+	suspendDialog.value = true;
+}
+
+async function executeSuspend(): Promise<void> {
+	if (!suspendTarget.value) return;
+	const userId = suspendTarget.value.id;
+	suspendDialog.value = false;
+	suspendTarget.value = null;
 	actionError.value = '';
 	try {
 		const res = await fetch('/api/admin/suspend-user', {
@@ -50,57 +63,71 @@ async function suspendUser(userId: string, username: string): Promise<void> {
 
 <template>
   <div>
-    <h2>ユーザー管理</h2>
-    <NirA to="/admin">← 管理パネルに戻る</NirA>
+    <NirA to="/admin" class="back-link">← 管理パネルに戻る</NirA>
 
-    <div v-if="!authStore.user?.isAdmin" style="color:red; margin-top:12px">
+    <div class="section-header">
+      <h2 class="section-title">ユーザー管理</h2>
+    </div>
+
+    <div v-if="!authStore.user?.isAdmin" class="alert alert-error">
       管理者権限が必要です。
     </div>
 
     <template v-else>
-      <p v-if="error" style="color:red; margin-top:12px">{{ error }}</p>
-      <p v-if="actionError" style="color:red">{{ actionError }}</p>
+      <div v-if="error" class="alert alert-error mb-4">{{ error }}</div>
+      <div v-if="actionError" class="alert alert-error mb-4">{{ actionError }}</div>
 
-      <div v-if="loading" style="margin-top:12px">読み込み中...</div>
+      <div v-if="loading" class="page-loading">
+        <span class="spinner" />読み込み中...
+      </div>
 
-      <table v-else style="border-collapse:collapse; width:100%; margin-top:16px">
-        <thead>
-          <tr style="border-bottom:2px solid #ccc">
-            <th style="text-align:left; padding:8px">ユーザー名</th>
-            <th style="text-align:left; padding:8px">権限</th>
-            <th style="text-align:left; padding:8px">状態</th>
-            <th style="text-align:left; padding:8px">操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="u in userList"
-            :key="u.id"
-            style="border-bottom:1px solid #eee"
-          >
-            <td style="padding:8px">{{ u.username }}</td>
-            <td style="padding:8px">
-              <span v-if="u.isAdmin" style="color:#6200ea">管理者</span>
-              <span v-else>一般</span>
-            </td>
-            <td style="padding:8px">
-              <span v-if="u.isSuspended" style="color:red">停止中</span>
-              <span v-else style="color:green">有効</span>
-            </td>
-            <td style="padding:8px; display:flex; gap:8px; flex-wrap:wrap">
-              <NirA :to="`/admin/users/${u.id}`">クォータ設定</NirA>
-              <button
-                v-if="!u.isSuspended && u.id !== authStore.user?.id"
-                type="button"
-                @click="suspendUser(u.id, u.username)"
-                style="color:red; border:none; background:none; cursor:pointer; padding:0"
-              >
-                停止
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <div v-else class="card" style="padding:0; overflow:hidden">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>ユーザー名</th>
+              <th>権限</th>
+              <th>状態</th>
+              <th class="col-actions">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="u in userList" :key="u.id">
+              <td style="font-weight:500">{{ u.username }}</td>
+              <td>
+                <span v-if="u.isAdmin" class="badge badge-admin">管理者</span>
+                <span v-else class="badge badge-muted">一般</span>
+              </td>
+              <td>
+                <span v-if="u.isSuspended" class="badge badge-danger">停止中</span>
+                <span v-else class="badge badge-success">有効</span>
+              </td>
+              <td class="col-actions">
+                <div class="flex gap-2 items-center">
+                  <NirA :to="`/admin/users/${u.id}`" class="btn btn-secondary btn-sm">クォータ設定</NirA>
+                  <Button.Root
+                    v-if="!u.isSuspended && u.id !== authStore.user?.id"
+                    class="btn btn-ghost-danger btn-sm"
+                    @click="requestSuspend(u)"
+                  >
+                    <Button.Content>停止</Button.Content>
+                  </Button.Root>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </template>
+
+    <ConfirmDialog
+      v-model:open="suspendDialog"
+      title="ユーザーを停止"
+      :message="suspendTarget ? `ユーザー「${suspendTarget.username}」を停止しますか？トークンも削除されます。` : ''"
+      confirm-label="停止する"
+      :danger="true"
+      @confirm="executeSuspend"
+      @cancel="suspendDialog = false"
+    />
   </div>
 </template>
