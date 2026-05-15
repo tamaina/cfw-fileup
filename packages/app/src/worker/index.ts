@@ -34,6 +34,16 @@ app.onError((err, c) => {
 	);
 });
 
+app.route('/api', authRoutes);
+app.route('/api', metaRoutes);
+app.route('/api/buckets', bucketRoutes);
+app.route('/api/files', fileRoutes);
+app.route('/api/account', accountRoutes);
+app.route('/api/admin', adminRoutes);
+app.route('/api/directories', directoryRoutes);
+app.route('/', downloadRoutes);
+app.route('/', uploadRoutes);
+
 app.get('/ping', (c) => {
 	return c.text('pong');
 });
@@ -47,7 +57,7 @@ app.get('/api.json', (c) => {
 	return c.json(spec);
 });
 
-app.get('/api-doc.html', (c) => {
+app.get('/api-doc', (c) => {
 	return c.html(`<!DOCTYPE html>
 <html>
 	<head>
@@ -96,16 +106,6 @@ app.get('/api-doc.html', (c) => {
 	</body>
 </html>`);
 });
-
-app.route('/api', authRoutes);
-app.route('/api', metaRoutes);
-app.route('/api/buckets', bucketRoutes);
-app.route('/api/files', fileRoutes);
-app.route('/api/account', accountRoutes);
-app.route('/api/admin', adminRoutes);
-app.route('/api/directories', directoryRoutes);
-app.route('/', downloadRoutes);
-app.route('/', uploadRoutes);
 
 app.get('*', (c) => c.env.ASSETS.fetch(c.req.raw));
 

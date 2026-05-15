@@ -138,14 +138,4 @@ app.post('/signin', async (c) => {
 	return c.json({ token: tokenValue } as ExtractResponseType<typeof authApiSchema, '/api/signin', 'post', 200>);
 });
 
-app.get('/account/me', async (c) => {
-	const user = c.get('user');
-	return c.json({
-		id: user.id,
-		username: user.username,
-		isAdmin: user.isAdmin,
-		isSuspended: user.isSuspended,
-	} as ExtractResponseType<typeof authApiSchema, '/api/account/me', 'get', 200>);
-});
-
 export default app;
