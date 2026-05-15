@@ -44,10 +44,24 @@ app.post('/signup', async (c) => {
 		throw new HTTPException(400, { message: 'password must be at least 8 characters' });
 	}
 
-	const signupPassphrase = c.env.SIGNUP_PASSPHRASE;
 	const userCount = await db.select({ count: count() }).from(users);
 	const isFirstUser = (userCount[0]?.count ?? 0) === 0;
 
+	let signupPassphraseSetting = await db
+		.select()
+		.from(appSettings)
+		.where(eq(appSettings.key, 'signup_passphrase'))
+		.get();
+
+	if (!signupPassphraseSetting && c.env.SIGNUP_PASSPHRASE) {
+		await db.insert(appSettings).values({
+			key: 'signup_passphrase',
+			value: c.env.SIGNUP_PASSPHRASE,
+		});
+		signupPassphraseSetting = { key: 'signup_passphrase', value: c.env.SIGNUP_PASSPHRASE };
+	}
+
+	const signupPassphrase = signupPassphraseSetting?.value;
 	if (signupPassphrase && !isFirstUser) {
 		if (!body.passphrase || body.passphrase !== signupPassphrase) {
 			throw new HTTPException(403, { message: 'Invalid passphrase' });
