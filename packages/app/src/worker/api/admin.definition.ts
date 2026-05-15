@@ -79,13 +79,7 @@ export const adminApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': {
-						schema: {
-							type: 'object',
-							properties: { ok: { type: 'boolean' } },
-							required: ['ok'],
-						}
-					}
+					'application/json': { schema: { ref: 'OkResponse' } }
 				}
 			},
 			400: { description: 'Bad request' },
@@ -104,13 +98,7 @@ export const adminApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': {
-						schema: {
-							type: 'object',
-							properties: { ok: { type: 'boolean' } },
-							required: ['ok'],
-						}
-					}
+					'application/json': { schema: { ref: 'OkResponse' } }
 				}
 			},
 			400: { description: 'Bad request' },
@@ -129,13 +117,7 @@ export const adminApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': {
-						schema: {
-							type: 'object',
-							properties: { ok: { type: 'boolean' } },
-							required: ['ok'],
-						}
-					}
+					'application/json': { schema: { ref: 'OkResponse' } }
 				}
 			},
 			400: { description: 'Bad request' },
@@ -154,13 +136,7 @@ export const adminApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': {
-						schema: {
-							type: 'object',
-							properties: { ok: { type: 'boolean' } },
-							required: ['ok'],
-						}
-					}
+					'application/json': { schema: { ref: 'OkResponse' } }
 				}
 			},
 			400: { description: 'Bad request' },
@@ -175,7 +151,7 @@ export const adminApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': { schema: getSettingsResponseSchema }
+					'application/json': { schema: { ref: 'AppSettings' } }
 				}
 			},
 		},
@@ -192,13 +168,7 @@ export const adminApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': {
-						schema: {
-							type: 'object',
-							properties: { ok: { type: 'boolean' } },
-							required: ['ok'],
-						}
-					}
+					'application/json': { schema: { ref: 'OkResponse' } }
 				}
 			},
 			400: { description: 'Bad request' },
@@ -217,13 +187,7 @@ export const adminApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': {
-						schema: {
-							type: 'object',
-							properties: { ok: { type: 'boolean' } },
-							required: ['ok'],
-						}
-					}
+					'application/json': { schema: { ref: 'OkResponse' } }
 				}
 			},
 			400: { description: 'Bad request' },
@@ -238,7 +202,7 @@ export const adminApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': { schema: quotaSchema }
+					'application/json': { schema: { ref: 'Quota' } }
 				}
 			},
 			404: { description: 'Not found' },
@@ -253,7 +217,7 @@ export const adminApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': { schema: quotaSchema }
+					'application/json': { schema: { ref: 'Quota' } }
 				}
 			},
 		},
@@ -267,13 +231,7 @@ export const adminApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': {
-						schema: {
-							type: 'object',
-							properties: { ok: { type: 'boolean' } },
-							required: ['ok'],
-						}
-					}
+					'application/json': { schema: { ref: 'OkResponse' } }
 				}
 			},
 			404: { description: 'Not found' },
@@ -291,13 +249,7 @@ export const adminApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': {
-						schema: {
-							type: 'object',
-							properties: { ok: { type: 'boolean' } },
-							required: ['ok'],
-						}
-					}
+					'application/json': { schema: { ref: 'OkResponse' } }
 				}
 			},
 			400: { description: 'Bad request' },
@@ -305,10 +257,4 @@ export const adminApiSchema = [
 	},
 ] as const;
 
-const okResponseSchema = {
-	type: 'object',
-	properties: { ok: { type: 'boolean' } },
-	required: ['ok'],
-} as const satisfies Schema;
-
-export { suspendUserSchema, deleteFileAdminSchema, deleteBucketAdminSchema, updateSettingSchema, appSettingSchema, quotaSchema, getSettingsResponseSchema, okResponseSchema, toggleRegistrationSchema };
+export { suspendUserSchema, deleteFileAdminSchema, deleteBucketAdminSchema, updateSettingSchema, appSettingSchema, quotaSchema, getSettingsResponseSchema, toggleRegistrationSchema };

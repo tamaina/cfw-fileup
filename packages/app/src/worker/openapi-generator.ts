@@ -4,11 +4,11 @@
  */
 
 import type { Schema } from './api/schema-type';
+import { refs } from './api/schema-type';
 import { signupResponseSchema, signinResponseSchema, userProfileSchema } from './api/auth.definition';
 import { bucketSchema, createBucketResponseSchema, listBucketsResponseSchema } from './api/buckets.definition';
 import {
 	createOpenFileResponseSchema,
-	okResponseSchema,
 } from './api/files.definition';
 import {
 	appSettingSchema,
@@ -69,10 +69,10 @@ const schemas: Record<string, Schema> = {
 	CreateBucketResponse: createBucketResponseSchema,
 	ListBucketsResponse: listBucketsResponseSchema,
 	CreateOpenFileResponse: createOpenFileResponseSchema,
-	OkResponse: okResponseSchema,
+	OkResponse: refs.OkResponse,
 	AppSetting: appSettingSchema,
 	GetSettingsResponse: getSettingsResponseSchema,
-	Quota: quotaSchema,
+	Quota: refs.Quota,
 	MetaResponse: metaResponseSchema,
 	ErrorResponse: {
 		type: 'object',

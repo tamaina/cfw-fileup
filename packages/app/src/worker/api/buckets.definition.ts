@@ -25,6 +25,77 @@ const bucketSchema = {
 	required: ['id', 'name'],
 } as const satisfies Schema;
 
+export const bucketsApiSchema = [
+	{
+		path: '/api/buckets/create',
+		method: 'post',
+		summary: 'Create bucket',
+		tags: ['Buckets'],
+		requestBody: {
+			'application/json': createBucketSchema,
+		},
+		responses: {
+			201: {
+				description: 'Created',
+				content: {
+					'application/json': {
+						schema: {
+							type: 'object',
+							properties: {
+								bucketId: { type: 'string', description: 'Newly created bucket ID' },
+							},
+							required: ['bucketId'],
+						}
+					}
+				}
+			},
+			400: { description: 'Bad request' },
+			429: { description: 'Quota exceeded' },
+		},
+	},
+	{
+		path: '/api/buckets/list',
+		method: 'post',
+		summary: 'List buckets',
+		tags: ['Buckets'],
+		responses: {
+			200: {
+				description: 'Success',
+				content: {
+					'application/json': {
+						schema: {
+							type: 'object',
+							properties: {
+								buckets: {
+									type: 'array',
+									items: bucketSchema,
+								},
+							},
+							required: ['buckets'],
+						}
+					}
+				}
+			},
+			401: { description: 'Unauthorized' },
+		},
+	},
+	{
+		path: '/api/buckets/delete',
+		method: 'post',
+		summary: 'Delete bucket',
+		tags: ['Buckets'],
+		requestBody: {
+			'application/json': deleteBucketSchema,
+		},
+		responses: {
+			200: { description: 'Success', schema: { ref: 'OkResponse' } },
+			400: { description: 'Bad request' },
+			403: { description: 'Forbidden' },
+			404: { description: 'Not found' },
+		},
+	},
+] as const;
+
 const createBucketResponseSchema = {
 	type: 'object',
 	properties: {
@@ -44,73 +115,4 @@ const listBucketsResponseSchema = {
 	required: ['buckets'],
 } as const satisfies Schema;
 
-export const bucketsApiSchema = [
-	{
-		path: '/api/buckets/create',
-		method: 'post',
-		summary: 'Create bucket',
-		tags: ['Buckets'],
-		requestBody: {
-			'application/json': createBucketSchema,
-		},
-		responses: {
-			201: {
-				description: 'Created',
-				content: {
-					'application/json': { schema: createBucketResponseSchema }
-				}
-			},
-			400: { description: 'Bad request' },
-			429: { description: 'Quota exceeded' },
-		},
-	},
-	{
-		path: '/api/buckets/list',
-		method: 'post',
-		summary: 'List buckets',
-		tags: ['Buckets'],
-		responses: {
-			200: {
-				description: 'Success',
-				content: {
-					'application/json': { schema: listBucketsResponseSchema }
-				}
-			},
-			401: { description: 'Unauthorized' },
-		},
-	},
-	{
-		path: '/api/buckets/delete',
-		method: 'post',
-		summary: 'Delete bucket',
-		tags: ['Buckets'],
-		requestBody: {
-			'application/json': deleteBucketSchema,
-		},
-		responses: {
-			200: {
-				description: 'Success',
-				content: {
-					'application/json': {
-						schema: {
-							type: 'object',
-							properties: { ok: { type: 'boolean' } },
-							required: ['ok'],
-						}
-					}
-				}
-			},
-			400: { description: 'Bad request' },
-			403: { description: 'Forbidden' },
-			404: { description: 'Not found' },
-		},
-	},
-] as const;
-
-const okResponseSchema = {
-	type: 'object',
-	properties: { ok: { type: 'boolean' } },
-	required: ['ok'],
-} as const satisfies Schema;
-
-export { createBucketSchema, deleteBucketSchema, bucketSchema, createBucketResponseSchema, listBucketsResponseSchema, okResponseSchema };
+export { createBucketSchema, deleteBucketSchema, bucketSchema, createBucketResponseSchema, listBucketsResponseSchema };

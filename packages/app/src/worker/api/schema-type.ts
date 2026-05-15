@@ -22,6 +22,32 @@ export const refs = {
     },
     required: ['key', 'value'],
   } as const,
+  OkResponse: {
+    type: 'object',
+    properties: { ok: { type: 'boolean' as const } },
+    required: ['ok'],
+  } as const,
+  Quota: {
+    type: 'object',
+    properties: {
+      maxBuckets: { type: 'integer' as const, nullable: true, description: 'Max buckets per user' },
+      maxBucketSizeBytes: { type: 'integer' as const, nullable: true, description: 'Max bucket size in bytes' },
+      maxFilesPerBucket: { type: 'integer' as const, nullable: true, description: 'Max files per bucket' },
+      maxDailyUploads: { type: 'integer' as const, nullable: true, description: 'Max daily uploads' },
+    },
+    required: ['maxBuckets', 'maxBucketSizeBytes', 'maxFilesPerBucket', 'maxDailyUploads'],
+  } as const,
+  AppSettings: {
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: {
+        key: { type: 'string' as const, description: 'Setting key' },
+        value: { type: 'string' as const, description: 'Setting value' },
+      },
+      required: ['key', 'value'],
+    } as const,
+  } as const,
 } as const;
 
 export type Packed<x extends keyof typeof refs> = SchemaType<typeof refs[x]>;

@@ -117,13 +117,7 @@ export const filesApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': {
-						schema: {
-							type: 'object',
-							properties: { ok: { type: 'boolean' } },
-							required: ['ok'],
-						}
-					}
+					'application/json': { schema: { ref: 'OkResponse' } }
 				}
 			},
 			400: { description: 'Bad request' },
@@ -144,13 +138,7 @@ export const filesApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': {
-						schema: {
-							type: 'object',
-							properties: { ok: { type: 'boolean' } },
-							required: ['ok'],
-						}
-					}
+					'application/json': { schema: { ref: 'OkResponse' } }
 				}
 			},
 			400: { description: 'Bad request' },
@@ -171,13 +159,7 @@ export const filesApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': {
-						schema: {
-							type: 'object',
-							properties: { ok: { type: 'boolean' } },
-							required: ['ok'],
-						}
-					}
+					'application/json': { schema: { ref: 'OkResponse' } }
 				}
 			},
 			400: { description: 'Bad request' },
@@ -199,13 +181,7 @@ export const filesApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': {
-						schema: {
-							type: 'object',
-							properties: { ok: { type: 'boolean' } },
-							required: ['ok'],
-						}
-					}
+					'application/json': { schema: { ref: 'OkResponse' } }
 				}
 			},
 			400: { description: 'Bad request' },
@@ -230,10 +206,4 @@ export const filesApiSchema = [
 	},
 ] as const;
 
-const okResponseSchema = {
-	type: 'object',
-	properties: { ok: { type: 'boolean' } },
-	required: ['ok'],
-} as const satisfies Schema;
-
-export { createOpenSchema, targzIndexSchema, tarIndexSchema, createCloseSchema, deleteFileSchema, createOpenFileResponseSchema, okResponseSchema };
+export { createOpenSchema, targzIndexSchema, tarIndexSchema, createCloseSchema, deleteFileSchema, createOpenFileResponseSchema };
