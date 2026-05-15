@@ -119,6 +119,7 @@ async function tusUpload(fileId: string, blob: Blob, filename: string, onProgres
 			headers: {
 				'Content-Type': 'application/offset+octet-stream',
 				'Upload-Offset': String(offset),
+				'Content-Length': String(chunk.size),
 				'Tus-Resumable': '1.0.0',
 				...authHeaders(),
 			},
@@ -256,7 +257,12 @@ class TusChunkQueue {
 		isFinal: boolean,
 	): Promise<boolean> {
 		const file = await handle.getFile();
-		const extraHeaders: Record<string, string> = isFinal ? { 'Upload-Final': '1' } : {};
+		const extraHeaders: Record<string, string> = {
+			'Content-Length': String(file.size),
+		};
+		if (isFinal) {
+			extraHeaders['Upload-Final'] = '1';
+		}
 		const res = await fetch(`/upload/${this.fileId}/resume`, {
 			method: 'PATCH',
 			headers: {
