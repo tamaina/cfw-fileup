@@ -318,8 +318,8 @@ async function uploadChunkedStream(
 			}
 
 			if (buf.length >= CHUNK_SIZE) {
-				const chunk = buf;
-				buf = new Uint8Array(0);
+				const chunk = buf.slice(0, CHUNK_SIZE);
+				buf = buf.slice(CHUNK_SIZE);
 				if (!(await queue.appendChunk(chunk, offset, partNum++, false))) {
 					return null;
 				}
@@ -328,6 +328,10 @@ async function uploadChunkedStream(
 
 			if (done) {
 				if (buf.length > 0) {
+					if (buf.length > CHUNK_SIZE) {
+						uploadError.value = `最後のパートが5MBを超えています: ${formatBytes(buf.length)}`;
+						return null;
+					}
 					if (!(await queue.appendChunk(buf, offset, partNum, true))) {
 						return null;
 					}
