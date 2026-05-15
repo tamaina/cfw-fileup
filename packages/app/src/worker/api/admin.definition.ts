@@ -55,12 +55,6 @@ const getSettingsResponseSchema = {
 	items: appSettingSchema,
 } as const satisfies Schema;
 
-const okResponseSchema = {
-	type: 'object',
-	properties: { ok: { type: 'boolean' } },
-	required: ['ok'],
-} as const satisfies Schema;
-
 const quotaSchema = {
 	type: 'object',
 	properties: {
@@ -85,7 +79,13 @@ export const adminApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': { schema: okResponseSchema }
+					'application/json': {
+						schema: {
+							type: 'object',
+							properties: { ok: { type: 'boolean' } },
+							required: ['ok'],
+						}
+					}
 				}
 			},
 			400: { description: 'Bad request' },
@@ -104,7 +104,13 @@ export const adminApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': { schema: okResponseSchema }
+					'application/json': {
+						schema: {
+							type: 'object',
+							properties: { ok: { type: 'boolean' } },
+							required: ['ok'],
+						}
+					}
 				}
 			},
 			400: { description: 'Bad request' },
@@ -123,7 +129,13 @@ export const adminApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': { schema: okResponseSchema }
+					'application/json': {
+						schema: {
+							type: 'object',
+							properties: { ok: { type: 'boolean' } },
+							required: ['ok'],
+						}
+					}
 				}
 			},
 			400: { description: 'Bad request' },
@@ -142,7 +154,13 @@ export const adminApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': { schema: okResponseSchema }
+					'application/json': {
+						schema: {
+							type: 'object',
+							properties: { ok: { type: 'boolean' } },
+							required: ['ok'],
+						}
+					}
 				}
 			},
 			400: { description: 'Bad request' },
@@ -174,7 +192,13 @@ export const adminApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': { schema: okResponseSchema }
+					'application/json': {
+						schema: {
+							type: 'object',
+							properties: { ok: { type: 'boolean' } },
+							required: ['ok'],
+						}
+					}
 				}
 			},
 			400: { description: 'Bad request' },
@@ -193,7 +217,13 @@ export const adminApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': { schema: okResponseSchema }
+					'application/json': {
+						schema: {
+							type: 'object',
+							properties: { ok: { type: 'boolean' } },
+							required: ['ok'],
+						}
+					}
 				}
 			},
 			400: { description: 'Bad request' },
@@ -237,7 +267,13 @@ export const adminApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': { schema: okResponseSchema }
+					'application/json': {
+						schema: {
+							type: 'object',
+							properties: { ok: { type: 'boolean' } },
+							required: ['ok'],
+						}
+					}
 				}
 			},
 			404: { description: 'Not found' },
@@ -255,12 +291,24 @@ export const adminApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': { schema: okResponseSchema }
+					'application/json': {
+						schema: {
+							type: 'object',
+							properties: { ok: { type: 'boolean' } },
+							required: ['ok'],
+						}
+					}
 				}
 			},
 			400: { description: 'Bad request' },
 		},
 	},
 ] as const;
+
+const okResponseSchema = {
+	type: 'object',
+	properties: { ok: { type: 'boolean' } },
+	required: ['ok'],
+} as const satisfies Schema;
 
 export { suspendUserSchema, deleteFileAdminSchema, deleteBucketAdminSchema, updateSettingSchema, appSettingSchema, quotaSchema, getSettingsResponseSchema, okResponseSchema, toggleRegistrationSchema };

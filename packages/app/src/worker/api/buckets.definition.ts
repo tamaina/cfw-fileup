@@ -44,12 +44,6 @@ const listBucketsResponseSchema = {
 	required: ['buckets'],
 } as const satisfies Schema;
 
-const okResponseSchema = {
-	type: 'object',
-	properties: { ok: { type: 'boolean' } },
-	required: ['ok'],
-} as const satisfies Schema;
-
 export const bucketsApiSchema = [
 	{
 		path: '/api/buckets/create',
@@ -97,7 +91,13 @@ export const bucketsApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': { schema: okResponseSchema }
+					'application/json': {
+						schema: {
+							type: 'object',
+							properties: { ok: { type: 'boolean' } },
+							required: ['ok'],
+						}
+					}
 				}
 			},
 			400: { description: 'Bad request' },
@@ -107,4 +107,10 @@ export const bucketsApiSchema = [
 	},
 ] as const;
 
-export { createBucketSchema, deleteBucketSchema, bucketSchema, createBucketResponseSchema, listBucketsResponseSchema };
+const okResponseSchema = {
+	type: 'object',
+	properties: { ok: { type: 'boolean' } },
+	required: ['ok'],
+} as const satisfies Schema;
+
+export { createBucketSchema, deleteBucketSchema, bucketSchema, createBucketResponseSchema, listBucketsResponseSchema, okResponseSchema };
