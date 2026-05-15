@@ -6,6 +6,7 @@ import { getDb } from '../utils/db';
 import { authMiddleware } from '../middleware/auth';
 import { genEaidx } from '../../shared/eaid-x';
 
+const PART_SIZE = 5 * 1024 * 1024; // 5MB
 const app = new Hono<{ Bindings: Env }>();
 
 app.use('/upload/*', authMiddleware);
@@ -87,6 +88,17 @@ app.patch('/upload/:fileId/resume', async (c) => {
     })
 		.from(uploadParts)
 		.where(eq(uploadParts.fileId, fileId));
+
+	const isLastPart = contentLength < PART_SIZE;
+	const isNonLastPart = maxPartNumber !== null && maxPartNumber !== undefined && maxPartNumber > 0;
+
+	if (!isLastPart && contentLength !== PART_SIZE) {
+		throw new HTTPException(400, { message: `All parts except the last must be exactly ${PART_SIZE} bytes` });
+	}
+
+	if (isNonLastPart && isLastPart) {
+		throw new HTTPException(400, { message: 'Last part must be smaller than or equal to previous parts' });
+	}
 
 	const nextPartNumber = (maxPartNumber ?? 0) + 1;
 
