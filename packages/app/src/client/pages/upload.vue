@@ -327,15 +327,15 @@ async function uploadChunkedStream(
 			}
 
 			if (done) {
-				if (buf.length > 0) {
-					if (buf.length > CHUNK_SIZE) {
-						uploadError.value = `最後のパートが5MBを超えています: ${formatBytes(buf.length)}`;
+				// 残りのバッファを全て送信（5MB超過でも分割して対応）
+				while (buf.length > 0) {
+					const isFinal = buf.length <= CHUNK_SIZE;
+					const chunk = isFinal ? buf : buf.slice(0, CHUNK_SIZE);
+					buf = buf.slice(chunk.length);
+					if (!(await queue.appendChunk(chunk, offset, partNum++, isFinal))) {
 						return null;
 					}
-					if (!(await queue.appendChunk(buf, offset, partNum, true))) {
-						return null;
-					}
-					offset += buf.length;
+					offset += chunk.length;
 				}
 				break;
 			}
