@@ -53,19 +53,20 @@ app.post('/signup', async (c) => {
 		.where(eq(appSettings.key, 'require_signup_passphrase'))
 		.get();
 
-	if (!requireSignupPassphraseSetting && c.env.SIGNUP_PASSPHRASE) {
+	if (!requireSignupPassphraseSetting) {
+		const defaultValue = c.env.SIGNUP_PASSPHRASE ? 'true' : 'false';
 		await db.insert(appSettings).values({
 			key: 'require_signup_passphrase',
-			value: 'true',
+			value: defaultValue,
 		});
-		requireSignupPassphraseSetting = { key: 'require_signup_passphrase', value: 'true' };
+		requireSignupPassphraseSetting = { key: 'require_signup_passphrase', value: defaultValue };
 	}
 
 	const requireSignupPassphrase = requireSignupPassphraseSetting?.value === 'true';
 	const signupPassphrase = c.env.SIGNUP_PASSPHRASE;
 
-	if (requireSignupPassphrase && signupPassphrase && !isFirstUser) {
-		if (!body.passphrase || body.passphrase !== signupPassphrase) {
+	if (requireSignupPassphrase && !isFirstUser) {
+		if (!signupPassphrase || !body.passphrase || body.passphrase !== signupPassphrase) {
 			throw new HTTPException(403, { message: 'Invalid passphrase' });
 		}
 	}

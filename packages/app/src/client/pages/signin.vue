@@ -71,9 +71,9 @@ async function submit(): Promise<void> {
           <input v-model="form.password" type="password" required autocomplete="current-password">
         </label>
       </div>
-      <div v-if="mode === 'signup'">
-        <label>合言葉{{ passphraseRequired ? '(必須)' : '(任意)' }}<br>
-          <input v-model="form.passphrase" type="text" autocomplete="off" :required="passphraseRequired">
+      <div v-if="mode === 'signup' && passphraseRequired">
+        <label>合言葉(必須)<br>
+          <input v-model="form.passphrase" type="text" autocomplete="off" required>
         </label>
       </div>
       <p v-if="error" style="color:red">{{ error }}</p>

@@ -23,12 +23,13 @@ app.get('/meta', async (c) => {
 		.where(eq(appSettings.key, 'require_signup_passphrase'))
 		.get();
 
-	if (!requireSignupPassphraseSetting && c.env.SIGNUP_PASSPHRASE) {
+	if (!requireSignupPassphraseSetting) {
+		const defaultValue = c.env.SIGNUP_PASSPHRASE ? 'true' : 'false';
 		await db.insert(appSettings).values({
 			key: 'require_signup_passphrase',
-			value: 'true',
+			value: defaultValue,
 		});
-		requireSignupPassphraseSetting = { key: 'require_signup_passphrase', value: 'true' };
+		requireSignupPassphraseSetting = { key: 'require_signup_passphrase', value: defaultValue };
 	}
 
 	const requireSignupPassphrase = requireSignupPassphraseSetting?.value === 'true';
