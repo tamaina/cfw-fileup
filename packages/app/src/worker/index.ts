@@ -63,11 +63,36 @@ app.get('/api-docs.html', (c) => {
 				margin: 0;
 				padding: 0;
 			}
+			#error-message {
+				display: none;
+				padding: 20px;
+				background-color: #ffebee;
+				color: #c62828;
+				margin: 20px;
+				border-radius: 4px;
+			}
 		</style>
 	</head>
 	<body>
+		<div id="error-message">Failed to load API specification. Please refresh the page.</div>
 		<script id="api-reference" data-url="/api.json"></script>
 		<script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+		<script>
+			// Error handling for API spec loading
+			const apiRefElement = document.getElementById('api-reference');
+			const errorElement = document.getElementById('error-message');
+
+			if (!apiRefElement) {
+				errorElement.style.display = 'block';
+			}
+
+			// Fallback if Scalar fails to load
+			setTimeout(() => {
+				if (!document.querySelector('.scalar-api-reference')) {
+					errorElement.style.display = 'block';
+				}
+			}, 3000);
+		</script>
 	</body>
 </html>`);
 });

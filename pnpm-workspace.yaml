@@ -4,7 +4,7 @@ packages:
 allowBuilds:
   esbuild: true
   sharp: true
-  vue-demi: set this to true or false
+  vue-demi: true
   workerd: true
 
 onlyBuiltDependencies:

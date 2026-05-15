@@ -204,13 +204,16 @@ const schemas: Record<string, Schema> = {
 };
 
 function schemaToOpenAPI(schema: any): OpenAPISchema {
+	if (!schema || typeof schema !== 'object') {
+		return schema || {};
+	}
 	if (schema.$ref) {
 		return schema;
 	}
 	if (schema.type === 'array') {
 		return {
 			type: 'array',
-			items: schemaToOpenAPI(schema.items),
+			items: schema.items ? schemaToOpenAPI(schema.items) : {},
 			description: schema.description,
 		};
 	}

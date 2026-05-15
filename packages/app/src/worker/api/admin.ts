@@ -282,32 +282,43 @@ app.post('/delete-user-quota/:userId', async (c) => {
 });
 
 app.post('/update-setting', async (c) => {
-	const db = getDb(c.env);
-	const body = (await c.req.json()) as SchemaType<typeof updateSettingSchema>;
+	try {
+		const db = getDb(c.env);
+		const body = (await c.req.json()) as SchemaType<typeof updateSettingSchema>;
 
-	if (!body.key || body.value === undefined) {
-		throw new HTTPException(400, { message: 'key and value are required' });
+		if (!body.key || body.value === undefined) {
+			throw new HTTPException(400, { message: 'key and value are required' });
+		}
+
+		await db
+			.insert(appSettings)
+			.values({
+				key: body.key,
+				value: body.value,
+			})
+			.onConflictDoUpdate({
+				target: appSettings.key,
+				set: { value: body.value },
+			});
+
+		return c.json({ key: body.key, value: body.value });
+	} catch (err) {
+		if (err instanceof HTTPException) throw err;
+		console.error('Error updating setting:', err);
+		throw new HTTPException(500, { message: 'Failed to update setting' });
 	}
-
-	await db
-		.insert(appSettings)
-		.values({
-			key: body.key,
-			value: body.value,
-		})
-		.onConflictDoUpdate({
-			target: appSettings.key,
-			set: { value: body.value },
-		});
-
-	return c.json({ ok: true });
 });
 
 app.get('/get-settings', async (c) => {
-	const db = getDb(c.env);
-	const settings = await db.select().from(appSettings);
+	try {
+		const db = getDb(c.env);
+		const settings = await db.select().from(appSettings);
 
-	return c.json(settings);
+		return c.json(settings);
+	} catch (err) {
+		console.error('Error fetching settings:', err);
+		throw new HTTPException(500, { message: 'Failed to fetch settings' });
+	}
 });
 
 export default app;

@@ -1,13 +1,11 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue';
-import { useAuthStore } from '../store/auth';
+import { authStore } from '../store/auth';
 
 interface Setting {
 	key: string;
 	value: string;
 }
-
-const authStore = useAuthStore();
 const settings = ref<Setting[]>([]);
 const loading = ref(false);
 const saving = ref(false);
