@@ -63,8 +63,12 @@ describe('POST /api/signup', () => {
 	});
 
 	test('with SIGNUP_PASSPHRASE set: second user without passphrase returns 403', async () => {
-		await signup('admin');
 		const customEnv = Object.assign({}, env, { SIGNUP_PASSPHRASE: 'secret' });
+		await app.request('/api/signup', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ username: 'admin', password: 'password123' }),
+		}, customEnv);
 		const res = await app.request('/api/signup', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
@@ -74,8 +78,12 @@ describe('POST /api/signup', () => {
 	});
 
 	test('with SIGNUP_PASSPHRASE set: correct passphrase allows signup', async () => {
-		await signup('admin');
 		const customEnv = Object.assign({}, env, { SIGNUP_PASSPHRASE: 'secret' });
+		await app.request('/api/signup', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ username: 'admin', password: 'password123' }),
+		}, customEnv);
 		const res = await app.request('/api/signup', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },

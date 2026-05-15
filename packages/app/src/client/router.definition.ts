@@ -53,6 +53,11 @@ export const ROUTE_DEF = [
 		component: page(() => import('@/pages/admin-settings.vue')),
 	},
 	{
+		path: '/api-doc',
+		name: 'api-doc',
+		component: page(() => import('@/pages/api-doc.vue')),
+	},
+	{
 		path: '/:(*)',
 		component: page(() => import('@/pages/not-found.vue')),
 	},

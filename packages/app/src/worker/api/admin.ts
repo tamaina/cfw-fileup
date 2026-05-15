@@ -5,48 +5,8 @@ import { users, tokens, files, buckets, appSettings, userQuotas, globalQuotas } 
 import { getDb } from '../utils/db';
 import { getQuotaForUser, getGlobalQuota } from '../utils/rate-limit';
 import { authMiddleware, adminMiddleware } from '../middleware/auth';
-import type { Schema, SchemaType } from './schema-type';
-
-const suspendUserSchema = {
-	type: 'object',
-	properties: {
-		userId: { type: 'string' },
-	},
-	required: ['userId'],
-} as const satisfies Schema;
-
-const deleteFileSchema = {
-	type: 'object',
-	properties: {
-		fileId: { type: 'string' },
-	},
-	required: ['fileId'],
-} as const satisfies Schema;
-
-const deleteBucketSchema = {
-	type: 'object',
-	properties: {
-		bucketId: { type: 'string' },
-	},
-	required: ['bucketId'],
-} as const satisfies Schema;
-
-const toggleRegistrationSchema = {
-	type: 'object',
-	properties: {
-		enabled: { type: 'boolean' },
-	},
-	required: ['enabled'],
-} as const satisfies Schema;
-
-const updateSettingSchema = {
-	type: 'object',
-	properties: {
-		key: { type: 'string' },
-		value: { type: 'string' },
-	},
-	required: ['key', 'value'],
-} as const satisfies Schema;
+import type { ExtractRequestType, ExtractResponseType } from './schema-type';
+import { adminApiSchema } from './admin.definition';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -55,7 +15,8 @@ app.use(adminMiddleware);
 
 app.post('/suspend-user', async (c) => {
 	const db = getDb(c.env);
-	const body = (await c.req.json()) as SchemaType<typeof suspendUserSchema>;
+	type SuspendUserReq = ExtractRequestType<typeof adminApiSchema, '/api/admin/suspend-user', 'post'>;
+	const body = (await c.req.json()) as SuspendUserReq;
 
 	if (!body.userId) {
 		throw new HTTPException(400, { message: 'userId is required' });
@@ -71,12 +32,13 @@ app.post('/suspend-user', async (c) => {
 
 	await db.delete(tokens).where(eq(tokens.userId, body.userId));
 
-	return c.json({ ok: true });
+	return c.json({ ok: true } as ExtractResponseType<typeof adminApiSchema, '/api/admin/suspend-user', 'post', 200>);
 });
 
 app.post('/delete-file', async (c) => {
 	const db = getDb(c.env);
-	const body = (await c.req.json()) as SchemaType<typeof deleteFileSchema>;
+	type DeleteFileAdminReq = ExtractRequestType<typeof adminApiSchema, '/api/admin/delete-file', 'post'>;
+	const body = (await c.req.json()) as DeleteFileAdminReq;
 
 	if (!body.fileId) {
 		throw new HTTPException(400, { message: 'fileId is required' });
@@ -96,12 +58,13 @@ app.post('/delete-file', async (c) => {
 
 	await db.delete(files).where(eq(files.id, body.fileId));
 
-	return c.json({ ok: true });
+	return c.json({ ok: true } as ExtractResponseType<typeof adminApiSchema, '/api/admin/delete-file', 'post', 200>);
 });
 
 app.post('/delete-bucket', async (c) => {
 	const db = getDb(c.env);
-	const body = (await c.req.json()) as SchemaType<typeof deleteBucketSchema>;
+	type DeleteBucketAdminReq = ExtractRequestType<typeof adminApiSchema, '/api/admin/delete-bucket', 'post'>;
+	const body = (await c.req.json()) as DeleteBucketAdminReq;
 
 	if (!body.bucketId) {
 		throw new HTTPException(400, { message: 'bucketId is required' });
@@ -125,31 +88,7 @@ app.post('/delete-bucket', async (c) => {
 
 	await db.delete(buckets).where(eq(buckets.id, bucket.id));
 
-	return c.json({ ok: true });
-});
-
-app.post('/toggle-registration', async (c) => {
-	const db = getDb(c.env);
-	const body = (await c.req.json()) as SchemaType<typeof toggleRegistrationSchema>;
-
-	if (body.enabled === undefined || body.enabled === null) {
-		throw new HTTPException(400, { message: 'enabled is required' });
-	}
-
-	const value = body.enabled ? 'true' : 'false';
-
-	await db
-		.insert(appSettings)
-		.values({
-			key: 'registration_enabled',
-			value,
-		})
-		.onConflictDoUpdate({
-			target: appSettings.key,
-			set: { value },
-		});
-
-	return c.json({ ok: true });
+	return c.json({ ok: true } as ExtractResponseType<typeof adminApiSchema, '/api/admin/delete-bucket', 'post', 200>);
 });
 
 app.post('/set-user-quota', async (c) => {
@@ -189,7 +128,7 @@ app.post('/set-user-quota', async (c) => {
 			},
 		});
 
-	return c.json({ ok: true });
+	return c.json({ ok: true } as ExtractResponseType<typeof adminApiSchema, '/api/admin/set-user-quota/:userId', 'post', 200>);
 });
 
 app.post('/set-global-quota', async (c) => {
@@ -215,20 +154,20 @@ app.post('/set-global-quota', async (c) => {
 			},
 		});
 
-	return c.json({ ok: true });
+	return c.json({ ok: true } as ExtractResponseType<typeof adminApiSchema, '/api/admin/set-global-quota', 'post', 200>);
 });
 
 app.get('/get-user-quota/:userId', async (c) => {
 	const userId = c.req.param('userId');
 	const quota = await getQuotaForUser(c.env, userId);
 
-	return c.json(quota);
+	return c.json(quota as ExtractResponseType<typeof adminApiSchema, '/api/admin/get-user-quota/:userId', 'get', 200>);
 });
 
 app.get('/get-global-quota', async (c) => {
 	const quota = await getGlobalQuota(c.env);
 
-	return c.json(quota);
+	return c.json(quota as ExtractResponseType<typeof adminApiSchema, '/api/admin/get-global-quota', 'get', 200>);
 });
 
 app.post('/delete-user-quota/:userId', async (c) => {
@@ -242,12 +181,38 @@ app.post('/delete-user-quota/:userId', async (c) => {
 
 	await db.delete(userQuotas).where(eq(userQuotas.userId, userId));
 
-	return c.json({ ok: true });
+	return c.json({ ok: true } as ExtractResponseType<typeof adminApiSchema, '/api/admin/delete-user-quota/:userId', 'post', 200>);
+});
+
+app.post('/toggle-registration', async (c) => {
+	const db = getDb(c.env);
+	type ToggleRegistrationReq = ExtractRequestType<typeof adminApiSchema, '/api/admin/toggle-registration', 'post'>;
+	const body = (await c.req.json()) as ToggleRegistrationReq;
+
+	if (body.enabled === undefined || body.enabled === null) {
+		throw new HTTPException(400, { message: 'enabled is required' });
+	}
+
+	const value = body.enabled ? 'true' : 'false';
+
+	await db
+		.insert(appSettings)
+		.values({
+			key: 'registration_enabled',
+			value,
+		})
+		.onConflictDoUpdate({
+			target: appSettings.key,
+			set: { value },
+		});
+
+	return c.json({ ok: true } as ExtractResponseType<typeof adminApiSchema, '/api/admin/toggle-registration', 'post', 200>);
 });
 
 app.post('/update-setting', async (c) => {
 	const db = getDb(c.env);
-	const body = (await c.req.json()) as SchemaType<typeof updateSettingSchema>;
+	type UpdateSettingReq = ExtractRequestType<typeof adminApiSchema, '/api/admin/update-setting', 'post'>;
+	const body = (await c.req.json()) as UpdateSettingReq;
 
 	if (!body.key || body.value === undefined) {
 		throw new HTTPException(400, { message: 'key and value are required' });
@@ -264,14 +229,14 @@ app.post('/update-setting', async (c) => {
 			set: { value: body.value },
 		});
 
-	return c.json({ ok: true });
+	return c.json({ ok: true } as ExtractResponseType<typeof adminApiSchema, '/api/admin/update-setting', 'post', 200>);
 });
 
 app.get('/get-settings', async (c) => {
 	const db = getDb(c.env);
 	const settings = await db.select().from(appSettings);
 
-	return c.json(settings);
+	return c.json(settings as ExtractResponseType<typeof adminApiSchema, '/api/admin/get-settings', 'get', 200>);
 });
 
 export default app;

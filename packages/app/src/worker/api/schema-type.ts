@@ -5,8 +5,50 @@
 // https://github.com/misskey-dev/misskey/blob/e2335567005ccd6e45db1556ae1095bb00d87e52/packages/backend/src/misc/json-schema.ts
 
 export const refs = {
-  // AnApiSchema: OpenApiDefObj
-};
+  Bucket: {
+    type: 'object',
+    properties: {
+      id: { type: 'string' as const, description: 'Bucket ID' },
+      name: { type: 'string' as const, description: 'Bucket name' },
+      userId: { type: 'string' as const, description: 'Owner user ID' },
+    },
+    required: ['id', 'name', 'userId'],
+  } as const,
+  AppSetting: {
+    type: 'object',
+    properties: {
+      key: { type: 'string' as const, description: 'Setting key' },
+      value: { type: 'string' as const, description: 'Setting value' },
+    },
+    required: ['key', 'value'],
+  } as const,
+  OkResponse: {
+    type: 'object',
+    properties: { ok: { type: 'boolean' as const } },
+    required: ['ok'],
+  } as const,
+  Quota: {
+    type: 'object',
+    properties: {
+      maxBuckets: { type: 'integer' as const, nullable: true, description: 'Max buckets per user' },
+      maxBucketSizeBytes: { type: 'integer' as const, nullable: true, description: 'Max bucket size in bytes' },
+      maxFilesPerBucket: { type: 'integer' as const, nullable: true, description: 'Max files per bucket' },
+      maxDailyUploads: { type: 'integer' as const, nullable: true, description: 'Max daily uploads' },
+    },
+    required: ['maxBuckets', 'maxBucketSizeBytes', 'maxFilesPerBucket', 'maxDailyUploads'],
+  } as const,
+  AppSettings: {
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: {
+        key: { type: 'string' as const, description: 'Setting key' },
+        value: { type: 'string' as const, description: 'Setting value' },
+      },
+      required: ['key', 'value'],
+    } as const,
+  } as const,
+} as const;
 
 export type Packed<x extends keyof typeof refs> = SchemaType<typeof refs[x]>;
 
@@ -157,3 +199,71 @@ export type SchemaTypeDef<p extends Schema> =
 			any;
 
 export type SchemaType<p extends Schema> = NullOrUndefined<p, SchemaTypeDef<p>>;
+
+// API Schema extraction utilities
+type FindEndpoint<T extends readonly any[], Path extends string, Method extends string> =
+	T extends readonly [infer First, ...infer Rest]
+		? First extends { path: infer P; method: infer M; requestBody?: any }
+			? P extends Path
+				? M extends Method
+					? First
+					: FindEndpoint<Rest, Path, Method>
+				: FindEndpoint<Rest, Path, Method>
+			: FindEndpoint<Rest, Path, Method>
+		: never;
+
+export type ExtractRequestSchema<
+	T extends readonly any[],
+	Path extends string,
+	Method extends string
+> = FindEndpoint<T, Path, Method> extends { requestBody?: infer RB }
+	? RB extends { 'application/json': infer S }
+		? S
+		: never
+	: never;
+
+type FindEndpointForResponse<T extends readonly any[], Path extends string, Method extends string> =
+	T extends readonly [infer First, ...infer Rest]
+		? First extends { path: infer P; method: infer M; responses?: any }
+			? P extends Path
+				? M extends Method
+					? First
+					: FindEndpointForResponse<Rest, Path, Method>
+				: FindEndpointForResponse<Rest, Path, Method>
+			: FindEndpointForResponse<Rest, Path, Method>
+		: never;
+
+export type ExtractResponseSchema<
+	T extends readonly any[],
+	Path extends string,
+	Method extends string,
+	Status extends string | number = 200
+> = FindEndpointForResponse<T, Path, Method> extends { responses?: infer Responses }
+	? Responses extends Record<string | number, any>
+		? keyof Responses & (Status | string) extends infer K extends keyof Responses
+			? Responses[K] extends { content: { 'application/json': { schema: infer S } } }
+				? S extends Schema
+					? S
+					: never
+				: Responses[K] extends { schema: infer S }
+					? S extends Schema
+						? S
+						: never
+					: never
+			: never
+		: never
+	: never;
+
+// Direct type extraction utilities - returns SchemaType directly
+export type ExtractRequestType<
+	T extends readonly any[],
+	Path extends string,
+	Method extends string
+> = SchemaType<ExtractRequestSchema<T, Path, Method> extends infer S extends Schema ? S : never>;
+
+export type ExtractResponseType<
+	T extends readonly any[],
+	Path extends string,
+	Method extends string,
+	Status extends string | number = 200
+> = SchemaType<ExtractResponseSchema<T, Path, Method, Status>>;

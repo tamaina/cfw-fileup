@@ -4,33 +4,15 @@ import { eq, count } from 'drizzle-orm';
 import { users, tokens, appSettings } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { hashPassword, verifyPassword, generateToken } from '../utils/crypto';
-import { genEaidx, parseEaidxFull } from '../../shared/eaid-x';
-import type { Schema, SchemaType } from './schema-type';
-
-const signupSchema = {
-	type: 'object',
-	properties: {
-		username: { type: 'string', minLength: 1, maxLength: 32 },
-		password: { type: 'string', minLength: 8 },
-		passphrase: { type: 'string', optional: true },
-	},
-	required: ['username', 'password'],
-} as const satisfies Schema;
-
-const signinSchema = {
-	type: 'object',
-	properties: {
-		username: { type: 'string' },
-		password: { type: 'string' },
-	},
-	required: ['username', 'password'],
-} as const satisfies Schema;
+import { genEaidx } from '../../shared/eaid-x';
+import type { ExtractRequestType, ExtractResponseType } from './schema-type';
+import { authApiSchema } from './auth.definition';
 
 const app = new Hono<{ Bindings: Env }>();
 
 app.post('/signup', async (c) => {
 	const db = getDb(c.env);
-	const body = (await c.req.json()) as SchemaType<typeof signupSchema>;
+	const body = (await c.req.json()) as ExtractRequestType<typeof authApiSchema, '/api/signup', 'post'>;
 
 	if (!body.username || !body.password) {
 		throw new HTTPException(400, { message: 'username and password are required' });
@@ -47,6 +29,7 @@ app.post('/signup', async (c) => {
 	const userCount = await db.select({ count: count() }).from(users);
 	const isFirstUser = (userCount[0]?.count ?? 0) === 0;
 
+	// Get or initialize require_signup_passphrase setting
 	let requireSignupPassphraseSetting = await db
 		.select()
 		.from(appSettings)
@@ -62,6 +45,7 @@ app.post('/signup', async (c) => {
 		requireSignupPassphraseSetting = { key: 'require_signup_passphrase', value: defaultValue };
 	}
 
+	// Check passphrase requirement (first user is always exempt)
 	const requireSignupPassphrase = requireSignupPassphraseSetting?.value === 'true';
 	const signupPassphrase = c.env.SIGNUP_PASSPHRASE;
 
@@ -87,7 +71,6 @@ app.post('/signup', async (c) => {
 	}
 
 	const userId = genEaidx(Date.now());
-	const userEaidx = parseEaidxFull(userId);
 	const passwordHash = await hashPassword(body.password);
 
 	await db.insert(users).values({
@@ -96,18 +79,15 @@ app.post('/signup', async (c) => {
 		passwordHash,
 		isAdmin: isFirstUser,
 		isSuspended: false,
-		createdAt: userEaidx.date,
 	});
 
 	const tokenId = genEaidx(Date.now());
-	const tokenEaidx = parseEaidxFull(tokenId);
 	const tokenValue = generateToken();
 
 	await db.insert(tokens).values({
 		id: tokenId,
 		userId,
 		token: tokenValue,
-		createdAt: tokenEaidx.date,
 	});
 
 	if (isFirstUser) {
@@ -120,12 +100,12 @@ app.post('/signup', async (c) => {
 			.onConflictDoNothing();
 	}
 
-	return c.json({ userId, token: tokenValue });
+	return c.json({ userId, token: tokenValue } as ExtractResponseType<typeof authApiSchema, '/api/signup', 'post', 201>);
 });
 
 app.post('/signin', async (c) => {
 	const db = getDb(c.env);
-	const body = (await c.req.json()) as SchemaType<typeof signinSchema>;
+	const body = (await c.req.json()) as ExtractRequestType<typeof authApiSchema, '/api/signin', 'post'>;
 
 	if (!body.username || !body.password) {
 		throw new HTTPException(400, { message: 'username and password are required' });
@@ -147,17 +127,25 @@ app.post('/signin', async (c) => {
 	}
 
 	const tokenId = genEaidx(Date.now());
-	const tokenEaidx = parseEaidxFull(tokenId);
 	const tokenValue = generateToken();
 
 	await db.insert(tokens).values({
 		id: tokenId,
 		userId: user.id,
 		token: tokenValue,
-		createdAt: tokenEaidx.date,
 	});
 
-	return c.json({ token: tokenValue });
+	return c.json({ token: tokenValue } as ExtractResponseType<typeof authApiSchema, '/api/signin', 'post', 200>);
+});
+
+app.get('/account/me', async (c) => {
+	const user = c.get('user');
+	return c.json({
+		id: user.id,
+		username: user.username,
+		isAdmin: user.isAdmin,
+		isSuspended: user.isSuspended,
+	} as ExtractResponseType<typeof authApiSchema, '/api/account/me', 'get', 200>);
 });
 
 export default app;
