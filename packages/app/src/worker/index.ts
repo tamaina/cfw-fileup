@@ -47,7 +47,7 @@ app.get('/api.json', (c) => {
 	return c.json(spec);
 });
 
-app.get('/api-docs.html', (c) => {
+app.get('/api-doc.html', (c) => {
 	return c.html(`<!DOCTYPE html>
 <html>
 	<head>
