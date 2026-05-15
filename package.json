@@ -1,6 +1,7 @@
 {
   "name": "cfw-fileup",
   "type": "module",
+  "packageManager": "pnpm@11.1.2",
   "scripts": {
     "dev": "pnpm run --filter app dev",
     "build": "pnpm run --filter app build",
