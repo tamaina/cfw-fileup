@@ -17,6 +17,7 @@ export const files = sqliteTable('files', {
 	isTargz: integer('is_targz', { mode: 'boolean' }).notNull().default(false),
 	isTar: integer('is_tar', { mode: 'boolean' }).notNull().default(false),
 	uploadId: text('upload_id'),
+	createdAt: integer('created_at').notNull(),
 }, (table) => [
 	uniqueIndex('files_bucket_path_idx').on(table.bucketId, table.path),
 ]);

@@ -10,31 +10,6 @@ const app = new Hono<{ Bindings: Env }>();
 
 app.use('/upload/*', authMiddleware);
 
-app.put('/upload/:fileId', async (c) => {
-	const db = getDb(c.env);
-	const user = c.get('user');
-	const fileId = c.req.param('fileId');
-
-	const file = await db.select().from(files).where(eq(files.id, fileId)).get();
-	if (!file) throw new HTTPException(404, { message: 'File not found' });
-
-	if (file.userId !== user.id && !user.isAdmin) {
-		throw new HTTPException(403, { message: 'Forbidden' });
-	}
-
-	if (file.uploadExpiresAt < Date.now()) {
-		throw new HTTPException(410, { message: 'Upload expired' });
-	}
-
-	try {
-		await c.env.R2.put(file.r2Key, c.req.raw.body);
-	} catch (err) {
-		throw new HTTPException(400, { message: String(err) });
-	}
-
-	return new Response(null, { status: 204 });
-});
-
 app.get('/upload/:fileId/resume', async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');

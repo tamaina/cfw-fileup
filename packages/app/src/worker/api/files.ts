@@ -5,7 +5,7 @@ import { buckets, files, targzFiles, tarFiles, uploadParts } from '../scheme/ind
 import { getDb } from '../utils/db';
 import { getQuotaForUser } from '../utils/rate-limit';
 import { authMiddleware } from '../middleware/auth';
-import { genEaidx } from '../../shared/eaid-x';
+import { genEaidx, parseEaidxFull } from '../../shared/eaid-x';
 import type { Schema, SchemaType } from './schema-type';
 
 const createOpenSchema = {
@@ -143,6 +143,7 @@ app.post('/create/open', async (c) => {
 	}
 
 	const fileId = genEaidx(Date.now());
+	const fileEaidx = parseEaidxFull(fileId);
 	const r2Key = `${bucket.id}/${body.path}`;
 	const uploadExpiry = Date.now() + 24 * 60 * 60 * 1000;
 
@@ -153,6 +154,7 @@ app.post('/create/open', async (c) => {
 		path: body.path,
 		r2Key,
 		uploadExpiresAt: uploadExpiry,
+		createdAt: fileEaidx.date,
 	});
 
 	return c.json({ fileId, uploadExpiry });
