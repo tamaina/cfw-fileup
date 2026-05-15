@@ -5,7 +5,7 @@ import { buckets, files } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { getQuotaForUser } from '../utils/rate-limit';
 import { authMiddleware } from '../middleware/auth';
-import { genEaidx } from '../../shared/eaid-x';
+import { genEaidx, parseEaidxFull } from '../../shared/eaid-x';
 import type { Schema, SchemaType } from './schema-type';
 
 const createBucketSchema = {

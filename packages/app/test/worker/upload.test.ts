@@ -30,12 +30,12 @@ async function setupFileForUpload() {
 	return { token, bucketId, fileId };
 }
 
-describe('HEAD /upload/:fileId', () => {
+describe('GET /upload/:fileId/resume', () => {
 	test('returns 200 with Upload-Offset: 0 before upload', async () => {
 		const { token, fileId } = await setupFileForUpload();
 
-		const res = await app.request(`/upload/${fileId}`, {
-			method: 'HEAD',
+		const res = await app.request(`/upload/${fileId}/resume`, {
+			method: 'GET',
 			headers: { Authorization: `Bearer ${token}` },
 		}, env);
 		expect(res.status).toBe(200);
@@ -46,19 +46,19 @@ describe('HEAD /upload/:fileId', () => {
 	test('nonexistent fileId returns 404', async () => {
 		const { token } = await setupFileForUpload();
 
-		const res = await app.request('/upload/nonexistent', {
-			method: 'HEAD',
+		const res = await app.request('/upload/nonexistent/resume', {
+			method: 'GET',
 			headers: { Authorization: `Bearer ${token}` },
 		}, env);
 		expect(res.status).toBe(404);
 	});
 });
 
-describe('PATCH /upload/:fileId', () => {
+describe('PATCH /upload/:fileId/resume', () => {
 	test('missing Upload-Offset header returns 400', async () => {
 		const { token, fileId } = await setupFileForUpload();
 
-		const res = await app.request(`/upload/${fileId}`, {
+		const res = await app.request(`/upload/${fileId}/resume`, {
 			method: 'PATCH',
 			headers: {
 				Authorization: `Bearer ${token}`,
@@ -72,7 +72,7 @@ describe('PATCH /upload/:fileId', () => {
 	test('nonexistent fileId returns 404', async () => {
 		const { token } = await setupFileForUpload();
 
-		const res = await app.request('/upload/nonexistent', {
+		const res = await app.request('/upload/nonexistent/resume', {
 			method: 'PATCH',
 			headers: {
 				Authorization: `Bearer ${token}`,
@@ -88,11 +88,12 @@ describe('PATCH /upload/:fileId', () => {
 		const { token, fileId } = await setupFileForUpload();
 		const data = new Uint8Array([1, 2, 3, 4, 5]);
 
-		const res = await app.request(`/upload/${fileId}`, {
+		const res = await app.request(`/upload/${fileId}/resume`, {
 			method: 'PATCH',
 			headers: {
 				Authorization: `Bearer ${token}`,
 				'Upload-Offset': '0',
+				'Content-Length': String(data.length),
 				'Content-Type': 'application/offset+octet-stream',
 			},
 			body: data.buffer,
@@ -105,7 +106,7 @@ describe('PATCH /upload/:fileId', () => {
 	test('invalid Upload-Offset returns 400', async () => {
 		const { token, fileId } = await setupFileForUpload();
 
-		const res = await app.request(`/upload/${fileId}`, {
+		const res = await app.request(`/upload/${fileId}/resume`, {
 			method: 'PATCH',
 			headers: {
 				Authorization: `Bearer ${token}`,

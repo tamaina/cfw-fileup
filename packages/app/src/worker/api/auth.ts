@@ -4,7 +4,7 @@ import { eq, count } from 'drizzle-orm';
 import { users, tokens, appSettings } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { hashPassword, verifyPassword, generateToken } from '../utils/crypto';
-import { genEaidx } from '../../shared/eaid-x';
+import { genEaidx, parseEaidxFull } from '../../shared/eaid-x';
 import type { Schema, SchemaType } from './schema-type';
 
 const signupSchema = {
@@ -88,7 +88,6 @@ app.post('/signup', async (c) => {
 
 	const userId = genEaidx(Date.now());
 	const passwordHash = await hashPassword(body.password);
-	const now = Date.now();
 
 	await db.insert(users).values({
 		id: userId,
@@ -96,7 +95,6 @@ app.post('/signup', async (c) => {
 		passwordHash,
 		isAdmin: isFirstUser,
 		isSuspended: false,
-		createdAt: now,
 	});
 
 	const tokenId = genEaidx(Date.now());
