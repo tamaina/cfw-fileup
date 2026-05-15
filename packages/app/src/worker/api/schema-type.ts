@@ -239,12 +239,18 @@ export type ExtractResponseSchema<
 	Method extends string,
 	Status extends string | number = 200
 > = FindEndpointForResponse<T, Path, Method> extends { responses?: infer Responses }
-	? Responses extends Record<Status, infer R>
-		? R extends { content: { 'application/json': { schema: infer S extends Schema } } }
-			? S
-			: R extends { schema: infer S extends Schema }
-				? S
-				: never
+	? Responses extends Record<string | number, any>
+		? keyof Responses & (Status | string) extends infer K extends keyof Responses
+			? Responses[K] extends { content: { 'application/json': { schema: infer S } } }
+				? S extends Schema
+					? S
+					: never
+				: Responses[K] extends { schema: infer S }
+					? S extends Schema
+						? S
+						: never
+					: never
+			: never
 		: never
 	: never;
 

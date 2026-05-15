@@ -5,7 +5,7 @@ import { users, tokens, appSettings } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { hashPassword, verifyPassword, generateToken } from '../utils/crypto';
 import { genEaidx } from '../../shared/eaid-x';
-import type { ExtractRequestType } from './schema-type';
+import type { ExtractRequestType, ExtractResponseType } from './schema-type';
 import { authApiSchema } from './auth.definition';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -101,7 +101,9 @@ app.post('/signup', async (c) => {
 			.onConflictDoNothing();
 	}
 
-	return c.json({ userId, token: tokenValue });
+	type SignupRes = ExtractResponseType<typeof authApiSchema, '/api/signup', 'post', 201>;
+	const response: SignupRes = { userId, token: tokenValue };
+	return c.json(response);
 });
 
 app.post('/signin', async (c) => {
@@ -137,17 +139,21 @@ app.post('/signin', async (c) => {
 		token: tokenValue,
 	});
 
-	return c.json({ token: tokenValue });
+	type SigninRes = ExtractResponseType<typeof authApiSchema, '/api/signin', 'post', 200>;
+	const response: SigninRes = { token: tokenValue };
+	return c.json(response);
 });
 
 app.get('/account/me', async (c) => {
 	const user = c.get('user');
-	return c.json({
+	type AccountMeRes = ExtractResponseType<typeof authApiSchema, '/api/account/me', 'get', 200>;
+	const response: AccountMeRes = {
 		id: user.id,
 		username: user.username,
 		isAdmin: user.isAdmin,
 		isSuspended: user.isSuspended,
-	});
+	};
+	return c.json(response);
 });
 
 export default app;

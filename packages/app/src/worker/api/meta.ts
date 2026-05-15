@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { appSettings } from '../scheme/index';
 import { getDb } from '../utils/db';
+import type { ExtractResponseType } from './schema-type';
 import { metaApiSchema } from './meta.definition';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -25,15 +26,19 @@ app.get('/meta', async (c) => {
 		const requireSignupPassphrase = requireSignupPassphraseSetting?.value === 'true';
 		const passphraseRequired = requireSignupPassphrase;
 
-		return c.json({
+		type MetaRes = ExtractResponseType<typeof metaApiSchema, '/api/meta', 'get', 200>;
+		const response: MetaRes = {
 			registrationEnabled: registrationEnabledSetting?.value !== 'false',
 			passphraseRequired: !!passphraseRequired,
-		});
+		};
+		return c.json(response);
 	} catch {
-		return c.json({
+		type MetaRes = ExtractResponseType<typeof metaApiSchema, '/api/meta', 'get', 200>;
+		const response: MetaRes = {
 			registrationEnabled: true,
 			passphraseRequired: false,
-		});
+		};
+		return c.json(response);
 	}
 });
 

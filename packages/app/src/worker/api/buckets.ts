@@ -6,7 +6,7 @@ import { getDb } from '../utils/db';
 import { getQuotaForUser } from '../utils/rate-limit';
 import { authMiddleware } from '../middleware/auth';
 import { genEaidx } from '../../shared/eaid-x';
-import type { ExtractRequestType } from './schema-type';
+import type { ExtractRequestType, ExtractResponseType } from './schema-type';
 import { bucketsApiSchema } from './buckets.definition';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -52,7 +52,9 @@ app.post('/create', async (c) => {
 		name: body.bucketName,
 	});
 
-	return c.json({ bucketId });
+	type CreateBucketRes = ExtractResponseType<typeof bucketsApiSchema, '/api/buckets/create', 'post', 201>;
+	const response: CreateBucketRes = { bucketId };
+	return c.json(response);
 });
 
 app.post('/delete', async (c) => {
@@ -87,7 +89,9 @@ app.post('/delete', async (c) => {
 
 	await db.delete(buckets).where(eq(buckets.id, bucket.id));
 
-	return c.json({ ok: true });
+	type DeleteBucketRes = ExtractResponseType<typeof bucketsApiSchema, '/api/buckets/delete', 'post', 200>;
+	const response: DeleteBucketRes = { ok: true };
+	return c.json(response);
 });
 
 app.post('/list', async (c) => {
@@ -99,7 +103,9 @@ app.post('/list', async (c) => {
 		.from(buckets)
 		.where(eq(buckets.userId, user.id));
 
-	return c.json({ buckets: userBuckets });
+	type ListBucketsRes = ExtractResponseType<typeof bucketsApiSchema, '/api/buckets/list', 'post', 200>;
+	const response: ListBucketsRes = { buckets: userBuckets };
+	return c.json(response);
 });
 
 export default app;

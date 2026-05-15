@@ -5,7 +5,7 @@ import { users, tokens, files, buckets, appSettings, userQuotas, globalQuotas } 
 import { getDb } from '../utils/db';
 import { getQuotaForUser, getGlobalQuota } from '../utils/rate-limit';
 import { authMiddleware, adminMiddleware } from '../middleware/auth';
-import type { ExtractRequestType } from './schema-type';
+import type { ExtractRequestType, ExtractResponseType } from './schema-type';
 import { adminApiSchema } from './admin.definition';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -32,7 +32,9 @@ app.post('/suspend-user', async (c) => {
 
 	await db.delete(tokens).where(eq(tokens.userId, body.userId));
 
-	return c.json({ ok: true });
+	type SuspendUserRes = ExtractResponseType<typeof adminApiSchema, '/api/admin/suspend-user', 'post', 200>;
+	const response: SuspendUserRes = { ok: true };
+	return c.json(response);
 });
 
 app.post('/delete-file', async (c) => {
@@ -58,7 +60,9 @@ app.post('/delete-file', async (c) => {
 
 	await db.delete(files).where(eq(files.id, body.fileId));
 
-	return c.json({ ok: true });
+	type DeleteFileAdminRes = ExtractResponseType<typeof adminApiSchema, '/api/admin/delete-file', 'post', 200>;
+	const response: DeleteFileAdminRes = { ok: true };
+	return c.json(response);
 });
 
 app.post('/delete-bucket', async (c) => {
@@ -88,7 +92,9 @@ app.post('/delete-bucket', async (c) => {
 
 	await db.delete(buckets).where(eq(buckets.id, bucket.id));
 
-	return c.json({ ok: true });
+	type DeleteBucketAdminRes = ExtractResponseType<typeof adminApiSchema, '/api/admin/delete-bucket', 'post', 200>;
+	const response: DeleteBucketAdminRes = { ok: true };
+	return c.json(response);
 });
 
 app.post('/set-user-quota', async (c) => {
@@ -128,7 +134,9 @@ app.post('/set-user-quota', async (c) => {
 			},
 		});
 
-	return c.json({ ok: true });
+	type SetUserQuotaRes = ExtractResponseType<typeof adminApiSchema, '/api/admin/set-user-quota/:userId', 'post', 200>;
+	const response: SetUserQuotaRes = { ok: true };
+	return c.json(response);
 });
 
 app.post('/set-global-quota', async (c) => {
@@ -154,20 +162,26 @@ app.post('/set-global-quota', async (c) => {
 			},
 		});
 
-	return c.json({ ok: true });
+	type SetGlobalQuotaRes = ExtractResponseType<typeof adminApiSchema, '/api/admin/set-global-quota', 'post', 200>;
+	const response: SetGlobalQuotaRes = { ok: true };
+	return c.json(response);
 });
 
 app.get('/get-user-quota/:userId', async (c) => {
 	const userId = c.req.param('userId');
 	const quota = await getQuotaForUser(c.env, userId);
 
-	return c.json(quota);
+	type GetUserQuotaRes = ExtractResponseType<typeof adminApiSchema, '/api/admin/get-user-quota/:userId', 'get', 200>;
+	const response: GetUserQuotaRes = quota;
+	return c.json(response);
 });
 
 app.get('/get-global-quota', async (c) => {
 	const quota = await getGlobalQuota(c.env);
 
-	return c.json(quota);
+	type GetGlobalQuotaRes = ExtractResponseType<typeof adminApiSchema, '/api/admin/get-global-quota', 'get', 200>;
+	const response: GetGlobalQuotaRes = quota;
+	return c.json(response);
 });
 
 app.post('/delete-user-quota/:userId', async (c) => {
@@ -181,7 +195,9 @@ app.post('/delete-user-quota/:userId', async (c) => {
 
 	await db.delete(userQuotas).where(eq(userQuotas.userId, userId));
 
-	return c.json({ ok: true });
+	type DeleteUserQuotaRes = ExtractResponseType<typeof adminApiSchema, '/api/admin/delete-user-quota/:userId', 'post', 200>;
+	const response: DeleteUserQuotaRes = { ok: true };
+	return c.json(response);
 });
 
 app.post('/toggle-registration', async (c) => {
@@ -206,7 +222,9 @@ app.post('/toggle-registration', async (c) => {
 			set: { value },
 		});
 
-	return c.json({ ok: true });
+	type ToggleRegistrationRes = ExtractResponseType<typeof adminApiSchema, '/api/admin/toggle-registration', 'post', 200>;
+	const response: ToggleRegistrationRes = { ok: true };
+	return c.json(response);
 });
 
 app.post('/update-setting', async (c) => {
@@ -229,14 +247,18 @@ app.post('/update-setting', async (c) => {
 			set: { value: body.value },
 		});
 
-	return c.json({ ok: true });
+	type UpdateSettingRes = ExtractResponseType<typeof adminApiSchema, '/api/admin/update-setting', 'post', 200>;
+	const response: UpdateSettingRes = { ok: true };
+	return c.json(response);
 });
 
 app.get('/get-settings', async (c) => {
 	const db = getDb(c.env);
 	const settings = await db.select().from(appSettings);
 
-	return c.json(settings);
+	type GetSettingsRes = ExtractResponseType<typeof adminApiSchema, '/api/admin/get-settings', 'get', 200>;
+	const response: GetSettingsRes = settings;
+	return c.json(response);
 });
 
 export default app;
