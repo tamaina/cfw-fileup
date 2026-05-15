@@ -13,4 +13,5 @@ export const tokens = sqliteTable('tokens', {
 	id: text('id').primaryKey(),
 	userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
 	token: text('token').notNull().unique(),
+	createdAt: integer('created_at').notNull(),
 });

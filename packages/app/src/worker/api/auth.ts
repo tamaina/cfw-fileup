@@ -106,6 +106,7 @@ app.post('/signup', async (c) => {
 		id: tokenId,
 		userId,
 		token: tokenValue,
+		createdAt: now,
 	});
 
 	if (isFirstUser) {
@@ -144,13 +145,15 @@ app.post('/signin', async (c) => {
 		throw new HTTPException(401, { message: 'Invalid credentials' });
 	}
 
-	const tokenId = genEaidx(Date.now());
+	const now = Date.now();
+	const tokenId = genEaidx(now);
 	const tokenValue = generateToken();
 
 	await db.insert(tokens).values({
 		id: tokenId,
 		userId: user.id,
 		token: tokenValue,
+		createdAt: now,
 	});
 
 	return c.json({ token: tokenValue });
