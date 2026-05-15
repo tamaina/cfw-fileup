@@ -32,9 +32,7 @@ app.post('/suspend-user', async (c) => {
 
 	await db.delete(tokens).where(eq(tokens.userId, body.userId));
 
-	type SuspendUserRes = ExtractResponseType<typeof adminApiSchema, '/api/admin/suspend-user', 'post', 200>;
-	const response: SuspendUserRes = { ok: true };
-	return c.json(response);
+	return c.json({ ok: true } as ExtractResponseType<typeof adminApiSchema, '/api/admin/suspend-user', 'post', 200>);
 });
 
 app.post('/delete-file', async (c) => {
@@ -60,9 +58,7 @@ app.post('/delete-file', async (c) => {
 
 	await db.delete(files).where(eq(files.id, body.fileId));
 
-	type DeleteFileAdminRes = ExtractResponseType<typeof adminApiSchema, '/api/admin/delete-file', 'post', 200>;
-	const response: DeleteFileAdminRes = { ok: true };
-	return c.json(response);
+	return c.json({ ok: true } as ExtractResponseType<typeof adminApiSchema, '/api/admin/delete-file', 'post', 200>);
 });
 
 app.post('/delete-bucket', async (c) => {
@@ -92,9 +88,7 @@ app.post('/delete-bucket', async (c) => {
 
 	await db.delete(buckets).where(eq(buckets.id, bucket.id));
 
-	type DeleteBucketAdminRes = ExtractResponseType<typeof adminApiSchema, '/api/admin/delete-bucket', 'post', 200>;
-	const response: DeleteBucketAdminRes = { ok: true };
-	return c.json(response);
+	return c.json({ ok: true } as ExtractResponseType<typeof adminApiSchema, '/api/admin/delete-bucket', 'post', 200>);
 });
 
 app.post('/set-user-quota', async (c) => {
@@ -134,9 +128,7 @@ app.post('/set-user-quota', async (c) => {
 			},
 		});
 
-	type SetUserQuotaRes = ExtractResponseType<typeof adminApiSchema, '/api/admin/set-user-quota/:userId', 'post', 200>;
-	const response: SetUserQuotaRes = { ok: true };
-	return c.json(response);
+	return c.json({ ok: true } as ExtractResponseType<typeof adminApiSchema, '/api/admin/set-user-quota/:userId', 'post', 200>);
 });
 
 app.post('/set-global-quota', async (c) => {
@@ -162,26 +154,20 @@ app.post('/set-global-quota', async (c) => {
 			},
 		});
 
-	type SetGlobalQuotaRes = ExtractResponseType<typeof adminApiSchema, '/api/admin/set-global-quota', 'post', 200>;
-	const response: SetGlobalQuotaRes = { ok: true };
-	return c.json(response);
+	return c.json({ ok: true } as ExtractResponseType<typeof adminApiSchema, '/api/admin/set-global-quota', 'post', 200>);
 });
 
 app.get('/get-user-quota/:userId', async (c) => {
 	const userId = c.req.param('userId');
 	const quota = await getQuotaForUser(c.env, userId);
 
-	type GetUserQuotaRes = ExtractResponseType<typeof adminApiSchema, '/api/admin/get-user-quota/:userId', 'get', 200>;
-	const response: GetUserQuotaRes = quota;
-	return c.json(response);
+	return c.json(quota as ExtractResponseType<typeof adminApiSchema, '/api/admin/get-user-quota/:userId', 'get', 200>);
 });
 
 app.get('/get-global-quota', async (c) => {
 	const quota = await getGlobalQuota(c.env);
 
-	type GetGlobalQuotaRes = ExtractResponseType<typeof adminApiSchema, '/api/admin/get-global-quota', 'get', 200>;
-	const response: GetGlobalQuotaRes = quota;
-	return c.json(response);
+	return c.json(quota as ExtractResponseType<typeof adminApiSchema, '/api/admin/get-global-quota', 'get', 200>);
 });
 
 app.post('/delete-user-quota/:userId', async (c) => {
@@ -195,9 +181,7 @@ app.post('/delete-user-quota/:userId', async (c) => {
 
 	await db.delete(userQuotas).where(eq(userQuotas.userId, userId));
 
-	type DeleteUserQuotaRes = ExtractResponseType<typeof adminApiSchema, '/api/admin/delete-user-quota/:userId', 'post', 200>;
-	const response: DeleteUserQuotaRes = { ok: true };
-	return c.json(response);
+	return c.json({ ok: true } as ExtractResponseType<typeof adminApiSchema, '/api/admin/delete-user-quota/:userId', 'post', 200>);
 });
 
 app.post('/toggle-registration', async (c) => {
@@ -222,9 +206,7 @@ app.post('/toggle-registration', async (c) => {
 			set: { value },
 		});
 
-	type ToggleRegistrationRes = ExtractResponseType<typeof adminApiSchema, '/api/admin/toggle-registration', 'post', 200>;
-	const response: ToggleRegistrationRes = { ok: true };
-	return c.json(response);
+	return c.json({ ok: true } as ExtractResponseType<typeof adminApiSchema, '/api/admin/toggle-registration', 'post', 200>);
 });
 
 app.post('/update-setting', async (c) => {
@@ -247,18 +229,14 @@ app.post('/update-setting', async (c) => {
 			set: { value: body.value },
 		});
 
-	type UpdateSettingRes = ExtractResponseType<typeof adminApiSchema, '/api/admin/update-setting', 'post', 200>;
-	const response: UpdateSettingRes = { ok: true };
-	return c.json(response);
+	return c.json({ ok: true } as ExtractResponseType<typeof adminApiSchema, '/api/admin/update-setting', 'post', 200>);
 });
 
 app.get('/get-settings', async (c) => {
 	const db = getDb(c.env);
 	const settings = await db.select().from(appSettings);
 
-	type GetSettingsRes = ExtractResponseType<typeof adminApiSchema, '/api/admin/get-settings', 'get', 200>;
-	const response: GetSettingsRes = settings;
-	return c.json(response);
+	return c.json(settings as ExtractResponseType<typeof adminApiSchema, '/api/admin/get-settings', 'get', 200>);
 });
 
 export default app;

@@ -12,8 +12,7 @@ const app = new Hono<{ Bindings: Env }>();
 
 app.post('/signup', async (c) => {
 	const db = getDb(c.env);
-	type SignupReq = ExtractRequestType<typeof authApiSchema, '/api/signup', 'post'>;
-	const body = (await c.req.json()) as SignupReq;
+	const body = (await c.req.json()) as ExtractRequestType<typeof authApiSchema, '/api/signup', 'post'>;
 
 	if (!body.username || !body.password) {
 		throw new HTTPException(400, { message: 'username and password are required' });
@@ -101,15 +100,12 @@ app.post('/signup', async (c) => {
 			.onConflictDoNothing();
 	}
 
-	type SignupRes = ExtractResponseType<typeof authApiSchema, '/api/signup', 'post', 201>;
-	const response: SignupRes = { userId, token: tokenValue };
-	return c.json(response);
+	return c.json({ userId, token: tokenValue } as ExtractResponseType<typeof authApiSchema, '/api/signup', 'post', 201>);
 });
 
 app.post('/signin', async (c) => {
 	const db = getDb(c.env);
-	type SigninReq = ExtractRequestType<typeof authApiSchema, '/api/signin', 'post'>;
-	const body = (await c.req.json()) as SigninReq;
+	const body = (await c.req.json()) as ExtractRequestType<typeof authApiSchema, '/api/signin', 'post'>;
 
 	if (!body.username || !body.password) {
 		throw new HTTPException(400, { message: 'username and password are required' });
@@ -139,21 +135,17 @@ app.post('/signin', async (c) => {
 		token: tokenValue,
 	});
 
-	type SigninRes = ExtractResponseType<typeof authApiSchema, '/api/signin', 'post', 200>;
-	const response: SigninRes = { token: tokenValue };
-	return c.json(response);
+	return c.json({ token: tokenValue } as ExtractResponseType<typeof authApiSchema, '/api/signin', 'post', 200>);
 });
 
 app.get('/account/me', async (c) => {
 	const user = c.get('user');
-	type AccountMeRes = ExtractResponseType<typeof authApiSchema, '/api/account/me', 'get', 200>;
-	const response: AccountMeRes = {
+	return c.json({
 		id: user.id,
 		username: user.username,
 		isAdmin: user.isAdmin,
 		isSuspended: user.isSuspended,
-	};
-	return c.json(response);
+	} as ExtractResponseType<typeof authApiSchema, '/api/account/me', 'get', 200>);
 });
 
 export default app;

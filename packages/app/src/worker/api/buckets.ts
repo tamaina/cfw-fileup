@@ -16,8 +16,7 @@ app.use(authMiddleware);
 app.post('/create', async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
-	type CreateBucketReq = ExtractRequestType<typeof bucketsApiSchema, '/api/buckets/create', 'post'>;
-	const body = (await c.req.json()) as CreateBucketReq;
+	const body = (await c.req.json()) as ExtractRequestType<typeof bucketsApiSchema, '/api/buckets/create', 'post'>;
 
 	if (!body.bucketName) {
 		throw new HTTPException(400, { message: 'bucketName is required' });
@@ -52,16 +51,13 @@ app.post('/create', async (c) => {
 		name: body.bucketName,
 	});
 
-	type CreateBucketRes = ExtractResponseType<typeof bucketsApiSchema, '/api/buckets/create', 'post', 201>;
-	const response: CreateBucketRes = { bucketId };
-	return c.json(response);
+	return c.json({ bucketId } as ExtractResponseType<typeof bucketsApiSchema, '/api/buckets/create', 'post', 201>);
 });
 
 app.post('/delete', async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
-	type DeleteBucketReq = ExtractRequestType<typeof bucketsApiSchema, '/api/buckets/delete', 'post'>;
-	const body = (await c.req.json()) as DeleteBucketReq;
+	const body = (await c.req.json()) as ExtractRequestType<typeof bucketsApiSchema, '/api/buckets/delete', 'post'>;
 
 	if (!body.bucketId) {
 		throw new HTTPException(400, { message: 'bucketId is required' });
@@ -89,9 +85,7 @@ app.post('/delete', async (c) => {
 
 	await db.delete(buckets).where(eq(buckets.id, bucket.id));
 
-	type DeleteBucketRes = ExtractResponseType<typeof bucketsApiSchema, '/api/buckets/delete', 'post', 200>;
-	const response: DeleteBucketRes = { ok: true };
-	return c.json(response);
+	return c.json({ ok: true } as ExtractResponseType<typeof bucketsApiSchema, '/api/buckets/delete', 'post', 200>);
 });
 
 app.post('/list', async (c) => {
@@ -103,9 +97,7 @@ app.post('/list', async (c) => {
 		.from(buckets)
 		.where(eq(buckets.userId, user.id));
 
-	type ListBucketsRes = ExtractResponseType<typeof bucketsApiSchema, '/api/buckets/list', 'post', 200>;
-	const response: ListBucketsRes = { buckets: userBuckets };
-	return c.json(response);
+	return c.json({ buckets: userBuckets } as ExtractResponseType<typeof bucketsApiSchema, '/api/buckets/list', 'post', 200>);
 });
 
 export default app;

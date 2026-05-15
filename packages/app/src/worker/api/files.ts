@@ -83,9 +83,7 @@ app.post('/create/open', async (c) => {
 		uploadExpiresAt: uploadExpiry,
 	});
 
-	type CreateOpenRes = ExtractResponseType<typeof filesApiSchema, '/api/files/create/open', 'post', 200>;
-	const response: CreateOpenRes = { fileId, uploadExpiry };
-	return c.json(response);
+	return c.json({ fileId, uploadExpiry } as ExtractResponseType<typeof filesApiSchema, '/api/files/create/open', 'post', 200>);
 });
 
 app.post('/create/targz-index', async (c) => {
@@ -138,9 +136,7 @@ app.post('/create/targz-index', async (c) => {
 
 	await db.update(files).set({ isTargz: true }).where(eq(files.id, file.id));
 
-	type TargzIndexRes = ExtractResponseType<typeof filesApiSchema, '/api/files/create/targz-index', 'post', 200>;
-	const response: TargzIndexRes = { ok: true };
-	return c.json(response);
+	return c.json({ ok: true } as ExtractResponseType<typeof filesApiSchema, '/api/files/create/targz-index', 'post', 200>);
 });
 
 app.post('/create/tar-index', async (c) => {
@@ -176,9 +172,7 @@ app.post('/create/tar-index', async (c) => {
 
 	await db.update(files).set({ isTar: true }).where(eq(files.id, file.id));
 
-	type TarIndexRes = ExtractResponseType<typeof filesApiSchema, '/api/files/create/tar-index', 'post', 200>;
-	const response: TarIndexRes = { ok: true };
-	return c.json(response);
+	return c.json({ ok: true } as ExtractResponseType<typeof filesApiSchema, '/api/files/create/tar-index', 'post', 200>);
 });
 
 app.post('/create/close', async (c) => {
@@ -266,9 +260,7 @@ app.post('/create/close', async (c) => {
 		})
 		.where(eq(files.id, file.id));
 
-	type CreateCloseRes = ExtractResponseType<typeof filesApiSchema, '/api/files/create/close', 'post', 200>;
-	const response: CreateCloseRes = { ok: true };
-	return c.json(response);
+	return c.json({ ok: true } as ExtractResponseType<typeof filesApiSchema, '/api/files/create/close', 'post', 200>);
 });
 
 app.post('/uploadings', async (c) => {
@@ -293,9 +285,7 @@ app.post('/uploadings', async (c) => {
 		.where(eq(files.userId, user.id))
 		.orderBy(desc(files.id));
 
-	type UploadingsRes = ExtractResponseType<typeof filesApiSchema, '/api/files/uploadings', 'post', 200>;
-	const response: UploadingsRes = { files: userFiles };
-	return c.json(response);
+	return c.json({ files: userFiles } as ExtractResponseType<typeof filesApiSchema, '/api/files/uploadings', 'post', 200>);
 });
 
 app.post('/delete', async (c) => {
@@ -336,9 +326,7 @@ app.post('/delete', async (c) => {
 
 	await db.delete(files).where(eq(files.id, file.id));
 
-	type DeleteFileRes = ExtractResponseType<typeof filesApiSchema, '/api/files/delete', 'post', 200>;
-	const response: DeleteFileRes = { ok: true };
-	return c.json(response);
+	return c.json({ ok: true } as ExtractResponseType<typeof filesApiSchema, '/api/files/delete', 'post', 200>);
 });
 
 export default app;

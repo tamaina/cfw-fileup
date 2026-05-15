@@ -26,19 +26,15 @@ app.get('/meta', async (c) => {
 		const requireSignupPassphrase = requireSignupPassphraseSetting?.value === 'true';
 		const passphraseRequired = requireSignupPassphrase;
 
-		type MetaRes = ExtractResponseType<typeof metaApiSchema, '/api/meta', 'get', 200>;
-		const response: MetaRes = {
+		return c.json({
 			registrationEnabled: registrationEnabledSetting?.value !== 'false',
 			passphraseRequired: !!passphraseRequired,
-		};
-		return c.json(response);
+		} as ExtractResponseType<typeof metaApiSchema, '/api/meta', 'get', 200>);
 	} catch {
-		type MetaRes = ExtractResponseType<typeof metaApiSchema, '/api/meta', 'get', 200>;
-		const response: MetaRes = {
+		return c.json({
 			registrationEnabled: true,
 			passphraseRequired: false,
-		};
-		return c.json(response);
+		} as ExtractResponseType<typeof metaApiSchema, '/api/meta', 'get', 200>);
 	}
 });
 
