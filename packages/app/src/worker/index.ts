@@ -42,7 +42,7 @@ app.get('/id', (c) => {
 	return c.text(genEaidx(Date.now()));
 });
 
-app.get('/api/openapi.json', (c) => {
+app.get('/api.json', (c) => {
 	const spec = generateOpenAPISpec();
 	return c.json(spec);
 });
@@ -66,7 +66,7 @@ app.get('/api-docs.html', (c) => {
 		</style>
 	</head>
 	<body>
-		<script id="api-reference" data-url="/api/openapi.json"></script>
+		<script id="api-reference" data-url="/api.json"></script>
 		<script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
 	</body>
 </html>`);
