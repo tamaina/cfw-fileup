@@ -229,7 +229,7 @@ watch(() => [props.bucketName, props.filePath], () => { load(); loadBucketId(); 
 
     <!-- 通常ディレクトリ操作 -->
     <div v-if="!isTargz && authStore.user" class="flex gap-2 items-center mb-3 flex-wrap">
-      <Button.Root class="btn btn-primary btn-sm" @click="goUpload">
+      <Button.Root class="btn btn-primary" @click="goUpload">
         <Button.Content>アップロード</Button.Content>
       </Button.Root>
       <form class="flex gap-2 items-center" @submit.prevent="createDirectory">
@@ -240,7 +240,7 @@ watch(() => [props.bucketName, props.filePath], () => { load(); loadBucketId(); 
           placeholder="新しいフォルダ名"
           style="width:180px"
         >
-        <Button.Root type="submit" class="btn btn-secondary btn-sm" :disabled="!newDirName.trim() || !bucketId">
+        <Button.Root type="submit" class="btn btn-secondary" :disabled="!newDirName.trim() || !bucketId">
           <Button.Content>フォルダ作成</Button.Content>
         </Button.Root>
       </form>

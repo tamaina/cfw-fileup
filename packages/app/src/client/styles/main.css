@@ -448,6 +448,8 @@ code { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.9em; 
 
 /* ===== Dialog (AlertDialog) ===== */
 dialog.confirm-dialog {
+  color: var(--color-text);
+  background: var(--color-bg);
   border: none;
   border-radius: var(--radius-lg);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
