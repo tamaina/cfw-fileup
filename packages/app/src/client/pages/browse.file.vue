@@ -8,9 +8,13 @@ import ConfirmDialog from '@/components/confirm-dialog.vue';
 const props = defineProps<{
 	bucketName: string;
 	filePath: string;
+	token?: string;
 }>();
 
-const downloadUrl = computed(() => `/d/${props.bucketName}/${props.filePath}`);
+const downloadUrl = computed(() => {
+	const base = `/d/${props.bucketName}/${props.filePath}`;
+	return props.token ? `${base}?token=${props.token}` : base;
+});
 const isImage = computed(() => {
 	const ext = props.filePath.split('.').pop()?.toLowerCase() ?? '';
 	return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'avif'].includes(ext);

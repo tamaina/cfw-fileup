@@ -591,6 +591,27 @@ dialog.confirm-dialog::backdrop {
 }
 .back-link:hover { color: var(--color-primary); }
 
+/* ===== Tabs ===== */
+.tab-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid var(--color-border);
+}
+.tab-btn {
+  padding: 8px 16px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  transition: color 0.15s, border-color 0.15s;
+}
+.tab-btn:hover { color: var(--color-text); }
+.tab-btn-active { color: var(--color-primary); border-bottom-color: var(--color-primary); }
+
 /* ===== Utilities ===== */
 .flex { display: flex; }
 .flex-wrap { flex-wrap: wrap; }

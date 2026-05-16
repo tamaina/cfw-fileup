@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { eq, and, like, sql } from 'drizzle-orm';
-import { buckets, files, targzFiles, tarFiles, directories, tokens, users } from '../scheme/index';
+import { buckets, files, targzFiles, tarFiles, directories, tokens, users, fileAccessTokens } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { abortUpload } from '../utils/abort-upload';
 import { authMiddleware } from '../middleware/auth';
@@ -194,7 +194,20 @@ app.get('/d/:bucketName/*', async (c) => {
 
 	if (!file.isPublic) {
 		const passphrase = c.req.query('passphrase');
-		if (!passphrase || passphrase !== file.passphrase) {
+		const fileToken = c.req.query('token');
+
+		if (passphrase && passphrase === file.passphrase) {
+			// passphrase OK
+		} else if (fileToken) {
+			const fileTokenRecord = await db
+				.select()
+				.from(fileAccessTokens)
+				.where(and(eq(fileAccessTokens.token, fileToken), eq(fileAccessTokens.fileId, file.id)))
+				.get();
+			if (!fileTokenRecord || (fileTokenRecord.expiresAt !== null && fileTokenRecord.expiresAt < Date.now())) {
+				throw new HTTPException(403, { message: 'Forbidden' });
+			}
+		} else {
 			const authorization = c.req.header('Authorization');
 			if (!authorization?.startsWith('Bearer ')) {
 				throw new HTTPException(403, { message: 'Forbidden' });

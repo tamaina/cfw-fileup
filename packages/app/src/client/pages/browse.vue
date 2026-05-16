@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
-import { Button } from '@vuetify/v0';
 import BrowseDirectory from './browse.directory.vue';
 import BrowseFile from './browse.file.vue';
+import BrowseFileTokens from './browse.file-tokens.vue';
 import NirA from '@/components/nira.vue';
 import { authStore, authHeaders } from '@/store/auth';
 
@@ -40,11 +40,8 @@ const metaLoading = ref(false);
 const metaError = ref('');
 const fileIsPublic = ref(true);
 
-const visibilityEditing = ref(false);
-const editIsPublic = ref(true);
-const editPassphrase = ref('');
-const visibilitySaving = ref(false);
-const visibilityError = ref('');
+const activeTab = ref<'info' | 'tokens'>('info');
+const autoToken = ref<string | null>(null);
 
 async function fetchMeta(): Promise<void> {
 	if (isDirectory.value) {
@@ -53,7 +50,6 @@ async function fetchMeta(): Promise<void> {
 	}
 	metaLoading.value = true;
 	metaError.value = '';
-	visibilityEditing.value = false;
 	try {
 		const res = await fetch(`/d/${props.bucketName}/${props.filePath}?meta`);
 		if (!res.ok) { metaError.value = `取得失敗: ${res.status}`; return; }
@@ -61,6 +57,9 @@ async function fetchMeta(): Promise<void> {
 		isTargz.value = data.isTargz ?? false;
 		isTar.value = data.isTar ?? false;
 		fileIsPublic.value = data.isPublic ?? true;
+		if (!fileIsPublic.value && authStore.user) {
+			await issueAutoToken();
+		}
 	} catch (e) {
 		metaError.value = String(e);
 	} finally {
@@ -68,100 +67,80 @@ async function fetchMeta(): Promise<void> {
 	}
 }
 
-function startEditVisibility(): void {
-	editIsPublic.value = fileIsPublic.value;
-	editPassphrase.value = '';
-	visibilityError.value = '';
-	visibilityEditing.value = true;
-}
-
-async function saveVisibility(): Promise<void> {
-	visibilitySaving.value = true;
-	visibilityError.value = '';
+async function issueAutoToken(): Promise<void> {
+	autoToken.value = null;
 	try {
-		const res = await fetch('/api/files/update', {
+		const res = await fetch('/api/file-tokens/create', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json', ...authHeaders() },
-			body: JSON.stringify({
-				bucketName: props.bucketName,
-				filePath: props.filePath,
-				isPublic: editIsPublic.value,
-				passphrase: editPassphrase.value || undefined,
-			}),
+			body: JSON.stringify({ bucketName: props.bucketName, filePath: props.filePath, expiresIn: 3600 }),
 		});
-		if (!res.ok) {
-			const err = await res.json().catch(() => ({})) as { error?: string };
-			visibilityError.value = err.error ?? '保存失敗';
-			return;
+		if (res.ok) {
+			const data = await res.json() as { token: string };
+			autoToken.value = data.token;
 		}
-		fileIsPublic.value = editIsPublic.value;
-		visibilityEditing.value = false;
-	} catch (e) {
-		visibilityError.value = String(e);
-	} finally {
-		visibilitySaving.value = false;
-	}
+	} catch { /* silent */ }
 }
 
 onMounted(fetchMeta);
-watch(() => [props.bucketName, props.filePath], fetchMeta);
+watch(() => [props.bucketName, props.filePath], () => {
+	activeTab.value = 'info';
+	autoToken.value = null;
+	fetchMeta();
+});
 </script>
 
 <template>
   <div>
-    <nav class="breadcrumbs">
-      <template v-for="(seg, i) in breadcrumbs" :key="i">
-        <span v-if="i > 0" class="breadcrumbs-sep">/</span>
-        <NirA v-if="seg.link" :to="seg.link">{{ seg.name }}</NirA>
-        <span v-else class="breadcrumbs-current">{{ seg.name }}</span>
-      </template>
-    </nav>
+    <div class="flex items-center gap-2 flex-wrap mb-3">
+      <nav class="breadcrumbs" style="margin-bottom:0">
+        <template v-for="(seg, i) in breadcrumbs" :key="i">
+          <span v-if="i > 0" class="breadcrumbs-sep">/</span>
+          <NirA v-if="seg.link" :to="seg.link">{{ seg.name }}</NirA>
+          <span v-else class="breadcrumbs-current">{{ seg.name }}</span>
+        </template>
+      </nav>
+      <span
+        v-if="!isDirectory && !metaLoading && !metaError"
+        :class="fileIsPublic ? 'badge badge-success' : 'badge badge-muted'"
+      >
+        {{ fileIsPublic ? '公開' : '非公開' }}
+      </span>
+    </div>
 
     <div v-if="metaLoading" class="page-loading">
       <span class="spinner" />読み込み中...
     </div>
     <div v-else-if="metaError" class="alert alert-error">{{ metaError }}</div>
     <template v-else>
-      <!-- 公開設定（ファイルのみ・ログイン時） -->
-      <div v-if="!isDirectory && authStore.user" class="card mb-3" style="padding: 12px 16px">
-        <div class="flex items-center gap-3 flex-wrap">
-          <span class="text-muted" style="font-size:0.875rem">公開設定</span>
-          <span :class="fileIsPublic ? 'badge badge-success' : 'badge badge-muted'">
-            {{ fileIsPublic ? '公開' : '非公開' }}
-          </span>
-          <Button.Root v-if="!visibilityEditing" class="btn btn-secondary btn-sm" @click="startEditVisibility">
-            <Button.Content>変更</Button.Content>
-          </Button.Root>
+      <!-- ファイル・ログイン済み: タブ付きパネル -->
+      <template v-if="!isDirectory && authStore.user">
+        <div class="tab-bar mb-3">
+          <button :class="['tab-btn', activeTab === 'info' ? 'tab-btn-active' : '']" @click="activeTab = 'info'">詳細</button>
+          <button :class="['tab-btn', activeTab === 'tokens' ? 'tab-btn-active' : '']" @click="activeTab = 'tokens'">アクセストークン</button>
         </div>
-        <template v-if="visibilityEditing">
-          <div class="flex items-center gap-3 mt-2 flex-wrap">
-            <label class="flex items-center gap-2" style="cursor:pointer">
-              <input type="radio" v-model="editIsPublic" :value="true"> 公開
-            </label>
-            <label class="flex items-center gap-2" style="cursor:pointer">
-              <input type="radio" v-model="editIsPublic" :value="false"> 非公開
-            </label>
-            <input
-              v-if="!editIsPublic"
-              v-model="editPassphrase"
-              class="form-input form-input-mono"
-              type="text"
-              placeholder="パスフレーズ（任意）"
-              style="width:200px"
-            >
-            <Button.Root class="btn btn-primary btn-sm" :disabled="visibilitySaving" @click="saveVisibility">
-              <Button.Content>保存</Button.Content>
-            </Button.Root>
-            <Button.Root class="btn btn-secondary btn-sm" :disabled="visibilitySaving" @click="visibilityEditing = false">
-              <Button.Content>キャンセル</Button.Content>
-            </Button.Root>
-          </div>
-          <div v-if="visibilityError" class="mt-1" style="color:var(--color-danger); font-size:0.8rem">{{ visibilityError }}</div>
-        </template>
-      </div>
 
-      <BrowseDirectory v-if="isDirectory || isTargz || isTar" :bucketName="bucketName" :filePath="filePath" :isTargz="isTargz" :isTar="isTar" />
-      <BrowseFile v-else :bucketName="bucketName" :filePath="filePath" />
+        <!-- 詳細タブ: ファイル表示 -->
+        <template v-if="activeTab === 'info'">
+          <BrowseDirectory v-if="isTargz || isTar" :bucketName="bucketName" :filePath="filePath" :isTargz="isTargz" :isTar="isTar" />
+          <BrowseFile v-else :bucketName="bucketName" :filePath="filePath" :token="autoToken ?? undefined" />
+        </template>
+
+        <!-- アクセストークンタブ: 公開設定 + トークン管理 -->
+        <BrowseFileTokens
+          v-else-if="activeTab === 'tokens'"
+          :bucketName="bucketName"
+          :filePath="filePath"
+          :fileIsPublic="fileIsPublic"
+          @update:fileIsPublic="fileIsPublic = $event"
+        />
+      </template>
+
+      <!-- ログインなし or ディレクトリ: タブなし -->
+      <template v-else>
+        <BrowseDirectory v-if="isDirectory || isTargz || isTar" :bucketName="bucketName" :filePath="filePath" :isTargz="isTargz" :isTar="isTar" />
+        <BrowseFile v-else-if="!isDirectory" :bucketName="bucketName" :filePath="filePath" />
+      </template>
     </template>
   </div>
 </template>
