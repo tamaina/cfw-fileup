@@ -20,24 +20,30 @@ function getETag(baseETag: string, acceptsGzip: boolean): string {
 
 async function decompressGzipChunk(data: Uint8Array): Promise<Uint8Array> {
 	const decompressor = new DecompressionStream('gzip');
-	const writer = decompressor.writable.getWriter();
-	const normalizedData = new Uint8Array(data);
-	await writer.write(normalizedData);
-	await writer.close();
-
 	const chunks: Uint8Array[] = [];
-	const reader = decompressor.readable.getReader();
-	try {
-		while (true) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			if (value instanceof Uint8Array) {
-				chunks.push(value);
+
+	const writePromise = (async () => {
+		const writer = decompressor.writable.getWriter();
+		await writer.write(new Uint8Array(data));
+		await writer.close();
+	})();
+
+	const readPromise = (async () => {
+		const reader = decompressor.readable.getReader();
+		try {
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				if (value instanceof Uint8Array) {
+					chunks.push(value);
+				}
 			}
+		} finally {
+			reader.releaseLock();
 		}
-	} finally {
-		reader.releaseLock();
-	}
+	})();
+
+	await Promise.all([writePromise, readPromise]);
 
 	const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
 	const result = new Uint8Array(totalLength);
@@ -207,11 +213,20 @@ app.get('/d/:bucketName/*', async (c) => {
 	}
 
 	if ((file.isTargz || file.isTar) && c.req.query('list') !== undefined) {
+		const listPath = c.req.query('list');
 		if (file.isTargz) {
-			const index = await db.select().from(targzFiles).where(eq(targzFiles.fileId, file.id));
+			const index = await db.select().from(targzFiles).where(
+				listPath
+					? and(eq(targzFiles.fileId, file.id), like(targzFiles.path, `${listPath}%`))
+					: eq(targzFiles.fileId, file.id),
+			);
 			return c.json(index);
 		} else {
-			const index = await db.select().from(tarFiles).where(eq(tarFiles.fileId, file.id));
+			const index = await db.select().from(tarFiles).where(
+				listPath
+					? and(eq(tarFiles.fileId, file.id), like(tarFiles.path, `${listPath}%`))
+					: eq(tarFiles.fileId, file.id),
+			);
 			return c.json(index);
 		}
 	}
