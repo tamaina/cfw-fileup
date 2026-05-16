@@ -67,7 +67,33 @@ async function fetchMeta(): Promise<void> {
 	}
 }
 
+function autoTokenCacheKey(): string {
+	return `autoToken:${props.bucketName}/${props.filePath}`;
+}
+
+function loadCachedToken(): string | null {
+	try {
+		const raw = sessionStorage.getItem(autoTokenCacheKey());
+		if (!raw) return null;
+		const cached = JSON.parse(raw) as { token: string; expiresAt: number | null };
+		// 60秒バッファを持たせて期限チェック
+		if (cached.expiresAt !== null && cached.expiresAt < Date.now() + 60_000) return null;
+		return cached.token;
+	} catch { return null; }
+}
+
+function saveCachedToken(token: string, expiresAt: number | null): void {
+	try {
+		sessionStorage.setItem(autoTokenCacheKey(), JSON.stringify({ token, expiresAt }));
+	} catch { /* quota exceeded etc. */ }
+}
+
 async function issueAutoToken(): Promise<void> {
+	const cached = loadCachedToken();
+	if (cached) {
+		autoToken.value = cached;
+		return;
+	}
 	autoToken.value = null;
 	try {
 		const res = await fetch('/api/file-tokens/create', {
@@ -76,8 +102,9 @@ async function issueAutoToken(): Promise<void> {
 			body: JSON.stringify({ bucketName: props.bucketName, filePath: props.filePath, expiresIn: 3600 }),
 		});
 		if (res.ok) {
-			const data = await res.json() as { token: string };
+			const data = await res.json() as { token: string; expiresAt: number | null };
 			autoToken.value = data.token;
+			saveCachedToken(data.token, data.expiresAt);
 		}
 	} catch { /* silent */ }
 }
