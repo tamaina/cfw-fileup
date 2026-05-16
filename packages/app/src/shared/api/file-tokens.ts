@@ -44,4 +44,20 @@ export const fileTokensApiDef = {
 			404: { description: 'Token not found', content: { 'application/json': { vSchema: ErrorResponse } } },
 		},
 	},
+	'/api/file-tokens/create-by-passphrase': {
+		summary: 'Create a file access token by passphrase',
+		tags: ['file-tokens'],
+		req: v.object({
+			bucketName: v.string(),
+			filePath: v.string(),
+			passphrase: v.string(),
+			turnstileToken: v.optional(v.string()),
+		}),
+		res: {
+			200: { description: 'Success', content: { 'application/json': { vSchema: v.object({ id: v.string(), token: v.string(), expiresAt: v.number() }) } } },
+			400: { description: 'Bad request (missing fields, Turnstile verification failed, file not closed, or file is public)', content: { 'application/json': { vSchema: ErrorResponse } } },
+			403: { description: 'Forbidden (no passphrase set or invalid passphrase)', content: { 'application/json': { vSchema: ErrorResponse } } },
+			404: { description: 'Bucket or file not found', content: { 'application/json': { vSchema: ErrorResponse } } },
+		},
+	},
 } as const satisfies ApiEndpointDefinitionRecord;

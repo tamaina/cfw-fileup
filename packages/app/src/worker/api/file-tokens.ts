@@ -9,13 +9,13 @@ import { genEaidx, parseEaidx } from '../../shared/eaid-x';
 import { authMiddleware } from '../middleware/auth';
 import { apiDef, getResponseDefWithAuth, type JsonCtx } from '../../shared/api';
 import { omitResAndReq } from '../utils/omit';
+import { verifyTurnstile } from '../utils/turnstile';
 
 const app = new Hono<{ Bindings: Env }>();
 
-app.use(authMiddleware);
-
 app.post(
 	'/create',
+	authMiddleware,
 	describeRoute(omitResAndReq(apiDef['/api/file-tokens/create'])),
 	validator('json', apiDef['/api/file-tokens/create'].req),
 	describeResponse(async (c: JsonCtx<'/api/file-tokens/create', Env>) => {
@@ -52,6 +52,7 @@ app.post(
 
 app.post(
 	'/list',
+	authMiddleware,
 	describeRoute(omitResAndReq(apiDef['/api/file-tokens/list'])),
 	validator('json', apiDef['/api/file-tokens/list'].req),
 	describeResponse(async (c: JsonCtx<'/api/file-tokens/list', Env>) => {
@@ -87,6 +88,7 @@ app.post(
 
 app.post(
 	'/delete',
+	authMiddleware,
 	describeRoute(omitResAndReq(apiDef['/api/file-tokens/delete'])),
 	validator('json', apiDef['/api/file-tokens/delete'].req),
 	describeResponse(async (c: JsonCtx<'/api/file-tokens/delete', Env>) => {
@@ -113,6 +115,49 @@ app.post(
 
 		return c.json({ ok: true }, 200);
 	}, getResponseDefWithAuth('/api/file-tokens/delete')),
+);
+
+app.post(
+	'/create-by-passphrase',
+	describeRoute(omitResAndReq(apiDef['/api/file-tokens/create-by-passphrase'])),
+	validator('json', apiDef['/api/file-tokens/create-by-passphrase'].req),
+	describeResponse(async (c: JsonCtx<'/api/file-tokens/create-by-passphrase', Env>) => {
+		const db = getDb(c.env);
+		const body = c.req.valid('json');
+
+		const turnstileSecret = c.env.TURNSTILE_SECRET as string;
+		if (turnstileSecret !== '') {
+			if (!body.turnstileToken) {
+				throw new HTTPException(400, { message: 'turnstileToken is required' });
+			}
+			const ok = await verifyTurnstile(body.turnstileToken, turnstileSecret);
+			if (!ok) {
+				throw new HTTPException(400, { message: 'Turnstile verification failed' });
+			}
+		}
+
+		const bucket = await db.select().from(buckets).where(eq(buckets.name, body.bucketName)).get();
+		if (!bucket) throw new HTTPException(404, { message: 'Bucket not found' });
+
+		const file = await db
+			.select()
+			.from(files)
+			.where(and(eq(files.bucketId, bucket.id), eq(files.path, body.filePath)))
+			.get();
+		if (!file) throw new HTTPException(404, { message: 'File not found' });
+		if (!file.isClosed) throw new HTTPException(400, { message: 'File is not closed' });
+		if (file.isPublic) throw new HTTPException(400, { message: 'File is public' });
+		if (file.passphrase === null) throw new HTTPException(403, { message: 'No passphrase set for this file' });
+		if (body.passphrase !== file.passphrase) throw new HTTPException(403, { message: 'Invalid passphrase' });
+
+		const id = genEaidx(Date.now());
+		const token = generateToken();
+		const expiresAt = Date.now() + 3600 * 1000;
+
+		await db.insert(fileAccessTokens).values({ id, fileId: file.id, token, expiresAt });
+
+		return c.json({ id, token, expiresAt }, 200);
+	}, apiDef['/api/file-tokens/create-by-passphrase'].res),
 );
 
 export { app as fileTokenRoutes };
