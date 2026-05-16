@@ -12,6 +12,7 @@ const props = defineProps<{
 	filePath: string;
 	isTargz: boolean;
 	isTar: boolean;
+	entryPath?: string;
 }>();
 
 const isArchive = computed(() => props.isTargz || props.isTar);
@@ -134,7 +135,7 @@ function buildArchiveEntries(): void {
 			result.push({
 				key: e.id,
 				name: rest,
-				link: `${downloadUrl.value}?file=${encodeURIComponent(e.path)}`,
+				link: `/v/${props.bucketName}/${props.filePath}?file=${encodeURIComponent(e.path)}`,
 				isDir: false,
 				fullPath: e.path,
 				size: e.size,
@@ -147,7 +148,7 @@ function buildArchiveEntries(): void {
 				result.push({
 					key: `dir:${archivePath.value}${dirName}`,
 					name: dirName,
-					link: '',
+					link: `/v/${props.bucketName}/${props.filePath}?file=${encodeURIComponent(`${archivePath.value}${dirName}/`)}`,
 					isDir: true,
 					fullPath: `${archivePath.value}${dirName}/`,
 					label: 'フォルダ',
@@ -165,15 +166,18 @@ function buildArchiveEntries(): void {
 }
 
 function navigateArchiveDir(path: string): void {
-	archivePath.value = path;
-	buildArchiveEntries();
+	mainRouter.pushByPath(`/v/${props.bucketName}/${props.filePath}?file=${encodeURIComponent(path)}`);
 }
 
 function navigateArchiveUp(): void {
 	const parts = archivePath.value.replace(/\/$/, '').split('/');
 	parts.pop();
-	archivePath.value = parts.length === 0 ? '' : parts.join('/') + '/';
-	buildArchiveEntries();
+	const newPath = parts.length === 0 ? '' : parts.join('/') + '/';
+	if (newPath === '') {
+		mainRouter.pushByPath(`/v/${props.bucketName}/${props.filePath}`);
+	} else {
+		mainRouter.pushByPath(`/v/${props.bucketName}/${props.filePath}?file=${encodeURIComponent(newPath)}`);
+	}
 }
 
 async function load(): Promise<void> {
@@ -184,7 +188,7 @@ async function load(): Promise<void> {
 			const res = await fetch(`${downloadUrl.value}?list`, { headers: authHeaders() });
 			if (!res.ok) { error.value = `取得失敗: ${res.status}`; return; }
 			const raw = await res.json() as RawArchiveEntry[];
-			archivePath.value = '';
+			archivePath.value = props.entryPath ?? '';
 			allArchiveEntries.value = raw;
 			buildArchiveEntries();
 		} else {
@@ -289,6 +293,12 @@ async function executeDeleteArchive(): Promise<void> {
 
 onMounted(() => { load(); loadBucketId(); });
 watch(() => [props.bucketName, props.filePath], () => { load(); loadBucketId(); });
+watch(() => props.entryPath, (newEntryPath) => {
+	if (isArchive.value) {
+		archivePath.value = newEntryPath ?? '';
+		buildArchiveEntries();
+	}
+});
 </script>
 
 <template>
@@ -365,7 +375,7 @@ watch(() => [props.bucketName, props.filePath], () => { load(); loadBucketId(); 
                   <button v-if="isArchive && entry.isDir" style="background:none; border:none; cursor:pointer; padding:0; font-weight:500; font-size:inherit; color:inherit" @click="navigateArchiveDir(entry.fullPath)">
                     <span style="margin-right:4px">📁</span>{{ entry.name }}
                   </button>
-                  <a v-else-if="isArchive && !entry.isDir" :href="entry.link" download style="font-weight:500">{{ entry.name }}</a>
+                  <NirA v-else-if="isArchive && !entry.isDir" :to="entry.link" style="font-weight:500">{{ entry.name }}</NirA>
                   <NirA v-else :to="entry.link" style="font-weight:500">
                     <span v-if="entry.isDir" style="margin-right:4px">📁</span>{{ entry.name }}
                   </NirA>

@@ -5,19 +5,51 @@ import BrowseFile from './browse.file.vue';
 import BrowseFileTokens from './browse.file-tokens.vue';
 import NirA from '@/components/nira.vue';
 import { authStore, authHeaders } from '@/store/auth';
+import { mainRouter } from '@/router';
 
 const props = withDefaults(defineProps<{
 	bucketName: string;
 	filePath?: string;
 }>(), { filePath: '' });
 
+const entryPath = computed(() => {
+	const qs = mainRouter.currentRef.value?._parsedRoute?.queryString;
+	if (!qs) return null;
+	return new URLSearchParams(qs).get('file');
+});
+
+const isEntryFile = computed(() => entryPath.value !== null && !entryPath.value.endsWith('/'));
+const isEntryDirectory = computed(() => entryPath.value !== null && entryPath.value.endsWith('/'));
+
+const innerMeta = ref<{ mimeType: string; size?: number } | null>(null);
+
+const innerDownloadUrl = computed(() => {
+	const base = `/d/${props.bucketName}/${props.filePath}?file=${encodeURIComponent(entryPath.value ?? '')}`;
+	return autoToken.value ? `${base}&token=${autoToken.value}` : base;
+});
+
+const isInnerImage = computed(() => {
+	const mime = innerMeta.value?.mimeType ?? '';
+	if (mime.startsWith('image/')) return true;
+	const ext = entryPath.value?.split('.').pop()?.toLowerCase() ?? '';
+	return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'avif'].includes(ext);
+});
+
+const isInnerText = computed(() => {
+	const mime = innerMeta.value?.mimeType ?? '';
+	if (mime.startsWith('text/')) return true;
+	const ext = entryPath.value?.split('.').pop()?.toLowerCase() ?? '';
+	return ['txt', 'md', 'json', 'xml', 'html', 'css', 'js', 'ts', 'yaml', 'yml', 'toml', 'sh', 'csv'].includes(ext);
+});
+
 const breadcrumbs = computed(() => {
 	const parts = props.filePath ? props.filePath.replace(/\/$/, '').split('/') : [];
 	const result: { name: string; link: string | null }[] = [];
+	const hasEntry = entryPath.value !== null;
 
 	result.push({
 		name: props.bucketName,
-		link: parts.length === 0 ? null : `/v/${props.bucketName}/`,
+		link: parts.length === 0 && !hasEntry ? null : `/v/${props.bucketName}/`,
 	});
 
 	for (let i = 0; i < parts.length; i++) {
@@ -25,8 +57,24 @@ const breadcrumbs = computed(() => {
 		const pathSoFar = parts.slice(0, i + 1).join('/') + '/';
 		result.push({
 			name: parts[i],
-			link: isLast ? null : `/v/${props.bucketName}/${pathSoFar}`,
+			link: isLast && !hasEntry
+				? null
+				: isLast && hasEntry
+					? `/v/${props.bucketName}/${parts.slice(0, i + 1).join('/')}`
+					: `/v/${props.bucketName}/${pathSoFar}`,
 		});
+	}
+
+	if (hasEntry && entryPath.value) {
+		const innerParts = entryPath.value.replace(/\/$/, '').split('/').filter(Boolean);
+		for (let i = 0; i < innerParts.length; i++) {
+			const isLast = i === innerParts.length - 1;
+			const innerSoFar = innerParts.slice(0, i + 1).join('/');
+			result.push({
+				name: innerParts[i],
+				link: isLast ? null : `/v/${props.bucketName}/${props.filePath}?file=${encodeURIComponent(innerSoFar + '/')}`,
+			});
+		}
 	}
 
 	return result;
@@ -51,6 +99,19 @@ const fileIsPublic = ref(true);
 const activeTab = ref<'info' | 'tokens'>('info');
 const autoToken = ref<string | null>(null);
 
+async function fetchInnerMeta(): Promise<void> {
+	if (!isEntryFile.value || !entryPath.value) return;
+	const tokenParam = autoToken.value ? `&token=${autoToken.value}` : '';
+	const url = `/d/${props.bucketName}/${props.filePath}?list=${encodeURIComponent(entryPath.value)}${tokenParam}`;
+	try {
+		const res = await fetch(url, { headers: authHeaders() });
+		if (!res.ok) return;
+		const data = await res.json() as Array<{ path: string; mimeType: string; size?: number }>;
+		const entry = data.find(e => e.path === entryPath.value);
+		innerMeta.value = entry ? { mimeType: entry.mimeType, size: entry.size } : null;
+	} catch { /* silent */ }
+}
+
 async function fetchMeta(): Promise<void> {
 	if (isDirectory.value) {
 		isTargz.value = false;
@@ -58,6 +119,7 @@ async function fetchMeta(): Promise<void> {
 	}
 	metaLoading.value = true;
 	metaError.value = '';
+	innerMeta.value = null;
 	try {
 		const res = await fetch(`/d/${props.bucketName}/${props.filePath}?meta`);
 		if (!res.ok) { metaError.value = `取得失敗: ${res.status}`; return; }
@@ -68,6 +130,9 @@ async function fetchMeta(): Promise<void> {
 		fileIsPublic.value = data.isPublic ?? true;
 		if (!fileIsPublic.value && authStore.user) {
 			await issueAutoToken();
+		}
+		if (isEntryFile.value) {
+			await fetchInnerMeta();
 		}
 	} catch (e) {
 		metaError.value = String(e);
@@ -124,6 +189,10 @@ watch(() => [props.bucketName, props.filePath], () => {
 	autoToken.value = null;
 	fetchMeta();
 });
+watch(() => entryPath.value, () => {
+	innerMeta.value = null;
+	if (isEntryFile.value) fetchInnerMeta();
+});
 </script>
 
 <template>
@@ -143,10 +212,10 @@ watch(() => [props.bucketName, props.filePath], () => {
         {{ fileIsPublic ? '公開' : '非公開' }}
       </span>
       <span
-        v-if="!isDirectory && !metaLoading && !metaError && fileSize != null"
+        v-if="!isDirectory && !metaLoading && !metaError && (isEntryFile ? innerMeta?.size != null : fileSize != null)"
         :class="'badge badge-muted'"
       >
-        {{ formatSize(fileSize) }}
+        {{ formatSize((isEntryFile ? innerMeta?.size : fileSize) ?? 0) }}
       </span>
     </div>
 
@@ -155,8 +224,19 @@ watch(() => [props.bucketName, props.filePath], () => {
     </div>
     <div v-else-if="metaError" class="alert alert-error">{{ metaError }}</div>
     <template v-else>
+      <!-- アーカイブ内ファイルビュー (ログイン有無問わず) -->
+      <template v-if="(isTargz || isTar) && isEntryFile">
+        <div class="file-actions">
+          <a :href="innerDownloadUrl" download class="btn btn-primary">ダウンロード</a>
+          <a v-if="isInnerText" :href="innerDownloadUrl" target="_blank" class="btn btn-secondary">ブラウザで開く</a>
+        </div>
+        <div v-if="isInnerImage" style="margin-top:16px">
+          <img :src="innerDownloadUrl" :alt="entryPath ?? ''" class="file-preview-image">
+        </div>
+      </template>
+
       <!-- ファイル・ログイン済み: タブ付きパネル -->
-      <template v-if="!isDirectory && authStore.user">
+      <template v-else-if="!isDirectory && authStore.user">
         <div class="tab-bar mb-3">
           <button :class="['tab-btn', activeTab === 'info' ? 'tab-btn-active' : '']" @click="activeTab = 'info'">詳細</button>
           <button :class="['tab-btn', activeTab === 'tokens' ? 'tab-btn-active' : '']" @click="activeTab = 'tokens'">アクセストークン</button>
@@ -164,7 +244,7 @@ watch(() => [props.bucketName, props.filePath], () => {
 
         <!-- 詳細タブ: ファイル表示 -->
         <template v-if="activeTab === 'info'">
-          <BrowseDirectory v-if="isTargz || isTar" :bucketName="bucketName" :filePath="filePath" :isTargz="isTargz" :isTar="isTar" />
+          <BrowseDirectory v-if="isTargz || isTar" :bucketName="bucketName" :filePath="filePath" :isTargz="isTargz" :isTar="isTar" :entryPath="entryPath ?? ''" />
           <BrowseFile v-else :bucketName="bucketName" :filePath="filePath" :token="autoToken ?? undefined" />
         </template>
 
@@ -180,7 +260,7 @@ watch(() => [props.bucketName, props.filePath], () => {
 
       <!-- ログインなし or ディレクトリ: タブなし -->
       <template v-else>
-        <BrowseDirectory v-if="isDirectory || isTargz || isTar" :bucketName="bucketName" :filePath="filePath" :isTargz="isTargz" :isTar="isTar" />
+        <BrowseDirectory v-if="isDirectory || isTargz || isTar" :bucketName="bucketName" :filePath="filePath" :isTargz="isTargz" :isTar="isTar" :entryPath="entryPath ?? ''" />
         <BrowseFile v-else-if="!isDirectory" :bucketName="bucketName" :filePath="filePath" />
       </template>
     </template>
