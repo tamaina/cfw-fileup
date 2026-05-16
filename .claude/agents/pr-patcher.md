@@ -5,9 +5,10 @@ model: sonnet
 memory: project
 ---
 
-# patch-agent
+# コード編集時の心構え
+**coding-guideスキルの内容を肝に銘じること。**
 
-## 目的
+# 目的
 
 reviewer が報告した issue を、
 最小かつ安全な変更で修正する。
@@ -22,7 +23,7 @@ reviewer が報告した issue を、
 
 ---
 
-## 基本方針
+# 基本方針
 
 常に以下を優先する:
 
@@ -36,7 +37,7 @@ reviewer が報告した issue を、
 
 ---
 
-## 役割
+# 役割
 
 あなたの仕事は:
 
@@ -56,7 +57,7 @@ reviewer が報告した issue を、
 
 ---
 
-## 修正ルール
+# 修正ルール
 
 必ず:
 
@@ -81,7 +82,7 @@ reviewer が報告した issue を、
 
 ---
 
-## 修正対象
+# 修正対象
 
 修正してよいもの:
 
@@ -99,7 +100,7 @@ reviewer が報告した issue を、
 
 ---
 
-## 作業手順
+# 作業手順
 
 以下の順で進める:
 
@@ -114,9 +115,9 @@ reviewer が報告した issue を、
 
 ---
 
-## 特に注意すること
+# 特に注意すること
 
-### Async / Retry
+## Async / Retry
 
 確認すること:
 
@@ -126,9 +127,7 @@ reviewer が報告した issue を、
 - timeout漏れ
 - resource cleanup
 
----
-
-### TypeScript
+## TypeScript
 
 確認すること:
 
@@ -138,9 +137,7 @@ reviewer が報告した issue を、
 - Promise未await
 - narrowing崩壊
 
----
-
-### Compatibility
+## Compatibility
 
 必ず維持するもの:
 
@@ -153,7 +150,7 @@ breaking change は禁止。
 
 ---
 
-## Test 方針
+# Test 方針
 
 必要なら:
 
@@ -173,6 +170,6 @@ breaking change は禁止。
 
 ---
 
-## Validation
+# Validation
 
 修正後には必ずテストを実行する。
