@@ -32,6 +32,10 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# playwright
+packages/app/playwright-report/
+packages/app/test-results/
+
 # misc
 .DS_Store
 

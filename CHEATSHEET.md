@@ -55,6 +55,47 @@ npx wrangler d1 execute cfw-fileup-db --local --command "SELECT COUNT(*) FROM us
 rm -rf packages/app/.wrangler/state/v3/d1/
 ```
 
+## E2E テスト (Playwright)
+
+### 実行
+
+```bash
+# 推奨: DB をリセットしてから実行（クリーンな状態で全テスト）
+pnpm --filter app test:e2e:fresh
+
+# 既存の状態で実行（開発中の素早い確認に）
+pnpm --filter app test:e2e
+
+# UI モードで実行（テストを視覚的に確認）
+pnpm --filter app test:e2e:ui
+
+# デバッグモード（ステップ実行）
+pnpm --filter app test:e2e:debug
+```
+
+### テストファイル構成
+
+```
+packages/app/test/e2e/
+├── global-setup.ts   # テスト用 admin ユーザーを作成（e2e_admin / e2e_password_123）
+├── fixtures.ts       # 認証済みページなど共通フィクスチャ
+├── auth.spec.ts      # サインイン・サインアップ UI テスト
+└── buckets.spec.ts   # バケット管理テスト
+```
+
+### 仕組み
+
+- `test:e2e:fresh`: D1 状態をリセット → マイグレーション適用 → playwright 起動
+- `test:e2e`: playwright が dev サーバー（port 5173）を起動（または再利用）して実行
+- `globalSetup` で `e2e_admin` ユーザーを自動作成（新規 DB なら管理者になる）
+
+### レポート
+
+```bash
+# テスト結果 HTML レポートを開く
+npx playwright show-report packages/app/playwright-report
+```
+
 ## コード品質
 
 ### Linting

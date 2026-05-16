@@ -12,6 +12,9 @@ importers:
         specifier: ^4.12.18
         version: 4.12.18
     devDependencies:
+      file-type:
+        specifier: ^22.0.1
+        version: 22.0.1
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -30,7 +33,7 @@ importers:
     devDependencies:
       '@cloudflare/vite-plugin':
         specifier: ^1.36.3
-        version: 1.36.3(vite@8.0.12(@types/node@25.7.0)(esbuild@0.27.3)(tsx@4.21.0))(workerd@1.20260507.1)(wrangler@4.90.0)
+        version: 1.36.3(vite@8.0.12(@types/node@25.7.0)(esbuild@0.27.3)(tsx@4.21.0))(workerd@1.20260508.1)(wrangler@4.90.0)
       '@cloudflare/vitest-pool-workers':
         specifier: ^0.16.4
         version: 0.16.4(@vitest/runner@4.1.6)(@vitest/snapshot@4.1.6)(vitest@4.1.6(@types/node@25.7.0)(vite@8.0.12(@types/node@25.7.0)(esbuild@0.27.3)(tsx@4.21.0)))
@@ -43,6 +46,9 @@ importers:
       '@misskey-dev/eslint-plugin':
         specifier: ^2.2.0
         version: 2.2.0(@eslint/compat@2.1.0(eslint@9.39.4))(@eslint/js@9.39.4)(@stylistic/eslint-plugin@5.10.0(eslint@9.39.4))(@typescript-eslint/eslint-plugin@8.59.3(@typescript-eslint/parser@8.59.3(eslint@9.39.4)(typescript@6.0.3))(eslint@9.39.4)(typescript@6.0.3))(@typescript-eslint/parser@8.59.3(eslint@9.39.4)(typescript@6.0.3))(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.59.3(eslint@9.39.4)(typescript@6.0.3))(eslint@9.39.4))(eslint@9.39.4)(globals@17.6.0)
+      '@playwright/test':
+        specifier: 1.56.1
+        version: 1.56.1
       '@types/node':
         specifier: ^25.7.0
         version: 25.7.0
@@ -937,6 +943,11 @@ packages:
   '@oxc-project/types@0.129.0':
     resolution: {integrity: sha512-3oz8m3FGdr2nDXVqmFUw7jolKliC4MoyXYIG2c7gpjBnzUWQpUGIYcXYKxTdTi+N2jusvt610ckTMkxdwHkYEg==}
 
+  '@playwright/test@1.56.1':
+    resolution: {integrity: sha512-vSMYtL/zOcFpvJCW71Q/OEGQb7KYBPAdKh35WNSkaZA75JlAO8ED8UN6GUNTm3drWomcbcqRPFqQbLae8yBTdg==}
+    engines: {node: '>=18'}
+    hasBin: true
+
   '@poppinss/colors@4.1.6':
     resolution: {integrity: sha512-H9xkIdFswbS8n1d6vmRd8+c10t2Qe+rZITbbDHHkQixH5+2x1FDGmi/0K+WgWiqQFKPSlIYB7jlH6Kpfn6Fleg==}
 
@@ -1748,6 +1759,11 @@ packages:
     resolution: {integrity: sha512-dKx12eRCVIzqCxFGplyFKJMPvLEWgmNtUrpTiJIR5u97zEhRG8ySrtboPHZXx7daLxQVrl643cTzbab2tkQjxg==}
     engines: {node: '>= 0.4'}
 
+  fsevents@2.3.2:
+    resolution: {integrity: sha512-xiqMQR4xAeHTuB9uWm+fFRcIOgKBMiOBP+eXiyT7jsgVCq1bkVygt00oASowB7EdtpOHaaPgKt812P9ab+DDKA==}
+    engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
+    os: [darwin]
+
   fsevents@2.3.3:
     resolution: {integrity: sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==}
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
@@ -2200,6 +2216,16 @@ packages:
   picomatch@4.0.4:
     resolution: {integrity: sha512-QP88BAKvMam/3NxH6vj2o21R6MjxZUAd6nlwAS/pnGvN9IVLocLHxGYIzFhg6fUQ+5th6P4dv4eW9jX3DSIj7A==}
     engines: {node: '>=12'}
+
+  playwright-core@1.56.1:
+    resolution: {integrity: sha512-hutraynyn31F+Bifme+Ps9Vq59hKuUCz7H1kDOcBs+2oGguKkWTU50bBWrtz34OUWmIwpBTWDxaRPXrIXkgvmQ==}
+    engines: {node: '>=18'}
+    hasBin: true
+
+  playwright@1.56.1:
+    resolution: {integrity: sha512-aFi5B0WovBHTEvpM3DzXTUaeN6eN0qWnTkKx4NQaH4Wvcmc153PdaY2UBdSYKaGYw+UyWXSVyxDUg5DoPEttjw==}
+    engines: {node: '>=18'}
+    hasBin: true
 
   possible-typed-array-names@1.1.0:
     resolution: {integrity: sha512-/+5VFTchJDoVj3bhoqi6UeymcD00DAwb1nJwamzPvHEszJ4FpF6SNNbUbOS8yI56qHzdV8eK0qEfOSiodkTdxg==}
@@ -2679,9 +2705,9 @@ snapshots:
     optionalDependencies:
       workerd: 1.20260508.1
 
-  '@cloudflare/vite-plugin@1.36.3(vite@8.0.12(@types/node@25.7.0)(esbuild@0.27.3)(tsx@4.21.0))(workerd@1.20260507.1)(wrangler@4.90.0)':
+  '@cloudflare/vite-plugin@1.36.3(vite@8.0.12(@types/node@25.7.0)(esbuild@0.27.3)(tsx@4.21.0))(workerd@1.20260508.1)(wrangler@4.90.0)':
     dependencies:
-      '@cloudflare/unenv-preset': 2.16.1(unenv@2.0.0-rc.24)(workerd@1.20260507.1)
+      '@cloudflare/unenv-preset': 2.16.1(unenv@2.0.0-rc.24)(workerd@1.20260508.1)
       miniflare: 4.20260507.1
       unenv: 2.0.0-rc.24
       vite: 8.0.12(@types/node@25.7.0)(esbuild@0.27.3)(tsx@4.21.0)
@@ -3192,6 +3218,10 @@ snapshots:
     optional: true
 
   '@oxc-project/types@0.129.0': {}
+
+  '@playwright/test@1.56.1':
+    dependencies:
+      playwright: 1.56.1
 
   '@poppinss/colors@4.1.6':
     dependencies:
@@ -4087,6 +4117,9 @@ snapshots:
     dependencies:
       is-callable: 1.2.7
 
+  fsevents@2.3.2:
+    optional: true
+
   fsevents@2.3.3:
     optional: true
 
@@ -4529,6 +4562,14 @@ snapshots:
   picocolors@1.1.1: {}
 
   picomatch@4.0.4: {}
+
+  playwright-core@1.56.1: {}
+
+  playwright@1.56.1:
+    dependencies:
+      playwright-core: 1.56.1
+    optionalDependencies:
+      fsevents: 2.3.2
 
   possible-typed-array-names@1.1.0: {}
 

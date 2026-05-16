@@ -15,7 +15,12 @@
     "test:worker:watch": "vitest --config vitest.worker.config.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply cfw-fileup-db --local",
-    "cf-typegen": "wrangler types ./src/worker/worker-configuration.d.ts"
+    "db:reset": "rm -rf .wrangler/state/v3/d1",
+    "cf-typegen": "wrangler types ./src/worker/worker-configuration.d.ts",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:debug": "playwright test --debug",
+    "test:e2e:fresh": "pnpm db:reset && pnpm db:migrate:local && pnpm test:e2e"
   },
   "dependencies": {
     "@vuetify/v0": "1.0.0-alpha.4",
@@ -27,6 +32,7 @@
     "@eslint/eslintrc": "^3.3.5",
     "@eslint/js": "^9.39.4",
     "@misskey-dev/eslint-plugin": "^2.2.0",
+    "@playwright/test": "1.56.1",
     "@types/node": "^25.7.0",
     "@typescript-eslint/parser": "^8.59.3",
     "@vitejs/plugin-vue": "^6.0.6",
