@@ -1,6 +1,6 @@
 ---
 name: routine
-description: "定時実行でやること(Claude Code Routinesの指示の写し)。まずはテストが落ちていないか確認し、その後Issueを消化する。"
+description: "定時実行でやること(Claude Code Routinesの指示の写し)。1. テストが落ちていないか確認し - 2. 自分のPRをmainに追従 - 3. Issue消化。"
 context: fork
 tags: [routine]
 ---
@@ -11,6 +11,7 @@ tags: [routine]
 
 ## 2. 自分のPRのmain追従
 自分が提出している全てのプルリクエストのブランチへmainブランチをマージし、mainブランチを追従する。  
+ただし、プルリクエスト同士で親子関係がある場合、親から子へ順番にブランチをマージしていくこと。
 コンフリクトが発生した場合、merge-conflict-resolverサブエージェントを呼び出して解決を試みること。
 
 ## 3. Issue消化
