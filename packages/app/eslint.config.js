@@ -1,6 +1,5 @@
 import pluginMisskey from '@misskey-dev/eslint-plugin';
 import tsParser from '@typescript-eslint/parser';
-import { globalIgnores } from 'eslint/config';
 
 export default [
 	...pluginMisskey.configs['recommended'],
