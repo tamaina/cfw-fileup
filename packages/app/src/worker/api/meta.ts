@@ -26,11 +26,22 @@ app.get('/meta', async (c) => {
 		const requireSignupPassphrase = requireSignupPassphraseSetting?.value === 'true';
 		const passphraseRequired = requireSignupPassphrase;
 
+		const googleRequiredSetting = await db
+			.select()
+			.from(appSettings)
+			.where(eq(appSettings.key, 'google_required'))
+			.get();
+
+		const googleRequired = googleRequiredSetting?.value === 'true';
+		const googleAuthEnabled = (c.env.GOOGLE_CLIENT_ID as string) !== '' && (c.env.GOOGLE_CLIENT_SECRET as string) !== '';
+
 		return c.json({
 			registrationEnabled: registrationEnabledSetting?.value !== 'false',
 			passphraseRequired: !!passphraseRequired,
 			turnstileEnabled: (c.env.TURNSTILE_SECRET as string) !== '',
 			turnstileSiteKey: c.env.TURNSTILE_SITE_KEY,
+			googleAuthEnabled,
+			googleRequired,
 		} as ExtractResponseType<typeof metaApiSchema, '/api/meta', 'get', 200>);
 	} catch {
 		return c.json({
@@ -38,6 +49,8 @@ app.get('/meta', async (c) => {
 			passphraseRequired: false,
 			turnstileEnabled: false,
 			turnstileSiteKey: '',
+			googleAuthEnabled: false,
+			googleRequired: false,
 		} as ExtractResponseType<typeof metaApiSchema, '/api/meta', 'get', 200>);
 	}
 });

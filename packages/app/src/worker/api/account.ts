@@ -46,6 +46,10 @@ app.post('/update', async (c) => {
 		throw new HTTPException(404, { message: 'User not found' });
 	}
 
+	if (!userRecord.passwordHash) {
+		throw new HTTPException(400, { message: 'This account uses Google sign-in and cannot change password this way' });
+	}
+
 	const passwordValid = await verifyPassword(body.currentPassword, userRecord.passwordHash);
 	if (!passwordValid) {
 		throw new HTTPException(401, { message: 'Invalid password' });

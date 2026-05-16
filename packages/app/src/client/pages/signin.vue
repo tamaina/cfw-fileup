@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue';
+import { ref, reactive, computed, onMounted } from 'vue';
 import { Button } from '@vuetify/v0';
 import { startAuthentication } from '@simplewebauthn/browser';
 import type { PublicKeyCredentialRequestOptionsJSON } from '@simplewebauthn/browser';
@@ -11,22 +11,66 @@ const form = reactive({ username: '', password: '' });
 const error = ref('');
 const loading = ref(false);
 const passkeyLoading = ref(false);
+const googleLoading = ref(false);
 const turnstileEnabled = ref(false);
 const turnstileSiteKey = ref('');
 const turnstileToken = ref<string | null>(null);
+const googleAuthEnabled = ref(false);
+const googleRequired = ref(false);
 
 async function fetchMeta(): Promise<void> {
 	try {
 		const res = await fetch('/api/meta');
-		const data = (await res.json()) as { turnstileEnabled?: boolean; turnstileSiteKey?: string };
+		const data = (await res.json()) as { turnstileEnabled?: boolean; turnstileSiteKey?: string; googleAuthEnabled?: boolean; googleRequired?: boolean };
 		turnstileEnabled.value = data.turnstileEnabled ?? false;
 		turnstileSiteKey.value = data.turnstileSiteKey ?? '';
+		googleAuthEnabled.value = data.googleAuthEnabled ?? false;
+		googleRequired.value = data.googleRequired ?? false;
 	} catch (e) {
 		console.error('Failed to fetch meta:', e);
 	}
 }
 
-fetchMeta();
+// Handle Google OAuth callback token in query parameter
+async function handleGoogleCallback(): Promise<void> {
+	const params = new URLSearchParams(window.location.search);
+	const googleToken = params.get('google_token');
+	if (!googleToken) return;
+
+	// Remove the token from the URL immediately
+	const newUrl = new URL(window.location.href);
+	newUrl.searchParams.delete('google_token');
+	window.history.replaceState({}, '', newUrl.toString());
+
+	googleLoading.value = true;
+	error.value = '';
+	try {
+		const res = await fetch('/api/auth/google/complete', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ googleToken }),
+		});
+		const data = (await res.json()) as { token?: string; error?: string };
+		if (!res.ok) {
+			error.value = data.error ?? 'Googleサインインに失敗しました';
+			return;
+		}
+		if (data.token) {
+			setToken(data.token);
+			await fetchCurrentUser();
+			navigateTo('/my/buckets');
+		}
+	} catch (e) {
+		error.value = String(e);
+	} finally {
+		googleLoading.value = false;
+	}
+}
+
+onMounted(async () => {
+	await fetchMeta();
+	await handleGoogleCallback();
+});
 
 const canSubmit = computed(() => !turnstileEnabled.value || turnstileToken.value !== null);
 
@@ -114,6 +158,10 @@ async function signinWithPasskey(): Promise<void> {
 		passkeyLoading.value = false;
 	}
 }
+
+function signinWithGoogle(): void {
+	location.href = '/api/auth/google';
+}
 </script>
 
 <template>
@@ -177,6 +225,17 @@ async function signinWithPasskey(): Promise<void> {
         >
           <Button.Loading>認証中...</Button.Loading>
           <Button.Content>パスキーでサインイン</Button.Content>
+        </Button.Root>
+        <Button.Root
+          v-if="googleAuthEnabled"
+          type="button"
+          class="btn btn-ghost w-full"
+          style="justify-content:center"
+          :loading="googleLoading"
+          @click="signinWithGoogle"
+        >
+          <Button.Loading>認証中...</Button.Loading>
+          <Button.Content>Googleでサインイン</Button.Content>
         </Button.Root>
       </div>
 

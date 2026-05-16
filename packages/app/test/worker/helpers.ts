@@ -9,9 +9,15 @@ export async function setupDb(): Promise<void> {
 		env.DB.prepare(`CREATE TABLE IF NOT EXISTS users (
 			id text PRIMARY KEY NOT NULL,
 			username text NOT NULL UNIQUE,
-			password_hash text NOT NULL,
+			password_hash text,
+			google_id text UNIQUE,
 			is_admin integer DEFAULT false NOT NULL,
 			is_suspended integer DEFAULT false NOT NULL
+		)`),
+		env.DB.prepare(`CREATE TABLE IF NOT EXISTS oauth_states (
+			id text PRIMARY KEY NOT NULL,
+			state text NOT NULL UNIQUE,
+			expires_at integer NOT NULL
 		)`),
 		env.DB.prepare(`CREATE TABLE IF NOT EXISTS tokens (
 			id text PRIMARY KEY NOT NULL,
@@ -110,6 +116,7 @@ export async function clearDb(): Promise<void> {
 		env.DB.prepare('DELETE FROM users'),
 		env.DB.prepare('DELETE FROM app_settings'),
 		env.DB.prepare('DELETE FROM global_quotas'),
+		env.DB.prepare('DELETE FROM oauth_states'),
 	]);
 }
 
