@@ -39,6 +39,13 @@ type RawArchiveEntry = { id: string; path: string; mimeType: string; size?: numb
 const allArchiveEntries = ref<RawArchiveEntry[]>([]);
 const archivePath = ref('');
 
+function formatSize(bytes: number): string {
+	if (bytes < 1024) return `${bytes} B`;
+	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+	if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+	return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
 const bucketId = ref<string | null>(null);
 const newDirName = ref('');
 const mkdirError = ref('');
@@ -364,7 +371,7 @@ watch(() => [props.bucketName, props.filePath], () => { load(); loadBucketId(); 
                   </NirA>
                 </td>
                 <td class="col-right col-muted">
-                  {{ entry.size != null ? entry.size.toLocaleString() + ' B' : '' }}
+                  {{ entry.size != null ? formatSize(entry.size) : '' }}
                 </td>
                 <td>
                   <span v-if="entry.label" class="badge badge-muted">{{ entry.label }}</span>

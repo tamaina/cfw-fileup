@@ -100,7 +100,7 @@ async function submit(): Promise<void> {
 
         <div v-if="error" class="alert alert-error">{{ error }}</div>
 
-        <Button.Root type="submit" class="btn btn-primary w-full" :loading="loading">
+        <Button.Root type="submit" class="btn btn-primary w-full" style="justify-content: center" :loading="loading">
           <Button.Loading>処理中...</Button.Loading>
           <Button.Content>アカウント作成</Button.Content>
         </Button.Root>

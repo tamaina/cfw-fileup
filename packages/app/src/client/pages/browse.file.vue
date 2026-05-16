@@ -11,6 +11,7 @@ const props = defineProps<{
 	token?: string;
 }>();
 
+
 const downloadUrl = computed(() => {
 	const base = `/d/${props.bucketName}/${props.filePath}`;
 	return props.token ? `${base}?token=${props.token}` : base;
@@ -53,16 +54,16 @@ async function executeDelete(): Promise<void> {
 
 <template>
   <div>
-    <div v-if="isImage" style="margin-bottom:16px">
-      <img :src="downloadUrl" :alt="filePath" class="file-preview-image">
-    </div>
-
     <div class="file-actions">
       <a :href="downloadUrl" download class="btn btn-primary">ダウンロード</a>
       <a v-if="isText" :href="downloadUrl" target="_blank" class="btn btn-secondary">ブラウザで開く</a>
       <Button.Root v-if="authStore.user" class="btn btn-ghost-danger" @click="deleteDialog = true">
         <Button.Content>削除</Button.Content>
       </Button.Root>
+    </div>
+
+    <div v-if="isImage" style="margin-top:16px">
+      <img :src="downloadUrl" :alt="filePath" class="file-preview-image">
     </div>
 
     <div v-if="deleteError" class="alert alert-error mt-3">{{ deleteError }}</div>

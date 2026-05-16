@@ -34,8 +34,16 @@ const breadcrumbs = computed(() => {
 
 const isDirectory = computed(() => props.filePath === '' || props.filePath.endsWith('/'));
 
+function formatSize(bytes: number): string {
+	if (bytes < 1024) return `${bytes} B`;
+	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+	if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+	return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
 const isTargz = ref(false);
 const isTar = ref(false);
+const fileSize = ref<number | null>(null);
 const metaLoading = ref(false);
 const metaError = ref('');
 const fileIsPublic = ref(true);
@@ -53,9 +61,10 @@ async function fetchMeta(): Promise<void> {
 	try {
 		const res = await fetch(`/d/${props.bucketName}/${props.filePath}?meta`);
 		if (!res.ok) { metaError.value = `取得失敗: ${res.status}`; return; }
-		const data = await res.json() as { isTargz?: boolean; isTar?: boolean; isPublic?: boolean };
+		const data = await res.json() as { isTargz?: boolean; isTar?: boolean; isPublic?: boolean; size?: number };
 		isTargz.value = data.isTargz ?? false;
 		isTar.value = data.isTar ?? false;
+		fileSize.value = data.size ?? null;
 		fileIsPublic.value = data.isPublic ?? true;
 		if (!fileIsPublic.value && authStore.user) {
 			await issueAutoToken();
@@ -132,6 +141,12 @@ watch(() => [props.bucketName, props.filePath], () => {
         :class="fileIsPublic ? 'badge badge-success' : 'badge badge-muted'"
       >
         {{ fileIsPublic ? '公開' : '非公開' }}
+      </span>
+      <span
+        v-if="!isDirectory && !metaLoading && !metaError && fileSize != null"
+        :class="'badge badge-muted'"
+      >
+        {{ formatSize(fileSize) }}
       </span>
     </div>
 

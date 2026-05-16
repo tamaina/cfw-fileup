@@ -159,7 +159,7 @@ code { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.9em; 
   border: 1px solid transparent;
   font-size: 0.875rem;
   font-weight: 500;
-  line-height: 1;
+  line-height: normal;
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s, box-shadow 0.15s, opacity 0.15s;
   white-space: nowrap;
