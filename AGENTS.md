@@ -116,6 +116,15 @@ pnpm --filter app run test:worker
 pnpm --filter app run typecheck:client
 ```
 
+### Client Service Worker
+`packages/app/src/sw/index.ts` is the entrypoint for the client-side Service Worker.  
+Service Worker is used for decompression and re-compression for edge cases.
+
+- tar.gz with BGZF: Re-compress because bsdtar (used in FreeBSD and macOS) doesn't support BGZF. So we need to re-compress it to normal gzip. See https://github.com/tamaina/cfw-fileup/issues/16
+- Single files in tar.gz: Due to Miniflare's lack of streaming support, we need to decompress it in the Service Worker and serve it as a single file. See https://github.com/tamaina/cfw-fileup/issues/15
+
+It is registered by vite-plugin-spa in vite.config.ts.
+
 ### TypeScript
 
 All packages extend `tsconfig.base.json` at the root. Key settings: `strict`, `strictNullChecks`, `verbatimModuleSyntax`, `moduleResolution: Bundler`.

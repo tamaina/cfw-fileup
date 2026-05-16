@@ -25,7 +25,8 @@
   },
   "dependencies": {
     "@vuetify/v0": "1.0.0-alpha.4",
-    "bgzf": "workspace:*"
+    "bgzf": "workspace:*",
+    "file-type": "^22.0.1"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.36.3",

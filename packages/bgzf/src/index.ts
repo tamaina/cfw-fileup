@@ -10,7 +10,7 @@ export function isBgzf(bytes: Uint8Array): boolean {
 
 // ---- BGZF decompression ----
 
-async function decompressDeflateRaw(data: Uint8Array<ArrayBuffer>): Promise<Uint8Array> {
+async function decompressDeflateRaw(data: Uint8Array<ArrayBuffer>): Promise<Uint8Array<ArrayBuffer>> {
 	const ds = new DecompressionStream('deflate-raw');
 	const chunks: Uint8Array[] = [];
 
@@ -42,7 +42,7 @@ async function decompressDeflateRaw(data: Uint8Array<ArrayBuffer>): Promise<Uint
 	return out;
 }
 
-export function createBgzfDecompressor(): TransformStream<Uint8Array, Uint8Array> {
+export function createBgzfDecompressor(): TransformStream<Uint8Array<ArrayBuffer>, Uint8Array<ArrayBuffer>> {
 	let buf = new Uint8Array(0);
 	return new TransformStream({
 		async transform(chunk, controller) {

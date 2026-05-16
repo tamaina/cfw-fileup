@@ -1,18 +1,22 @@
 import { isBgzf, createBgzfDecompressor } from 'bgzf';
+import { fileTypeFromStream } from 'file-type';
 
 const sw = self as unknown as ServiceWorkerGlobalScope;
 
 // Issue #15: Individual file from BGZF tar.gz
 // If the filename (from Content-Disposition) does not end with .gz but the
 // content bytes are gzip, decompress before handing to the browser.
-type PeekResult = { rebuilt: ReadableStream<Uint8Array>; gzip: boolean; bgzf: boolean };
+type PeekResult = { rebuilt: ReadableStream<Uint8Array<ArrayBuffer>> } & (
+	| { gzip: false; bgzf: false }
+	| { gzip: true; bgzf: boolean }
+);
 
-async function peekStream(body: ReadableStream<Uint8Array>): Promise<PeekResult | null> {
+async function peekStream(body: ReadableStream<Uint8Array<ArrayBuffer>>): Promise<PeekResult | null> {
 	const reader = body.getReader();
 	const { done, value: firstChunk } = await reader.read();
 	if (done || !firstChunk) return null;
 
-	const rebuilt = new ReadableStream<Uint8Array>({
+	const rebuilt = new ReadableStream<Uint8Array<ArrayBuffer>>({
 		start(controller) { controller.enqueue(firstChunk); },
 		async pull(controller) {
 			const { done, value } = await reader.read();
@@ -26,7 +30,8 @@ async function peekStream(body: ReadableStream<Uint8Array>): Promise<PeekResult 
 	});
 
 	const gzip = firstChunk.length >= 2 && firstChunk[0] === 0x1f && firstChunk[1] === 0x8b;
-  return { rebuilt, gzip, bgzf: gzip && isBgzf(firstChunk) };
+	if (!gzip) return { rebuilt, gzip: false, bgzf: false };
+	return { rebuilt, gzip: true, bgzf: isBgzf(firstChunk) };
 }
 
 // Issue #16: Full BGZF archive → standard single-stream gzip
@@ -48,36 +53,70 @@ async function handleFileInArchive(request: Request): Promise<Response> {
 		return new Response(rebuilt, { status: response.status, headers: response.headers });
 	}
 
-	// BGZF uses concatenated gzip blocks; regular gzip uses DecompressionStream directly.
-	// Uint8Array satisfies BufferSource, so widening rebuilt before pipeThrough is safe.
 	const decompressed = bgzf
 		? rebuilt.pipeThrough(createBgzfDecompressor())
-		: (rebuilt as ReadableStream<BufferSource>).pipeThrough(new DecompressionStream('gzip'));
+		: rebuilt.pipeThrough(new DecompressionStream('gzip'));
 
 	const newHeaders = new Headers(response.headers);
 	newHeaders.delete('Content-Length');
   newHeaders.delete('Content-Encoding');
-	return new Response(decompressed as ReadableStream<Uint8Array>, { status: response.status, headers: newHeaders });
+	return new Response(decompressed, { status: response.status, headers: newHeaders });
 }
 
 async function handleFullArchive(request: Request): Promise<Response> {
-	const response = await fetch(request);
+	const url = new URL(request.url);
+	const decompress = url.searchParams.has('decompress');
+
+	let originUrl = url;
+	if (decompress) {
+		originUrl = new URL(request.url);
+		originUrl.searchParams.delete('decompress');
+	}
+
+	const response = await fetch(originUrl);
 	if (!response.body) return response;
 
 	const peek = await peekStream(response.body);
+  console.log(request.url, peek);
 	if (!peek) return response;
-	const { rebuilt, bgzf } = peek;
+	const { rebuilt, bgzf, gzip } = peek;
 
-	if (!bgzf) {
-		return new Response(rebuilt, { status: response.status, headers: response.headers });
+	if (decompress && gzip) {
+    console.log('sw: decompress', originUrl)
+		const decompressed = bgzf
+			? rebuilt.pipeThrough(createBgzfDecompressor())
+			: rebuilt.pipeThrough(new DecompressionStream('gzip'));
+
+		const [forTypeDetect, forBody] = decompressed.tee();
+		const detected = await fileTypeFromStream(forTypeDetect);
+		const mimeType = detected?.mime;
+
+		const newHeaders = new Headers(response.headers);
+		newHeaders.delete('Content-Length');
+		newHeaders.delete('Content-Encoding');
+		if (mimeType) {
+      newHeaders.set('Content-Type', mimeType);
+    } else {
+      newHeaders.delete('Content-Type');
+    }
+
+		const rawFilename = url.pathname.split('/').pop() ?? '';
+		const originalFilename = rawFilename.endsWith('.gz') ? rawFilename.slice(0, -3) : rawFilename;
+		newHeaders.set('Content-Disposition', `attachment; filename="${originalFilename}"`);
+		return new Response(forBody, { status: response.status, headers: newHeaders });
 	}
 
-	const gzipStream = (rebuilt.pipeThrough(createBgzfDecompressor()) as ReadableStream<BufferSource>)
-		.pipeThrough(new CompressionStream('gzip'));
+	// !decompress && bgzf: re-compress BGZF to standard single-stream gzip (issue #16)
+	if (!decompress && bgzf) {
+		const gzipStream = rebuilt.pipeThrough(createBgzfDecompressor())
+			.pipeThrough(new CompressionStream('gzip'));
 
-	const newHeaders = new Headers(response.headers);
-	newHeaders.delete('Content-Length');
-	return new Response(gzipStream, { status: response.status, headers: newHeaders });
+		const newHeaders = new Headers(response.headers);
+		newHeaders.delete('Content-Length');
+		return new Response(gzipStream, { status: response.status, headers: newHeaders });
+	}
+
+	return new Response(rebuilt, { status: response.status, headers: response.headers });
 }
 
 sw.addEventListener('fetch', (event) => {
