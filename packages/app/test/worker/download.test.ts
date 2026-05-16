@@ -260,6 +260,92 @@ describe('GET /d/:bucketName/:filePath?list (tar.gz index)', () => {
 	});
 });
 
+describe('GET /d/:bucketName/:filePath?file= (tar individual file)', () => {
+	test('?file= downloads the correct bytes from a plain tar', async () => {
+		const { data } = await signup('user1');
+		const token = String(data.token);
+
+		const bucketRes = await app.request('/api/buckets/create', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ bucketName: 'tar-bucket' }),
+		}, env);
+		const { bucketId } = await bucketRes.json() as { bucketId: string };
+
+		const openRes = await app.request('/api/files/create/open', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ bucketId, path: 'archive.tar' }),
+		}, env);
+		const { fileId } = await openRes.json() as { fileId: string };
+
+		// Construct a minimal tar in memory: 512-byte header + file content
+		const fileContent = new TextEncoder().encode('Hello from tar!');
+		const tar = new Uint8Array(512 + fileContent.length);
+		tar.set(fileContent, 512);
+		await env.R2.put(`${bucketId}/archive.tar`, tar);
+
+		await app.request('/api/files/create/tar-index', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({
+				fileId,
+				files: [{ path: 'hello.txt', mimeType: 'text/plain', offset: 512, size: fileContent.length }],
+			}),
+		}, env);
+
+		await app.request('/api/files/create/close', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ fileId, isPublic: true }),
+		}, env);
+
+		const res = await app.request('/d/tar-bucket/archive.tar?file=hello.txt', {}, env);
+		expect(res.status).toBe(200);
+		const body = await res.arrayBuffer();
+		expect(new Uint8Array(body)).toEqual(fileContent);
+	});
+
+	test('?file= returns 404 for unknown path', async () => {
+		const { data } = await signup('user1');
+		const token = String(data.token);
+
+		const bucketRes = await app.request('/api/buckets/create', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ bucketName: 'tar-bucket' }),
+		}, env);
+		const { bucketId } = await bucketRes.json() as { bucketId: string };
+
+		const openRes = await app.request('/api/files/create/open', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ bucketId, path: 'archive.tar' }),
+		}, env);
+		const { fileId } = await openRes.json() as { fileId: string };
+
+		await env.R2.put(`${bucketId}/archive.tar`, new Uint8Array(1024));
+
+		await app.request('/api/files/create/tar-index', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({
+				fileId,
+				files: [{ path: 'hello.txt', mimeType: 'text/plain', offset: 512, size: 11 }],
+			}),
+		}, env);
+
+		await app.request('/api/files/create/close', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ fileId, isPublic: true }),
+		}, env);
+
+		const res = await app.request('/d/tar-bucket/archive.tar?file=nonexistent.txt', {}, env);
+		expect(res.status).toBe(404);
+	});
+});
+
 describe('DELETE /d/:bucketName/*', () => {
 	test('owner can delete file via DELETE endpoint', async () => {
 		await setupPublicFile();

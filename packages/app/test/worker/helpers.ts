@@ -58,6 +58,15 @@ export async function setupDb(): Promise<void> {
 			r_end_offset integer NOT NULL,
 			FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE
 		)`),
+		env.DB.prepare(`CREATE TABLE IF NOT EXISTS tar_files (
+			id text PRIMARY KEY NOT NULL,
+			file_id text NOT NULL,
+			path text NOT NULL,
+			mime_type text NOT NULL,
+			offset integer NOT NULL,
+			size integer NOT NULL,
+			FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE
+		)`),
 		env.DB.prepare(`CREATE TABLE IF NOT EXISTS upload_parts (
 			id text PRIMARY KEY NOT NULL,
 			file_id text NOT NULL,
@@ -93,6 +102,7 @@ export async function clearDb(): Promise<void> {
 	await env.DB.batch([
 		env.DB.prepare('DELETE FROM upload_parts'),
 		env.DB.prepare('DELETE FROM targz_files'),
+		env.DB.prepare('DELETE FROM tar_files'),
 		env.DB.prepare('DELETE FROM files'),
 		env.DB.prepare('DELETE FROM tokens'),
 		env.DB.prepare('DELETE FROM user_quotas'),
