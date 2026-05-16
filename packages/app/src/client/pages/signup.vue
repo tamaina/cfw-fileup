@@ -12,6 +12,7 @@ const passphraseRequired = ref(false);
 const turnstileEnabled = ref(false);
 const turnstileSiteKey = ref('');
 const turnstileToken = ref<string | null>(null);
+const turnstileWidget = ref<InstanceType<typeof TurnstileWidget> | null>(null);
 
 async function fetchMeta(): Promise<void> {
 	try {
@@ -52,6 +53,8 @@ async function submit(): Promise<void> {
 		const data = (await res.json()) as { token?: string; error?: string };
 		if (!res.ok) {
 			error.value = data.error ?? 'エラーが発生しました';
+			turnstileToken.value = null;
+			turnstileWidget.value?.reset();
 			return;
 		}
 		if (data.token) {
@@ -61,6 +64,8 @@ async function submit(): Promise<void> {
 		}
 	} catch (e) {
 		error.value = String(e);
+		turnstileToken.value = null;
+		turnstileWidget.value?.reset();
 	} finally {
 		loading.value = false;
 	}
@@ -112,6 +117,7 @@ async function submit(): Promise<void> {
 
         <TurnstileWidget
           v-if="turnstileEnabled"
+          ref="turnstileWidget"
           :site-key="turnstileSiteKey"
           @update:token="turnstileToken = $event"
         />

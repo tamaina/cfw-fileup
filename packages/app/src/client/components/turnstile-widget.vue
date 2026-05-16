@@ -8,20 +8,31 @@ const container = ref<HTMLDivElement | null>(null);
 let widgetId: string | undefined;
 
 function loadScript(): Promise<void> {
-	return new Promise((resolve) => {
+	return new Promise((resolve, reject) => {
 		if (document.querySelector('script[data-turnstile]')) { resolve(); return; }
 		const s = document.createElement('script');
 		s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
 		s.setAttribute('data-turnstile', '');
 		s.onload = () => resolve();
+		s.onerror = () => reject(new Error('Failed to load Turnstile script'));
 		document.head.appendChild(s);
 	});
 }
 
 onMounted(async () => {
-	await loadScript();
+	try {
+		await loadScript();
+	} catch (e) {
+		console.error(e);
+		return;
+	}
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	widgetId = (window as any).turnstile.render(container.value!, {
+	const turnstile = (window as any).turnstile;
+	if (!turnstile) {
+		console.error('window.turnstile is not available');
+		return;
+	}
+	widgetId = turnstile.render(container.value!, {
 		sitekey: props.siteKey,
 		callback: (token: string) => emit('update:token', token),
 		'expired-callback': () => emit('update:token', null),
@@ -31,8 +42,15 @@ onMounted(async () => {
 
 onUnmounted(() => {
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	if (widgetId) (window as any).turnstile.remove(widgetId);
+	if (widgetId) (window as any).turnstile?.remove(widgetId);
 });
+
+function reset(): void {
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	if (widgetId) (window as any).turnstile?.reset(widgetId);
+}
+
+defineExpose({ reset });
 </script>
 
 <template>
