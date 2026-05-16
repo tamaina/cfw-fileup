@@ -214,7 +214,6 @@ code { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.9em; 
 }
 .btn-ghost-danger:hover { background: #fef2f2; }
 
-.btn-sm { padding: 4px 10px; font-size: 0.8125rem; }
 .btn-lg { padding: 10px 20px; font-size: 1rem; }
 .btn-icon {
   padding: 7px;

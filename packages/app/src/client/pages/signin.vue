@@ -113,7 +113,7 @@ async function submit(): Promise<void> {
       <div style="margin-top:16px; text-align:center; font-size:0.875rem; color:var(--color-text-muted)">
         <button
           type="button"
-          class="btn btn-ghost btn-sm"
+          class="btn btn-ghost"
           @click="mode = mode === 'signin' ? 'signup' : 'signin'"
         >
           {{ mode === 'signin' ? 'アカウントを作成する' : 'サインインページへ' }}

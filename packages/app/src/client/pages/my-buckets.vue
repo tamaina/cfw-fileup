@@ -186,10 +186,10 @@ onMounted(loadBuckets);
                 </td>
                 <td class="col-actions">
                   <div class="flex gap-2 items-center">
-                    <NirA :to="`/my/buckets/${b.name}/upload`" class="btn btn-secondary btn-sm">
+                    <NirA :to="`/my/buckets/${b.name}/upload`" class="btn btn-secondary">
                       アップロード
                     </NirA>
-                    <Button.Root class="btn btn-ghost-danger btn-sm" @click="requestDelete(b)">
+                    <Button.Root class="btn btn-ghost-danger" @click="requestDelete(b)">
                       <Button.Content>削除</Button.Content>
                     </Button.Root>
                   </div>

@@ -114,7 +114,7 @@ function onCheckboxChange(key: string, checked: boolean): void {
                 >
                 <Button.Root
                   type="button"
-                  class="btn btn-primary btn-sm"
+                  class="btn btn-primary"
                   :disabled="saving[setting.key]"
                   :loading="saving[setting.key]"
                   @click="saveSetting(setting.key)"

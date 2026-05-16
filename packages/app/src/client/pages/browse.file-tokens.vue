@@ -207,7 +207,7 @@ onMounted(loadTokens);
         <span :class="fileIsPublic ? 'badge badge-success' : 'badge badge-muted'">
           {{ fileIsPublic ? '公開' : '非公開' }}
         </span>
-        <Button.Root v-if="!visibilityEditing" class="btn btn-secondary btn-sm" @click="startEditVisibility">
+        <Button.Root v-if="!visibilityEditing" class="btn btn-secondary" @click="startEditVisibility">
           <Button.Content>変更</Button.Content>
         </Button.Root>
       </div>
@@ -227,10 +227,10 @@ onMounted(loadTokens);
             placeholder="パスフレーズ（任意）"
             style="width:200px"
           >
-          <Button.Root class="btn btn-primary btn-sm" :disabled="visibilitySaving" @click="saveVisibility">
+          <Button.Root class="btn btn-primary" :disabled="visibilitySaving" @click="saveVisibility">
             <Button.Content>保存</Button.Content>
           </Button.Root>
-          <Button.Root class="btn btn-secondary btn-sm" :disabled="visibilitySaving" @click="visibilityEditing = false">
+          <Button.Root class="btn btn-secondary" :disabled="visibilitySaving" @click="visibilityEditing = false">
             <Button.Content>キャンセル</Button.Content>
           </Button.Root>
         </div>
@@ -274,7 +274,7 @@ onMounted(loadTokens);
           </select>
         </template>
 
-        <Button.Root class="btn btn-primary btn-sm" :disabled="creating" @click="createToken">
+        <Button.Root class="btn btn-primary" :disabled="creating" @click="createToken">
           <Button.Content>発行</Button.Content>
         </Button.Root>
       </div>
@@ -286,7 +286,7 @@ onMounted(loadTokens);
           <div class="text-muted mb-1" style="font-size:0.8rem">ダウンロードURL（この画面を閉じると再表示できません）</div>
           <div class="flex items-center gap-2 flex-wrap">
             <code style="font-size:0.8rem; word-break:break-all; flex:1">{{ downloadUrl(createdToken.token) }}</code>
-            <Button.Root class="btn btn-secondary btn-sm" @click="copyUrl">
+            <Button.Root class="btn btn-secondary" @click="copyUrl">
               <Button.Content>{{ copied ? 'コピー済み' : 'コピー' }}</Button.Content>
             </Button.Root>
           </div>
@@ -326,7 +326,7 @@ onMounted(loadTokens);
               </span>
             </td>
             <td>
-              <Button.Root class="btn btn-danger btn-sm" @click="openDeleteDialog(t.id)">
+              <Button.Root class="btn btn-danger" @click="openDeleteDialog(t.id)">
                 <Button.Content>削除</Button.Content>
               </Button.Root>
             </td>

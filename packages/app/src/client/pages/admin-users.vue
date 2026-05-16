@@ -105,10 +105,10 @@ async function executeSuspend(): Promise<void> {
               </td>
               <td class="col-actions">
                 <div class="flex gap-2 items-center">
-                  <NirA :to="`/admin/users/${u.id}`" class="btn btn-secondary btn-sm">クォータ設定</NirA>
+                  <NirA :to="`/admin/users/${u.id}`" class="btn btn-secondary">クォータ設定</NirA>
                   <Button.Root
                     v-if="!u.isSuspended && u.id !== authStore.user?.id"
-                    class="btn btn-ghost-danger btn-sm"
+                    class="btn btn-ghost-danger"
                     @click="requestSuspend(u)"
                   >
                     <Button.Content>停止</Button.Content>

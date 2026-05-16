@@ -288,8 +288,8 @@ watch(() => [props.bucketName, props.filePath], () => { load(); loadBucketId(); 
   <div>
     <!-- アーカイブ操作 -->
     <div v-if="isArchive" class="flex gap-2 items-center mb-3 flex-wrap">
-      <a :href="downloadUrl" download class="btn btn-secondary btn-sm">ダウンロード</a>
-      <Button.Root v-if="authStore.user" class="btn btn-ghost-danger btn-sm" @click="archiveDeleteDialog = true">
+      <a :href="downloadUrl" download class="btn btn-secondary">ダウンロード</a>
+      <Button.Root v-if="authStore.user" class="btn btn-ghost-danger" @click="archiveDeleteDialog = true">
         <Button.Content>削除</Button.Content>
       </Button.Root>
       <span v-if="deleteError" class="alert alert-error" style="padding:4px 10px; font-size:0.8rem">{{ deleteError }}</span>
@@ -375,7 +375,7 @@ watch(() => [props.bucketName, props.filePath], () => { load(); loadBucketId(); 
                   </span>
                 </td>
                 <td v-if="!isArchive && authStore.user && bucketId" class="col-actions">
-                  <Button.Root class="btn btn-ghost-danger btn-sm" @click="requestDeleteEntry(entry)">
+                  <Button.Root class="btn btn-ghost-danger" @click="requestDeleteEntry(entry)">
                     <Button.Content>削除</Button.Content>
                   </Button.Root>
                 </td>

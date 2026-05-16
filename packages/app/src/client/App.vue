@@ -67,12 +67,12 @@ function toggleTheme(): void {
         <div class="app-nav-user">
           <template v-if="authStore.user">
             <span class="app-nav-username">{{ authStore.user.username }}</span>
-            <Button.Root class="btn btn-ghost btn-sm" @click="logout">
+            <Button.Root class="btn btn-ghost" @click="logout">
               <Button.Content>ログアウト</Button.Content>
             </Button.Root>
           </template>
           <template v-else>
-            <NirA to="/signin" class="btn btn-primary btn-sm">サインイン</NirA>
+            <NirA to="/signin" class="btn btn-primary">サインイン</NirA>
           </template>
         </div>
       </div>

@@ -139,7 +139,7 @@ onMounted(load);
                 </td>
                 <td class="col-actions">
                   <div class="flex gap-2 items-center">
-                    <Button.Root class="btn btn-ghost-danger btn-sm" @click="requestDelete(entry)">
+                    <Button.Root class="btn btn-ghost-danger" @click="requestDelete(entry)">
                       <Button.Content>削除</Button.Content>
                     </Button.Root>
                     <span v-if="deleteErrors[entry.id]" class="text-danger" style="font-size:0.8rem">{{ deleteErrors[entry.id] }}</span>
