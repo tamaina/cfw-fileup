@@ -29,9 +29,10 @@ export function parseBigInt36(str: string): bigint {
 	// log_36(Number.MAX_SAFE_INTEGER) => 10.251599391715352
 	// so we process 10 chars at once
 	const chunks = [];
-	while (str.length > 0) {
-		chunks.unshift(str.slice(-10));
-		str = str.slice(0, -10);
+	let remaining = str;
+	while (remaining.length > 0) {
+		chunks.unshift(remaining.slice(-10));
+		remaining = remaining.slice(0, -10);
 	}
 	let result = 0n;
 	for (const chunk of chunks) {
@@ -46,10 +47,9 @@ export function parseBigInt36(str: string): bigint {
 }
 
 function getTime(time: number): string {
-	time = time - TIME2000;
-	if (time < 0) time = 0;
+	const t = Math.max(0, time - TIME2000);
 
-	return time.toString(36).replaceAll('0', '-').padStart(TIME_LENGTH, '-').slice(-TIME_LENGTH);
+	return t.toString(36).replaceAll('0', '-').padStart(TIME_LENGTH, '-').slice(-TIME_LENGTH);
 }
 
 function getNoise(): string {

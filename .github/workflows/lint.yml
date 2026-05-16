@@ -20,3 +20,5 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - run: pnpm --filter app run eslint
+
+      - run: pnpm --filter bgzf run lint

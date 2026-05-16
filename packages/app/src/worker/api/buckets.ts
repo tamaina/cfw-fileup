@@ -106,4 +106,4 @@ app.post('/list', async (c) => {
 	} as ExtractResponseType<typeof bucketsApiSchema, '/api/buckets/list', 'post', 200>);
 });
 
-export default app;
+export const bucketRoutes = app;

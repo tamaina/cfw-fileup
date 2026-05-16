@@ -23,6 +23,7 @@ async function decompressDeflateRaw(data: Uint8Array<ArrayBuffer>): Promise<Uint
 	const readPromise = (async () => {
 		const reader = ds.readable.getReader();
 		try {
+			// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
 			while (true) {
 				const { done, value } = await reader.read();
 				if (done) break;
@@ -102,6 +103,7 @@ async function compressDeflate(data: Uint8Array<ArrayBuffer>): Promise<Uint8Arra
 	const readPromise = (async () => {
 		const reader = cs.readable.getReader();
 		try {
+			// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
 			while (true) {
 				const { done, value } = await reader.read();
 				if (done) break;
@@ -225,7 +227,7 @@ export interface TarIndex {
 	path: string;
 	mimeType: string;
 	offset: number; // byte offset of file data start within the tar
-	size: number;   // file data byte count
+	size: number; // file data byte count
 }
 
 export interface ArchiveProgress {
@@ -235,7 +237,6 @@ export interface ArchiveProgress {
 	processedBytes: number;
 	totalBytes: number;
 }
-
 
 // ---- TarArchiver ----
 
@@ -287,7 +288,7 @@ class TarArchiverBase<TIdx> {
 		for await (const [name, handle] of dir as unknown as AsyncIterable<[string, FileSystemHandle]>) {
 			if (handle.kind === 'file') {
 				yield { path: prefix + name, file: await (handle as FileSystemFileHandle).getFile() };
-			} else if (handle.kind === 'directory') {
+			} else {
 				yield* TarArchiverBase.walkDirectory(handle as FileSystemDirectoryHandle, prefix + name + '/');
 			}
 		}
@@ -305,7 +306,7 @@ class TarArchiverBase<TIdx> {
 				return {
 					path,
 					file,
-					mimeType: detected?.mime ?? file.type ?? 'application/octet-stream',
+					mimeType: detected?.mime ?? file.type,
 					mtime: file.lastModified || now,
 				};
 			}),
@@ -339,6 +340,7 @@ export class TarArchiver extends TarArchiverBase<TarIndex> {
 				const dataOffset = offset;
 				const reader = entry.file.stream().getReader();
 				try {
+					// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
 					while (true) {
 						const { done, value } = await reader.read();
 						if (done) break;
@@ -413,6 +415,7 @@ export class BgzfTarArchiver extends TarArchiverBase<TarGzIndex> {
 				const dataStart = totalWritten;
 				const reader = entry.file.stream().getReader();
 				try {
+					// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
 					while (true) {
 						const { done, value } = await reader.read();
 						if (done) break;

@@ -2,6 +2,7 @@
  * SPDX-FileCopyrightText: tamaina, syuilo and misskey-project
  * SPDX-License-Identifier: AGPL-3.0-only
  */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // https://github.com/misskey-dev/misskey/blob/e2335567005ccd6e45db1556ae1095bb00d87e52/packages/backend/src/misc/json-schema.ts
 
 export const refs = {

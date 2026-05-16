@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * OpenAPI 3.0.0 specification generator
  * Collects schemas and routes to generate comprehensive API documentation
@@ -135,7 +136,7 @@ const schemas: Record<string, Schema> = {
 
 function schemaToOpenAPI(schema: any): OpenAPISchema {
 	if (!schema || typeof schema !== 'object') {
-		return schema || {};
+		return schema ?? {};
 	}
 	if (schema.$ref) {
 		return schema;

@@ -71,4 +71,4 @@ app.post('/delete', async (c) => {
 	return c.json({ ok: true });
 });
 
-export default app;
+export const directoryRoutes = app;

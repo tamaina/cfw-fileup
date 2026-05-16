@@ -58,7 +58,7 @@ export const authMiddleware = createMiddleware<{ Bindings: Env }>(async (c, next
 
 export const adminMiddleware = createMiddleware<{ Bindings: Env }>(async (c, next) => {
 	const user = c.get('user');
-	if (!user?.isAdmin) {
+	if (!user.isAdmin) {
 		throw new HTTPException(403, { message: 'Forbidden' });
 	}
 	await next();

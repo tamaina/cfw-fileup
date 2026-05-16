@@ -8,12 +8,15 @@
   },
   "scripts": {
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "lint": "eslint src/"
   },
   "dependencies": {
     "file-type": "^22.0.1"
   },
   "devDependencies": {
+    "@misskey-dev/eslint-plugin": "^2.2.0",
+    "@typescript-eslint/parser": "^8.59.3",
     "vitest": "^4.1.6"
   }
 }

@@ -16,13 +16,6 @@ Please see also [CHEATSHEET.md](CHEATSHEET.md) for common commands and troublesh
 
 ## pnpm/npm packages
 
-### Workspaces
-pnpm workspaces を使っている。cd を使わずとも、 `--filter <package name>` で特定のパッケージに絞ってコマンドを実行できる。
-
-```
-pnpm --filter app dev
-```
-
 ### Ask DeepWiki
 DeepWikiに問い合わせると、npmパッケージの内容理解に役立つ。
 
@@ -30,7 +23,7 @@ DeepWikiに問い合わせると、npmパッケージの内容理解に役立つ
 何か作業で失敗したときは、Gitの差分を見たり復元したりすることもできる。
 
 ## Commands
-See CHEATSHEET.md
+Search .agents/skills
 
 ## Architecture
 
@@ -79,10 +72,7 @@ API routes are defined in `src/worker/index.ts` using Hono's routing. Each route
 
 **Important:** `createdAt` timestamps in `users` and `tokens` tables are derived from EAID-X IDs, not from `Date.now()`. This ensures consistency between the ID generation timestamp and the stored timestamp:
 
-- User creation: `users.createdAt` ← `parseEaidxFull(userId).date`
-- Token creation: `tokens.createdAt` ← `parseEaidxFull(tokenId).date`
-
-Use `parseEaidxFull()` from `src/shared/eaid-x.ts` to extract the timestamp from any EAID-X ID.
+See `.claude/skills/eaid-x/SKILL.md` for details on EAID-X and how to parse it for timestamps.
 
 #### Tests
 

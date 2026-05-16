@@ -4,7 +4,7 @@ import { eq, and } from 'drizzle-orm';
 import { buckets, files, fileAccessTokens } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { generateToken } from '../utils/crypto';
-import { genEaidx, parseEaidxFull } from '../../shared/eaid-x';
+import { genEaidx, parseEaidx } from '../../shared/eaid-x';
 import { authMiddleware } from '../middleware/auth';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -19,7 +19,7 @@ app.post('/create', async (c) => {
 	if (!body.bucketName || !body.filePath) {
 		throw new HTTPException(400, { message: 'bucketName and filePath are required' });
 	}
-	if (body.expiresIn !== null && body.expiresIn !== undefined) {
+	if (body.expiresIn !== null) {
 		if (typeof body.expiresIn !== 'number' || body.expiresIn <= 0) {
 			throw new HTTPException(400, { message: 'expiresIn must be a positive number or null' });
 		}
@@ -76,7 +76,7 @@ app.post('/list', async (c) => {
 		tokens: rows.map((r) => ({
 			id: r.id,
 			expiresAt: r.expiresAt,
-			createdAt: parseEaidxFull(r.id).date,
+			createdAt: parseEaidx(r.id).date.getTime(),
 		})),
 	});
 });

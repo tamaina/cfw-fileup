@@ -39,7 +39,7 @@ export async function verifyPassword(password: string, stored: string): Promise<
 	if (!saltHex || !expectedHashHex) return false;
 
 	const salt = Uint8Array.from(
-		(saltHex.match(/.{2}/g) || []).map((byte) => parseInt(byte, 16)),
+		(saltHex.match(/.{2}/g) ?? []).map((byte) => parseInt(byte, 16)),
 	);
 	const encoder = new TextEncoder();
 	const keyMaterial = await crypto.subtle.importKey(

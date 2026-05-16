@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "vuetify0": {
+      "source": "vuetifyjs/0",
+      "sourceType": "github",
+      "skillPath": "skills/vuetify0/SKILL.md",
+      "computedHash": "751d81d49b3c44e69490d1dddd74b668d30ea1f0a7bb8a37c9e5cda0be56b75b"
+    }
+  }
+}

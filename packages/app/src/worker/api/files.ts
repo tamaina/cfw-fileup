@@ -92,6 +92,7 @@ app.post('/create/targz-index', async (c) => {
 	type TargzIndexReq = ExtractRequestType<typeof filesApiSchema, '/api/files/create/targz-index', 'post'>;
 	const body = (await c.req.json()) as TargzIndexReq;
 
+	// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
 	if (!body.fileId || !body.files) {
 		throw new HTTPException(400, { message: 'fileId and files are required' });
 	}
@@ -145,6 +146,7 @@ app.post('/create/tar-index', async (c) => {
 	type TarIndexReq = ExtractRequestType<typeof filesApiSchema, '/api/files/create/tar-index', 'post'>;
 	const body = (await c.req.json()) as TarIndexReq;
 
+	// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
 	if (!body.fileId || !body.files) {
 		throw new HTTPException(400, { message: 'fileId and files are required' });
 	}
@@ -241,19 +243,19 @@ app.post('/create/close', async (c) => {
 	}
 
 	if (quota.maxBucketSizeBytes !== null) {
-		if (bucket.usedBytes + (r2Object.size ?? 0) > quota.maxBucketSizeBytes) {
+		if (bucket.usedBytes + r2Object.size > quota.maxBucketSizeBytes) {
 			throw new HTTPException(429, { message: 'Bucket size limit exceeded' });
 		}
 	}
 
-	const fileSize = r2Object.size ?? 0;
+	const fileSize = r2Object.size;
 
 	await db
 		.update(files)
 		.set({
 			isClosed: true,
-			isPublic: body.isPublic ?? true,
-			passphrase: body.passphrase ?? null,
+			isPublic: body.isPublic,
+			passphrase: body.passphrase,
 			size: fileSize,
 			mimeType: r2Object.httpMetadata?.contentType,
 		})
@@ -401,4 +403,4 @@ app.post('/delete', async (c) => {
 	return c.json({ ok: true } as ExtractResponseType<typeof filesApiSchema, '/api/files/delete', 'post', 200>);
 });
 
-export default app;
+export const fileRoutes = app;

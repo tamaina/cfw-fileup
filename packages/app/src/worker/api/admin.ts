@@ -205,6 +205,7 @@ app.post('/toggle-registration', async (c) => {
 	type ToggleRegistrationReq = ExtractRequestType<typeof adminApiSchema, '/api/admin/toggle-registration', 'post'>;
 	const body = (await c.req.json()) as ToggleRegistrationReq;
 
+	// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
 	if (body.enabled === undefined || body.enabled === null) {
 		throw new HTTPException(400, { message: 'enabled is required' });
 	}
@@ -230,6 +231,7 @@ app.post('/update-setting', async (c) => {
 	type UpdateSettingReq = ExtractRequestType<typeof adminApiSchema, '/api/admin/update-setting', 'post'>;
 	const body = (await c.req.json()) as UpdateSettingReq;
 
+	// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
 	if (!body.key || body.value === undefined) {
 		throw new HTTPException(400, { message: 'key and value are required' });
 	}
@@ -238,7 +240,9 @@ app.post('/update-setting', async (c) => {
 		throw new HTTPException(400, { message: `Unknown setting key: ${body.key}` });
 	}
 
+	// eslint-disable-next-line @typescript-eslint/no-non-null-assertion
 	const settingDef = KNOWN_SETTINGS.find((s) => s.key === body.key)!;
+	// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
 	if (settingDef.type === 'boolean' && body.value !== 'true' && body.value !== 'false') {
 		throw new HTTPException(400, { message: `Value for "${body.key}" must be "true" or "false"` });
 	}
@@ -264,4 +268,4 @@ app.get('/get-settings', async (c) => {
 	return c.json(settings as ExtractResponseType<typeof adminApiSchema, '/api/admin/get-settings', 'get', 200>);
 });
 
-export default app;
+export const adminRoutes = app;

@@ -14,6 +14,7 @@ type PeekResult = { rebuilt: ReadableStream<Uint8Array<ArrayBuffer>> } & (
 async function peekStream(body: ReadableStream<Uint8Array<ArrayBuffer>>): Promise<PeekResult | null> {
 	const reader = body.getReader();
 	const { done, value: firstChunk } = await reader.read();
+	// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
 	if (done || !firstChunk) return null;
 
 	const rebuilt = new ReadableStream<Uint8Array<ArrayBuffer>>({
@@ -21,10 +22,10 @@ async function peekStream(body: ReadableStream<Uint8Array<ArrayBuffer>>): Promis
 		async pull(controller) {
 			const { done, value } = await reader.read();
 			if (done) {
-        controller.close();
-      } else {
-        controller.enqueue(value);
-      }
+				controller.close();
+			} else {
+				controller.enqueue(value);
+			}
 		},
 		cancel() { reader.releaseLock(); },
 	});
@@ -59,7 +60,7 @@ async function handleFileInArchive(request: Request): Promise<Response> {
 
 	const newHeaders = new Headers(response.headers);
 	newHeaders.delete('Content-Length');
-  newHeaders.delete('Content-Encoding');
+	newHeaders.delete('Content-Encoding');
 	return new Response(decompressed, { status: response.status, headers: newHeaders });
 }
 
@@ -77,12 +78,12 @@ async function handleFullArchive(request: Request): Promise<Response> {
 	if (!response.body) return response;
 
 	const peek = await peekStream(response.body);
-  console.log(request.url, peek);
+	console.log(request.url, peek);
 	if (!peek) return response;
 	const { rebuilt, bgzf, gzip } = peek;
 
 	if (decompress && gzip) {
-    console.log('sw: decompress', originUrl)
+		console.log('sw: decompress', originUrl);
 		const decompressed = bgzf
 			? rebuilt.pipeThrough(createBgzfDecompressor())
 			: rebuilt.pipeThrough(new DecompressionStream('gzip'));
@@ -95,10 +96,10 @@ async function handleFullArchive(request: Request): Promise<Response> {
 		newHeaders.delete('Content-Length');
 		newHeaders.delete('Content-Encoding');
 		if (mimeType) {
-      newHeaders.set('Content-Type', mimeType);
-    } else {
-      newHeaders.delete('Content-Type');
-    }
+			newHeaders.set('Content-Type', mimeType);
+		} else {
+			newHeaders.delete('Content-Type');
+		}
 
 		const rawFilename = url.pathname.split('/').pop() ?? '';
 		const originalFilename = rawFilename.endsWith('.gz') ? rawFilename.slice(0, -3) : rawFilename;
@@ -128,7 +129,7 @@ sw.addEventListener('fetch', (event) => {
 	if (params.has('file')) {
 		event.respondWith(handleFileInArchive(event.request));
 	} else if (!params.has('list')) {
-    event.respondWith(handleFullArchive(event.request));
+		event.respondWith(handleFullArchive(event.request));
 	}
 });
 

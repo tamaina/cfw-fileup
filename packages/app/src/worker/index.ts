@@ -1,16 +1,16 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { genEaidx } from '../shared/eaid-x';
-import authRoutes from './api/auth';
-import bucketRoutes from './api/buckets';
-import fileRoutes from './api/files';
-import accountRoutes from './api/account';
-import adminRoutes from './api/admin';
-import directoryRoutes from './api/directories';
-import metaRoutes from './api/meta';
+import { authRoutes } from './api/auth';
+import { bucketRoutes } from './api/buckets';
+import { fileRoutes } from './api/files';
+import { accountRoutes } from './api/account';
+import { adminRoutes } from './api/admin';
+import { directoryRoutes } from './api/directories';
+import { metaRoutes } from './api/meta';
 import { fileTokenRoutes } from './api/file-tokens';
-import downloadRoutes from './routes/download';
-import uploadRoutes from './routes/upload';
+import { downloadRoutes } from './routes/download';
+import { uploadRoutes } from './routes/upload';
 import { generateOpenAPISpec } from './openapi-generator';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -23,7 +23,7 @@ app.onError((err, c) => {
 			{
 				error: err.message || 'Internal Server Error',
 			},
-			err.status || 500,
+			err.status,
 		);
 	}
 
@@ -111,4 +111,5 @@ app.get('/api-doc', (c) => {
 
 app.get('*', (c) => c.env.ASSETS.fetch(c.req.raw));
 
+// eslint-disable-next-line import/no-default-export
 export default app;

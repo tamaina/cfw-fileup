@@ -37,6 +37,7 @@ app.post('/signup', async (c) => {
 		.get();
 
 	if (!requireSignupPassphraseSetting) {
+		// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
 		const defaultValue = c.env.SIGNUP_PASSPHRASE ? 'true' : 'false';
 		await db.insert(appSettings).values({
 			key: 'require_signup_passphrase',
@@ -46,10 +47,11 @@ app.post('/signup', async (c) => {
 	}
 
 	// Check passphrase requirement (first user is always exempt)
-	const requireSignupPassphrase = requireSignupPassphraseSetting?.value === 'true';
+	const requireSignupPassphrase = requireSignupPassphraseSetting.value === 'true';
 	const signupPassphrase = c.env.SIGNUP_PASSPHRASE;
 
 	if (requireSignupPassphrase && !isFirstUser) {
+		// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
 		if (!signupPassphrase || !body.passphrase || body.passphrase !== signupPassphrase) {
 			throw new HTTPException(403, { message: 'Invalid passphrase' });
 		}
@@ -138,4 +140,4 @@ app.post('/signin', async (c) => {
 	return c.json({ token: tokenValue } as ExtractResponseType<typeof authApiSchema, '/api/signin', 'post', 200>);
 });
 
-export default app;
+export const authRoutes = app;

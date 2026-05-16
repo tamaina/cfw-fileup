@@ -7,6 +7,7 @@ import { authMiddleware } from '../middleware/auth';
 import { hashPassword, verifyPassword } from '../utils/crypto';
 import type { Schema, SchemaType } from './schema-type';
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const updateAccountSchema = {
 	type: 'object',
 	properties: {
@@ -80,4 +81,4 @@ app.post('/update', async (c) => {
 	return c.json({ ok: true });
 });
 
-export default app;
+export const accountRoutes = app;

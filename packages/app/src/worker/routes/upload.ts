@@ -109,6 +109,7 @@ app.patch('/upload/:fileId/resume', async (c) => {
 
 	let uploadedPart: R2UploadedPart;
 	try {
+		// eslint-disable-next-line @typescript-eslint/no-non-null-assertion
 		uploadedPart = await multipartUpload.uploadPart(nextPartNumber, c.req.raw.body!);
 	} catch (err) {
 		throw new HTTPException(400, { message: String(err) });
@@ -132,4 +133,4 @@ app.patch('/upload/:fileId/resume', async (c) => {
 	});
 });
 
-export default app;
+export const uploadRoutes = app;

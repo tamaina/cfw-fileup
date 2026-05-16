@@ -38,4 +38,4 @@ app.get('/meta', async (c) => {
 	}
 });
 
-export default app;
+export const metaRoutes = app;
