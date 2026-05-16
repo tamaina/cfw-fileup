@@ -261,7 +261,7 @@ watch(() => entryPath.value, () => {
       <!-- ログインなし or ディレクトリ: タブなし -->
       <template v-else>
         <BrowseDirectory v-if="isDirectory || isTargz || isTar" :bucketName="bucketName" :filePath="filePath" :isTargz="isTargz" :isTar="isTar" :entryPath="entryPath ?? ''" />
-        <BrowseFile v-else-if="!isDirectory" :bucketName="bucketName" :filePath="filePath" />
+        <BrowseFile v-else-if="!isDirectory" :bucketName="bucketName" :filePath="filePath" /    >
       </template>
     </template>
   </div>
