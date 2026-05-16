@@ -29,6 +29,13 @@
       "when": 1778760279570,
       "tag": "0003_hard_oracle",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1747440000000,
+      "tag": "0004_add_passkeys",
+      "breakpoints": true
     }
   ]
 }

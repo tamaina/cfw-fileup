@@ -26,6 +26,8 @@
     "test:e2e:fresh": "pnpm db:reset && pnpm db:migrate:local && pnpm test:e2e"
   },
   "dependencies": {
+    "@simplewebauthn/browser": "^13.3.0",
+    "@simplewebauthn/server": "^13.3.0",
     "@vuetify/v0": "1.0.0-alpha.4",
     "bgzf": "workspace:*",
     "file-type": "^22.0.1"
