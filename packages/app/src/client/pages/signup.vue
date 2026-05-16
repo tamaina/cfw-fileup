@@ -1,19 +1,25 @@
 <script setup lang="ts">
-import { ref, reactive } from 'vue';
+import { ref, reactive, computed } from 'vue';
 import { Button } from '@vuetify/v0';
 import { setToken, fetchCurrentUser } from '../store/auth';
 import { navigateTo } from '../navigate';
+import TurnstileWidget from '../components/turnstile-widget.vue';
 
 const form = reactive({ username: '', password: '', passphrase: '' });
 const error = ref('');
 const loading = ref(false);
 const passphraseRequired = ref(false);
+const turnstileEnabled = ref(false);
+const turnstileSiteKey = ref('');
+const turnstileToken = ref<string | null>(null);
 
 async function fetchMeta(): Promise<void> {
 	try {
 		const res = await fetch('/api/meta');
-		const data = (await res.json()) as { passphraseRequired?: boolean };
+		const data = (await res.json()) as { passphraseRequired?: boolean; turnstileEnabled?: boolean; turnstileSiteKey?: string };
 		passphraseRequired.value = data.passphraseRequired ?? false;
+		turnstileEnabled.value = data.turnstileEnabled ?? false;
+		turnstileSiteKey.value = data.turnstileSiteKey ?? '';
 	} catch (e) {
 		console.error('Failed to fetch meta:', e);
 	}
@@ -21,7 +27,10 @@ async function fetchMeta(): Promise<void> {
 
 fetchMeta();
 
+const canSubmit = computed(() => !turnstileEnabled.value || turnstileToken.value !== null);
+
 async function submit(): Promise<void> {
+	if (!canSubmit.value) return;
 	error.value = '';
 	loading.value = true;
 	try {
@@ -31,6 +40,9 @@ async function submit(): Promise<void> {
 		};
 		if (form.passphrase) {
 			body.passphrase = form.passphrase;
+		}
+		if (turnstileEnabled.value && turnstileToken.value) {
+			body.turnstileToken = turnstileToken.value;
 		}
 		const res = await fetch('/api/signup', {
 			method: 'POST',
@@ -98,9 +110,15 @@ async function submit(): Promise<void> {
           >
         </div>
 
+        <TurnstileWidget
+          v-if="turnstileEnabled"
+          :site-key="turnstileSiteKey"
+          @update:token="turnstileToken = $event"
+        />
+
         <div v-if="error" class="alert alert-error">{{ error }}</div>
 
-        <Button.Root type="submit" class="btn btn-primary w-full" style="justify-content: center" :loading="loading">
+        <Button.Root type="submit" class="btn btn-primary w-full" style="justify-content: center" :loading="loading" :disabled="!canSubmit">
           <Button.Loading>処理中...</Button.Loading>
           <Button.Content>アカウント作成</Button.Content>
         </Button.Root>
