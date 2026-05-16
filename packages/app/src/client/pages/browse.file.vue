@@ -20,6 +20,7 @@ const isGz = computed(() => {
 	const lower = props.filePath.toLowerCase();
 	return lower.endsWith('.gz') && !lower.endsWith('.tar.gz');
 });
+const isTarGz = computed(() => props.filePath.toLowerCase().endsWith('.tar.gz'));
 const decompressUrl = computed(() => {
 	const base = `/d/${props.bucketName}/${props.filePath}?decompress`;
 	return props.token ? `${base}&token=${props.token}` : base;
@@ -65,6 +66,7 @@ async function executeDelete(): Promise<void> {
     <div class="file-actions">
       <a :href="downloadUrl" download class="btn btn-primary">ダウンロード</a>
       <a v-if="isGz" :href="decompressUrl" download class="btn btn-secondary">展開してダウンロード</a>
+      <a v-if="isTarGz" :href="decompressUrl" download class="btn btn-secondary">展開してダウンロード (.tar)</a>
       <a v-if="isText" :href="downloadUrl" target="_blank" class="btn btn-secondary">ブラウザで開く</a>
       <Button.Root v-if="authStore.user" class="btn btn-ghost-danger" @click="deleteDialog = true">
         <Button.Content>削除</Button.Content>
