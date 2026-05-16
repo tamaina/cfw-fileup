@@ -235,7 +235,7 @@ app.get('/d/:bucketName/*', async (c) => {
 		}
 
 		try {
-			const isSingleBlock = indexEntry.aFirstEnd === indexEntry.aFinalStart;
+			const isSingleBlock = indexEntry.aStart === indexEntry.aFinalStart;
 
 			// First block: [aStart, aFirstEnd)
 			const firstBlockData = await c.env.R2.get(file.r2Key, {

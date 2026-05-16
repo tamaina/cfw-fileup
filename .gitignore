@@ -1,6 +1,9 @@
 # prod
 dist/
 
+# temp
+temp/
+
 # dev
 .yarn/
 !.yarn/releases
