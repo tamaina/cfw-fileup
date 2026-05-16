@@ -29,6 +29,7 @@ interface DisplayEntry {
 }
 
 const downloadUrl = computed(() => `/d/${props.bucketName}/${props.filePath}`);
+const decompressUrl = computed(() => `/d/${props.bucketName}/${props.filePath}?decompress`);
 
 const entries = ref<DisplayEntry[]>([]);
 const error = ref('');
@@ -306,6 +307,7 @@ watch(() => props.entryPath, (newEntryPath) => {
     <!-- アーカイブ操作 -->
     <div v-if="isArchive" class="flex gap-2 items-center mb-3 flex-wrap">
       <a :href="downloadUrl" download class="btn btn-secondary">ダウンロード</a>
+      <a v-if="isTargz" :href="decompressUrl" download class="btn btn-secondary">展開してダウンロード (.tar)</a>
       <Button.Root v-if="authStore.user" class="btn btn-ghost-danger" @click="archiveDeleteDialog = true">
         <Button.Content>削除</Button.Content>
       </Button.Root>
