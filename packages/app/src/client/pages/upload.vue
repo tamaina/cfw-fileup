@@ -84,7 +84,6 @@ async function pickDirectory(): Promise<void> {
   }
 	try {
 		const handle = await (window as unknown as any).showDirectoryPicker();
-    console.log(handle);
 		selectedDir.value = handle;
 		selectedDirName.value = handle.name;
 		selectedFiles.value = [];

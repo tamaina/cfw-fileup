@@ -1,3 +1,75 @@
+// ---- BGZF detection ----
+
+/** Check BGZF magic: FLG=FEXTRA (0x04), BC subfield (0x42, 0x43) */
+export function isBgzf(bytes: Uint8Array): boolean {
+	return bytes.length >= 18
+		&& bytes[0] === 0x1f && bytes[1] === 0x8b
+		&& bytes[3] === 0x04
+		&& bytes[12] === 0x42 && bytes[13] === 0x43;
+}
+
+// ---- BGZF decompression ----
+
+async function decompressDeflateRaw(data: Uint8Array<ArrayBuffer>): Promise<Uint8Array> {
+	const ds = new DecompressionStream('deflate-raw');
+	const chunks: Uint8Array[] = [];
+
+	const writePromise = (async () => {
+		const writer = ds.writable.getWriter();
+		await writer.write(data);
+		await writer.close();
+	})();
+
+	const readPromise = (async () => {
+		const reader = ds.readable.getReader();
+		try {
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				chunks.push(value);
+			}
+		} finally {
+			reader.releaseLock();
+		}
+	})();
+
+	await Promise.all([writePromise, readPromise]);
+
+	const total = chunks.reduce((n, c) => n + c.length, 0);
+	const out = new Uint8Array(total);
+	let offset = 0;
+	for (const c of chunks) { out.set(c, offset); offset += c.length; }
+	return out;
+}
+
+export function createBgzfDecompressor(): TransformStream<Uint8Array, Uint8Array> {
+	let buf = new Uint8Array(0);
+	return new TransformStream({
+		async transform(chunk, controller) {
+			const merged = new Uint8Array(buf.length + chunk.length);
+			merged.set(buf);
+			merged.set(chunk, buf.length);
+			buf = merged;
+
+			while (buf.length >= 18) {
+				const blockSize = (buf[16] | (buf[17] << 8)) + 1;
+				if (buf.length < blockSize) break;
+
+				const deflateData = buf.slice(18, blockSize - 8);
+				const isize = buf[blockSize - 4]
+					| (buf[blockSize - 3] << 8)
+					| (buf[blockSize - 2] << 16)
+					| (buf[blockSize - 1] << 24);
+				buf = buf.slice(blockSize);
+
+				if (isize === 0) return; // EOF marker block
+
+				controller.enqueue(await decompressDeflateRaw(deflateData as Uint8Array<ArrayBuffer>));
+			}
+		},
+	});
+}
+
 // ---- CRC-32 ----
 
 function calculateCrc32(data: Uint8Array): number {

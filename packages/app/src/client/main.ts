@@ -1,6 +1,7 @@
 import { createApp } from 'vue';
 import './styles/main.css';
 import App from './App.vue';
+
 import { createStoragePlugin, createThemePlugin, V0StyleSheetThemeAdapter } from '@vuetify/v0';
 
 // Migrate old key and detect initial theme
