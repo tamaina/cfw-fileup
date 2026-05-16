@@ -28,9 +28,9 @@ export const filesApiSchema = [
 								uploadExpiry: { type: 'number', description: 'Upload expiration timestamp' },
 							},
 							required: ['fileId', 'uploadExpiry'],
-						} as const satisfies Schema
-					}
-				}
+						} as const satisfies Schema,
+					},
+				},
 			},
 			400: { description: 'Bad request' },
 			403: { description: 'Forbidden' },
@@ -73,8 +73,8 @@ export const filesApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': { schema: { ref: 'OkResponse' } }
-				}
+					'application/json': { schema: { ref: 'OkResponse' } },
+				},
 			},
 			400: { description: 'Bad request' },
 			403: { description: 'Forbidden' },
@@ -113,8 +113,8 @@ export const filesApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': { schema: { ref: 'OkResponse' } }
-				}
+					'application/json': { schema: { ref: 'OkResponse' } },
+				},
 			},
 			400: { description: 'Bad request' },
 			403: { description: 'Forbidden' },
@@ -142,8 +142,8 @@ export const filesApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': { schema: { ref: 'OkResponse' } }
-				}
+					'application/json': { schema: { ref: 'OkResponse' } },
+				},
 			},
 			400: { description: 'Bad request' },
 			403: { description: 'Forbidden' },
@@ -206,8 +206,8 @@ export const filesApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': { schema: { ref: 'OkResponse' } }
-				}
+					'application/json': { schema: { ref: 'OkResponse' } },
+				},
 			},
 			400: { description: 'Bad request' },
 			403: { description: 'Forbidden' },
@@ -250,8 +250,8 @@ export const filesApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': { schema: { type: 'object', properties: { files: { type: 'array' } }, required: ['files'] } as const satisfies Schema }
-				}
+					'application/json': { schema: { type: 'object', properties: { files: { type: 'array' } }, required: ['files'] } as const satisfies Schema },
+				},
 			},
 			401: { description: 'Unauthorized' },
 		},

@@ -2,8 +2,8 @@ import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { appSettings } from '../scheme/index';
 import { getDb } from '../utils/db';
-import type { ExtractResponseType } from './schema-type';
 import { metaApiSchema } from './meta.definition';
+import type { ExtractResponseType } from './schema-type';
 
 const app = new Hono<{ Bindings: Env }>();
 

@@ -6,8 +6,8 @@ import { getDb } from '../utils/db';
 import { getQuotaForUser } from '../utils/rate-limit';
 import { authMiddleware } from '../middleware/auth';
 import { genEaidx } from '../../shared/eaid-x';
-import type { ExtractRequestType, ExtractResponseType } from './schema-type';
 import { bucketsApiSchema } from './buckets.definition';
+import type { ExtractRequestType, ExtractResponseType } from './schema-type';
 
 const app = new Hono<{ Bindings: Env }>();
 

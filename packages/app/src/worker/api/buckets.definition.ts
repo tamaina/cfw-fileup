@@ -26,9 +26,9 @@ export const bucketsApiSchema = [
 								bucketId: { type: 'string', description: 'Newly created bucket ID' },
 							},
 							required: ['bucketId'],
-						} as const satisfies Schema
-					}
-				}
+						} as const satisfies Schema,
+					},
+				},
 			},
 			400: { description: 'Bad request' },
 			429: { description: 'Quota exceeded' },
@@ -62,9 +62,9 @@ export const bucketsApiSchema = [
 								maxBucketSizeBytes: { type: 'integer', nullable: true, description: 'Max bucket size in bytes from quota' },
 							},
 							required: ['buckets', 'maxBucketSizeBytes'],
-						} as const satisfies Schema
-					}
-				}
+						} as const satisfies Schema,
+					},
+				},
 			},
 			401: { description: 'Unauthorized' },
 		},

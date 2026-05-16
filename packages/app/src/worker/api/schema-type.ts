@@ -5,49 +5,49 @@
 // https://github.com/misskey-dev/misskey/blob/e2335567005ccd6e45db1556ae1095bb00d87e52/packages/backend/src/misc/json-schema.ts
 
 export const refs = {
-  Bucket: {
-    type: 'object',
-    properties: {
-      id: { type: 'string' as const, description: 'Bucket ID' },
-      name: { type: 'string' as const, description: 'Bucket name' },
-      userId: { type: 'string' as const, description: 'Owner user ID' },
-    },
-    required: ['id', 'name', 'userId'],
-  } as const,
-  AppSetting: {
-    type: 'object',
-    properties: {
-      key: { type: 'string' as const, description: 'Setting key' },
-      value: { type: 'string' as const, description: 'Setting value' },
-    },
-    required: ['key', 'value'],
-  } as const,
-  OkResponse: {
-    type: 'object',
-    properties: { ok: { type: 'boolean' as const } },
-    required: ['ok'],
-  } as const,
-  Quota: {
-    type: 'object',
-    properties: {
-      maxBuckets: { type: 'integer' as const, nullable: true, description: 'Max buckets per user' },
-      maxBucketSizeBytes: { type: 'integer' as const, nullable: true, description: 'Max bucket size in bytes' },
-      maxFilesPerBucket: { type: 'integer' as const, nullable: true, description: 'Max files per bucket' },
-      maxDailyUploads: { type: 'integer' as const, nullable: true, description: 'Max daily uploads' },
-    },
-    required: ['maxBuckets', 'maxBucketSizeBytes', 'maxFilesPerBucket', 'maxDailyUploads'],
-  } as const,
-  AppSettings: {
-    type: 'array',
-    items: {
-      type: 'object',
-      properties: {
-        key: { type: 'string' as const, description: 'Setting key' },
-        value: { type: 'string' as const, description: 'Setting value' },
-      },
-      required: ['key', 'value'],
-    } as const,
-  } as const,
+	Bucket: {
+		type: 'object',
+		properties: {
+			id: { type: 'string' as const, description: 'Bucket ID' },
+			name: { type: 'string' as const, description: 'Bucket name' },
+			userId: { type: 'string' as const, description: 'Owner user ID' },
+		},
+		required: ['id', 'name', 'userId'],
+	} as const,
+	AppSetting: {
+		type: 'object',
+		properties: {
+			key: { type: 'string' as const, description: 'Setting key' },
+			value: { type: 'string' as const, description: 'Setting value' },
+		},
+		required: ['key', 'value'],
+	} as const,
+	OkResponse: {
+		type: 'object',
+		properties: { ok: { type: 'boolean' as const } },
+		required: ['ok'],
+	} as const,
+	Quota: {
+		type: 'object',
+		properties: {
+			maxBuckets: { type: 'integer' as const, nullable: true, description: 'Max buckets per user' },
+			maxBucketSizeBytes: { type: 'integer' as const, nullable: true, description: 'Max bucket size in bytes' },
+			maxFilesPerBucket: { type: 'integer' as const, nullable: true, description: 'Max files per bucket' },
+			maxDailyUploads: { type: 'integer' as const, nullable: true, description: 'Max daily uploads' },
+		},
+		required: ['maxBuckets', 'maxBucketSizeBytes', 'maxFilesPerBucket', 'maxDailyUploads'],
+	} as const,
+	AppSettings: {
+		type: 'array',
+		items: {
+			type: 'object',
+			properties: {
+				key: { type: 'string' as const, description: 'Setting key' },
+				value: { type: 'string' as const, description: 'Setting value' },
+			},
+			required: ['key', 'value'],
+		} as const,
+	} as const,
 } as const;
 
 export type Packed<x extends keyof typeof refs> = SchemaType<typeof refs[x]>;
@@ -215,7 +215,7 @@ type FindEndpoint<T extends readonly any[], Path extends string, Method extends 
 export type ExtractRequestSchema<
 	T extends readonly any[],
 	Path extends string,
-	Method extends string
+	Method extends string,
 > = FindEndpoint<T, Path, Method> extends { requestBody?: infer RB }
 	? RB extends { 'application/json': infer S }
 		? S
@@ -237,7 +237,7 @@ export type ExtractResponseSchema<
 	T extends readonly any[],
 	Path extends string,
 	Method extends string,
-	Status extends string | number = 200
+	Status extends string | number = 200,
 > = FindEndpointForResponse<T, Path, Method> extends { responses?: infer Responses }
 	? Responses extends Record<string | number, any>
 		? keyof Responses & (Status | string) extends infer K extends keyof Responses
@@ -258,12 +258,12 @@ export type ExtractResponseSchema<
 export type ExtractRequestType<
 	T extends readonly any[],
 	Path extends string,
-	Method extends string
+	Method extends string,
 > = SchemaType<ExtractRequestSchema<T, Path, Method> extends infer S extends Schema ? S : never>;
 
 export type ExtractResponseType<
 	T extends readonly any[],
 	Path extends string,
 	Method extends string,
-	Status extends string | number = 200
+	Status extends string | number = 200,
 > = SchemaType<ExtractResponseSchema<T, Path, Method, Status>>;

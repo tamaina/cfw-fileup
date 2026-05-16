@@ -30,8 +30,8 @@ export const authApiSchema = [
 							},
 							required: ['userId', 'token'],
 						} as const satisfies Schema,
-					}
-				}
+					},
+				},
 			},
 			400: { description: 'Bad request' },
 			409: { description: 'User exists' },
@@ -64,8 +64,8 @@ export const authApiSchema = [
 							},
 							required: ['token'],
 						} as const satisfies Schema,
-					}
-				}
+					},
+				},
 			},
 			401: { description: 'Invalid credentials' },
 		},
@@ -90,8 +90,8 @@ export const authApiSchema = [
 							},
 							required: ['id', 'username', 'isAdmin', 'isSuspended'],
 						} as const satisfies Schema,
-					}
-				}
+					},
+				},
 			},
 			401: { description: 'Unauthorized' },
 		},

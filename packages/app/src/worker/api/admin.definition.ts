@@ -30,8 +30,8 @@ export const adminApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': { schema: { ref: 'OkResponse' } }
-				}
+					'application/json': { schema: { ref: 'OkResponse' } },
+				},
 			},
 			400: { description: 'Bad request' },
 			404: { description: 'Not found' },
@@ -55,8 +55,8 @@ export const adminApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': { schema: { ref: 'OkResponse' } }
-				}
+					'application/json': { schema: { ref: 'OkResponse' } },
+				},
 			},
 			400: { description: 'Bad request' },
 			404: { description: 'Not found' },
@@ -80,8 +80,8 @@ export const adminApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': { schema: { ref: 'OkResponse' } }
-				}
+					'application/json': { schema: { ref: 'OkResponse' } },
+				},
 			},
 			400: { description: 'Bad request' },
 			404: { description: 'Not found' },
@@ -106,8 +106,8 @@ export const adminApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': { schema: { ref: 'OkResponse' } }
-				}
+					'application/json': { schema: { ref: 'OkResponse' } },
+				},
 			},
 			400: { description: 'Bad request' },
 		},
@@ -121,8 +121,8 @@ export const adminApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': { schema: { ref: 'AppSettings' } }
-				}
+					'application/json': { schema: { ref: 'AppSettings' } },
+				},
 			},
 		},
 	},
@@ -138,8 +138,8 @@ export const adminApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': { schema: { ref: 'OkResponse' } }
-				}
+					'application/json': { schema: { ref: 'OkResponse' } },
+				},
 			},
 			400: { description: 'Bad request' },
 			404: { description: 'Not found' },
@@ -157,8 +157,8 @@ export const adminApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': { schema: { ref: 'OkResponse' } }
-				}
+					'application/json': { schema: { ref: 'OkResponse' } },
+				},
 			},
 			400: { description: 'Bad request' },
 		},
@@ -172,8 +172,8 @@ export const adminApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': { schema: { ref: 'Quota' } }
-				}
+					'application/json': { schema: { ref: 'Quota' } },
+				},
 			},
 			404: { description: 'Not found' },
 		},
@@ -187,8 +187,8 @@ export const adminApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': { schema: { ref: 'Quota' } }
-				}
+					'application/json': { schema: { ref: 'Quota' } },
+				},
 			},
 		},
 	},
@@ -201,8 +201,8 @@ export const adminApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': { schema: { ref: 'OkResponse' } }
-				}
+					'application/json': { schema: { ref: 'OkResponse' } },
+				},
 			},
 			404: { description: 'Not found' },
 		},
@@ -239,8 +239,8 @@ export const adminApiSchema = [
 			200: {
 				description: 'Success',
 				content: {
-					'application/json': { schema: { ref: 'OkResponse' } }
-				}
+					'application/json': { schema: { ref: 'OkResponse' } },
+				},
 			},
 			400: { description: 'Bad request' },
 		},

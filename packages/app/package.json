@@ -14,6 +14,8 @@
     "test:watch": "vitest",
     "test:worker": "vitest run --config vitest.worker.config.ts",
     "test:worker:watch": "vitest --config vitest.worker.config.ts",
+    "eslint": "eslint src/worker/",
+    "eslint:fix": "eslint src/worker/ --fix",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply cfw-fileup-db --local",
     "db:reset": "rm -rf .wrangler/state/v3/d1",

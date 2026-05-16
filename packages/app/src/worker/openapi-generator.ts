@@ -3,8 +3,8 @@
  * Collects schemas and routes to generate comprehensive API documentation
  */
 
-import type { Schema } from './api/schema-type';
 import { refs } from './api/schema-type';
+import type { Schema } from './api/schema-type';
 
 interface OpenAPISchema {
 	type?: string;

@@ -5,8 +5,8 @@ import { users, tokens, appSettings } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { hashPassword, verifyPassword, generateToken } from '../utils/crypto';
 import { genEaidx } from '../../shared/eaid-x';
-import type { ExtractRequestType, ExtractResponseType } from './schema-type';
 import { authApiSchema } from './auth.definition';
+import type { ExtractRequestType, ExtractResponseType } from './schema-type';
 
 const app = new Hono<{ Bindings: Env }>();
 

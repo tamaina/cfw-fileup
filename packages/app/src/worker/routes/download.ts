@@ -1,11 +1,11 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { eq, and, like, sql } from 'drizzle-orm';
+import { createBgzfBlock } from 'bgzf';
 import { buckets, files, targzFiles, tarFiles, directories, tokens, users, fileAccessTokens } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { abortUpload } from '../utils/abort-upload';
 import { authMiddleware } from '../middleware/auth';
-import { createBgzfBlock } from 'bgzf';
 
 const app = new Hono<{ Bindings: Env }>();
 

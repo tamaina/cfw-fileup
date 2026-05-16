@@ -18,9 +18,9 @@ export const metaApiSchema = [
 								passphraseRequired: { type: 'boolean', description: 'Whether signup passphrase is required' },
 							},
 							required: ['registrationEnabled', 'passphraseRequired'],
-						} as const satisfies Schema
-					}
-				}
+						} as const satisfies Schema,
+					},
+				},
 			},
 		},
 	},

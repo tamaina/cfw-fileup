@@ -5,7 +5,10 @@
   "scripts": {
     "dev": "pnpm run --filter app dev",
     "build": "pnpm run --filter app build",
-    "deploy": "pnpm run --filter app deploy"
+    "deploy": "pnpm run --filter app deploy",
+    "test": "pnpm -w -r test",
+    "typecheck": "pnpm --filter app typecheck",
+    "lint": "pnpm --filter app eslint src/worker/"
   },
   "dependencies": {
     "hono": "^4.12.18"
