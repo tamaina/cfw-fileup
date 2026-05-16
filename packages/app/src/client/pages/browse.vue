@@ -35,6 +35,7 @@ const breadcrumbs = computed(() => {
 const isDirectory = computed(() => props.filePath === '' || props.filePath.endsWith('/'));
 
 const isTargz = ref(false);
+const isTar = ref(false);
 const metaLoading = ref(false);
 const metaError = ref('');
 const fileIsPublic = ref(true);
@@ -56,8 +57,9 @@ async function fetchMeta(): Promise<void> {
 	try {
 		const res = await fetch(`/d/${props.bucketName}/${props.filePath}?meta`);
 		if (!res.ok) { metaError.value = `取得失敗: ${res.status}`; return; }
-		const data = await res.json() as { isTargz?: boolean; isPublic?: boolean };
+		const data = await res.json() as { isTargz?: boolean; isTar?: boolean; isPublic?: boolean };
 		isTargz.value = data.isTargz ?? false;
+		isTar.value = data.isTar ?? false;
 		fileIsPublic.value = data.isPublic ?? true;
 	} catch (e) {
 		metaError.value = String(e);
@@ -158,7 +160,7 @@ watch(() => [props.bucketName, props.filePath], fetchMeta);
         </template>
       </div>
 
-      <BrowseDirectory v-if="isDirectory || isTargz" :bucketName="bucketName" :filePath="filePath" :isTargz="isTargz" />
+      <BrowseDirectory v-if="isDirectory || isTargz || isTar" :bucketName="bucketName" :filePath="filePath" :isTargz="isTargz" :isTar="isTar" />
       <BrowseFile v-else :bucketName="bucketName" :filePath="filePath" />
     </template>
   </div>

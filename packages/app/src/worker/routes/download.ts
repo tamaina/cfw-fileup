@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { eq, and, like, sql } from 'drizzle-orm';
-import { buckets, files, targzFiles, directories, tokens, users } from '../scheme/index';
+import { buckets, files, targzFiles, tarFiles, directories, tokens, users } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { abortUpload } from '../utils/abort-upload';
 import { authMiddleware } from '../middleware/auth';
@@ -206,23 +206,44 @@ app.get('/d/:bucketName/*', async (c) => {
 		}
 	}
 
-	if (file.isTargz && c.req.query('list') !== undefined) {
-		const listPath = c.req.query('list');
-		let index;
-
-		if (listPath && typeof listPath === 'string') {
-			index = await db
-				.select()
-				.from(targzFiles)
-				.where(and(eq(targzFiles.fileId, file.id), eq(targzFiles.path, listPath)));
+	if ((file.isTargz || file.isTar) && c.req.query('list') !== undefined) {
+		if (file.isTargz) {
+			const index = await db.select().from(targzFiles).where(eq(targzFiles.fileId, file.id));
+			return c.json(index);
 		} else {
-			index = await db.select().from(targzFiles).where(eq(targzFiles.fileId, file.id));
+			const index = await db.select().from(tarFiles).where(eq(tarFiles.fileId, file.id));
+			return c.json(index);
 		}
-
-		return c.json(index);
 	}
 
 	const fileQuery = c.req.query('file');
+	if (file.isTar && fileQuery && typeof fileQuery === 'string') {
+		const indexEntry = await db
+			.select()
+			.from(tarFiles)
+			.where(and(eq(tarFiles.fileId, file.id), eq(tarFiles.path, fileQuery)))
+			.get();
+
+		if (!indexEntry) {
+			throw new HTTPException(404, { message: 'File not found in archive' });
+		}
+
+		const rangeData = await c.env.R2.get(file.r2Key, {
+			range: { offset: indexEntry.offset, length: indexEntry.size },
+		});
+		if (!rangeData?.body) {
+			throw new HTTPException(500, { message: 'Failed to retrieve file' });
+		}
+
+		return new Response(rangeData.body, {
+			headers: {
+				'Content-Type': indexEntry.mimeType ?? 'application/octet-stream',
+				'Content-Disposition': `attachment; filename="${indexEntry.path.split('/').pop()}"`,
+				'Content-Length': String(indexEntry.size),
+			},
+		});
+	}
+
 	if (file.isTargz && fileQuery && typeof fileQuery === 'string') {
 		const indexEntry = await db
 			.select()

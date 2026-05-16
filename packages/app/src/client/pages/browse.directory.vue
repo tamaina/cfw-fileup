@@ -11,7 +11,10 @@ const props = defineProps<{
 	bucketName: string;
 	filePath: string;
 	isTargz: boolean;
+	isTar: boolean;
 }>();
+
+const isArchive = computed(() => props.isTargz || props.isTar);
 
 interface DisplayEntry {
 	key: string;
@@ -31,6 +34,10 @@ const error = ref('');
 const loading = ref(true);
 const isDragOver = ref(false);
 const deleteError = ref('');
+
+type RawArchiveEntry = { id: string; path: string; mimeType: string; size?: number };
+const allArchiveEntries = ref<RawArchiveEntry[]>([]);
+const archivePath = ref('');
 
 const bucketId = ref<string | null>(null);
 const newDirName = ref('');
@@ -108,22 +115,71 @@ async function executeDeleteEntry(): Promise<void> {
 	await load();
 }
 
+function buildArchiveEntries(): void {
+	const seenDirs = new Set<string>();
+	const result: DisplayEntry[] = [];
+
+	for (const e of allArchiveEntries.value) {
+		if (!e.path.startsWith(archivePath.value)) continue;
+		const rest = e.path.slice(archivePath.value.length);
+		const slashIdx = rest.indexOf('/');
+		if (slashIdx === -1) {
+			result.push({
+				key: e.id,
+				name: rest,
+				link: `${downloadUrl.value}?file=${encodeURIComponent(e.path)}`,
+				isDir: false,
+				fullPath: e.path,
+				size: e.size,
+				label: e.mimeType,
+			});
+		} else {
+			const dirName = rest.slice(0, slashIdx);
+			if (!seenDirs.has(dirName)) {
+				seenDirs.add(dirName);
+				result.push({
+					key: `dir:${archivePath.value}${dirName}`,
+					name: dirName,
+					link: '',
+					isDir: true,
+					fullPath: `${archivePath.value}${dirName}/`,
+					label: 'フォルダ',
+				});
+			}
+		}
+	}
+
+	result.sort((a, b) => {
+		if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+		return a.name.localeCompare(b.name);
+	});
+
+	entries.value = result;
+}
+
+function navigateArchiveDir(path: string): void {
+	archivePath.value = path;
+	buildArchiveEntries();
+}
+
+function navigateArchiveUp(): void {
+	const parts = archivePath.value.replace(/\/$/, '').split('/');
+	parts.pop();
+	archivePath.value = parts.length === 0 ? '' : parts.join('/') + '/';
+	buildArchiveEntries();
+}
+
 async function load(): Promise<void> {
 	loading.value = true;
 	error.value = '';
 	try {
-		if (props.isTargz) {
+		if (isArchive.value) {
 			const res = await fetch(`${downloadUrl.value}?list`, { headers: authHeaders() });
 			if (!res.ok) { error.value = `取得失敗: ${res.status}`; return; }
-			const raw = await res.json() as Array<{ id: string; path: string; mimeType: string }>;
-			entries.value = raw.map(e => ({
-				key: e.id,
-				name: e.path,
-				link: `${downloadUrl.value}?file=${encodeURIComponent(e.path)}`,
-				isDir: false,
-				fullPath: e.path,
-				label: e.mimeType,
-			}));
+			const raw = await res.json() as RawArchiveEntry[];
+			archivePath.value = '';
+			allArchiveEntries.value = raw;
+			buildArchiveEntries();
 		} else {
 			const res = await fetch(downloadUrl.value, { headers: authHeaders() });
 			if (!res.ok) { error.value = `取得失敗: ${res.status}`; return; }
@@ -161,7 +217,17 @@ async function load(): Promise<void> {
 }
 
 function parentPath(): string | null {
-	if (!props.filePath || props.isTargz) return null;
+	if (!props.filePath) return null;
+	if (isArchive.value) {
+		// archive subdir navigation is handled by navigateArchiveUp
+		if (archivePath.value !== '') return null;
+		// at archive root: go to the file's parent directory
+		const parts = props.filePath.split('/');
+		parts.pop();
+		return parts.length === 0
+			? `/v/${props.bucketName}/`
+			: `/v/${props.bucketName}/${parts.join('/')}/`;
+	}
 	const parts = props.filePath.replace(/\/$/, '').split('/');
 	parts.pop();
 	return parts.length === 0
@@ -175,7 +241,7 @@ function goUpload(): void {
 }
 
 function onDragOver(e: DragEvent): void {
-	if (props.isTargz || !authStore.user) return;
+	if (isArchive.value || !authStore.user) return;
 	e.preventDefault();
 	isDragOver.value = true;
 }
@@ -186,7 +252,7 @@ function onDragLeave(): void {
 
 function onDrop(e: DragEvent): void {
 	isDragOver.value = false;
-	if (props.isTargz || !authStore.user) return;
+	if (isArchive.value || !authStore.user) return;
 	e.preventDefault();
 	const droppedFiles = Array.from(e.dataTransfer?.files ?? []);
 	if (droppedFiles.length === 0) return;
@@ -220,8 +286,8 @@ watch(() => [props.bucketName, props.filePath], () => { load(); loadBucketId(); 
 
 <template>
   <div>
-    <!-- tar.gz アーカイブ操作 -->
-    <div v-if="isTargz" class="flex gap-2 items-center mb-3 flex-wrap">
+    <!-- アーカイブ操作 -->
+    <div v-if="isArchive" class="flex gap-2 items-center mb-3 flex-wrap">
       <a :href="downloadUrl" download class="btn btn-secondary btn-sm">ダウンロード</a>
       <Button.Root v-if="authStore.user" class="btn btn-ghost-danger btn-sm" @click="archiveDeleteDialog = true">
         <Button.Content>削除</Button.Content>
@@ -230,7 +296,7 @@ watch(() => [props.bucketName, props.filePath], () => { load(); loadBucketId(); 
     </div>
 
     <!-- 通常ディレクトリ操作 -->
-    <div v-if="!isTargz && authStore.user" class="flex gap-2 items-center mb-3 flex-wrap">
+    <div v-if="!isArchive && authStore.user" class="flex gap-2 items-center mb-3 flex-wrap">
       <Button.Root class="btn btn-primary" @click="goUpload">
         <Button.Content>アップロード</Button.Content>
       </Button.Root>
@@ -272,19 +338,28 @@ watch(() => [props.bucketName, props.filePath], () => { load(); loadBucketId(); 
                 <th>名前</th>
                 <th class="col-right">サイズ</th>
                 <th>種類</th>
-                <th v-if="!isTargz && authStore.user">公開</th>
-                <th v-if="!isTargz && authStore.user && bucketId" class="col-actions"></th>
+                <th v-if="!isArchive && authStore.user">公開</th>
+                <th v-if="!isArchive && authStore.user && bucketId" class="col-actions"></th>
               </tr>
             </thead>
             <tbody>
-              <tr v-if="parentPath()">
-                <td :colspan="!isTargz && authStore.user && bucketId ? 5 : !isTargz && authStore.user ? 4 : 3">
+              <tr v-if="isArchive && archivePath !== ''">
+                <td :colspan="3">
+                  <button class="text-muted font-mono" style="font-size:0.875rem; background:none; border:none; cursor:pointer; padding:0" @click="navigateArchiveUp">..</button>
+                </td>
+              </tr>
+              <tr v-else-if="parentPath()">
+                <td :colspan="!isArchive && authStore.user && bucketId ? 5 : !isArchive && authStore.user ? 4 : 3">
                   <NirA :to="parentPath()!" class="text-muted font-mono" style="font-size:0.875rem">..</NirA>
                 </td>
               </tr>
               <tr v-for="entry in entries" :key="entry.key">
                 <td>
-                  <NirA :to="entry.link" style="font-weight:500">
+                  <button v-if="isArchive && entry.isDir" style="background:none; border:none; cursor:pointer; padding:0; font-weight:500; font-size:inherit; color:inherit" @click="navigateArchiveDir(entry.fullPath)">
+                    <span style="margin-right:4px">📁</span>{{ entry.name }}
+                  </button>
+                  <a v-else-if="isArchive && !entry.isDir" :href="entry.link" download style="font-weight:500">{{ entry.name }}</a>
+                  <NirA v-else :to="entry.link" style="font-weight:500">
                     <span v-if="entry.isDir" style="margin-right:4px">📁</span>{{ entry.name }}
                   </NirA>
                 </td>
@@ -294,19 +369,19 @@ watch(() => [props.bucketName, props.filePath], () => { load(); loadBucketId(); 
                 <td>
                   <span v-if="entry.label" class="badge badge-muted">{{ entry.label }}</span>
                 </td>
-                <td v-if="!isTargz && authStore.user">
+                <td v-if="!isArchive && authStore.user">
                   <span v-if="!entry.isDir && entry.isPublic != null" :class="entry.isPublic ? 'badge badge-success' : 'badge badge-muted'">
                     {{ entry.isPublic ? '公開' : '非公開' }}
                   </span>
                 </td>
-                <td v-if="!isTargz && authStore.user && bucketId" class="col-actions">
+                <td v-if="!isArchive && authStore.user && bucketId" class="col-actions">
                   <Button.Root class="btn btn-ghost-danger btn-sm" @click="requestDeleteEntry(entry)">
                     <Button.Content>削除</Button.Content>
                   </Button.Root>
                 </td>
               </tr>
               <tr v-if="entries.length === 0">
-                <td :colspan="!isTargz && authStore.user && bucketId ? 5 : !isTargz && authStore.user ? 4 : 3">
+                <td :colspan="!isArchive && authStore.user && bucketId ? 5 : !isArchive && authStore.user ? 4 : 3">
                   <div class="empty-state">
                     <p>エントリがありません。</p>
                   </div>
