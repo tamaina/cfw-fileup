@@ -4,18 +4,38 @@ import { Button } from '@vuetify/v0';
 import { setToken, fetchCurrentUser } from '../store/auth';
 import { navigateTo } from '../navigate';
 
-const form = reactive({ username: '', password: '' });
+const form = reactive({ username: '', password: '', passphrase: '' });
 const error = ref('');
 const loading = ref(false);
+const passphraseRequired = ref(false);
+
+async function fetchMeta(): Promise<void> {
+	try {
+		const res = await fetch('/api/meta');
+		const data = (await res.json()) as { passphraseRequired?: boolean };
+		passphraseRequired.value = data.passphraseRequired ?? false;
+	} catch (e) {
+		console.error('Failed to fetch meta:', e);
+	}
+}
+
+fetchMeta();
 
 async function submit(): Promise<void> {
 	error.value = '';
 	loading.value = true;
 	try {
-		const res = await fetch('/api/signin', {
+		const body: Record<string, string> = {
+			username: form.username,
+			password: form.password,
+		};
+		if (form.passphrase) {
+			body.passphrase = form.passphrase;
+		}
+		const res = await fetch('/api/signup', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ username: form.username, password: form.password }),
+			body: JSON.stringify(body),
 		});
 		const data = (await res.json()) as { token?: string; error?: string };
 		if (!res.ok) {
@@ -38,7 +58,7 @@ async function submit(): Promise<void> {
 <template>
   <div style="display:flex; justify-content:center; padding-top:48px">
     <div class="card max-w-sm" style="width:100%">
-      <h2 style="margin-bottom:20px; text-align:center">サインイン</h2>
+      <h2 style="margin-bottom:20px; text-align:center">アカウント作成</h2>
 
       <form @submit.prevent="submit" style="display:flex; flex-direction:column; gap:14px">
         <div class="form-group">
@@ -62,8 +82,19 @@ async function submit(): Promise<void> {
             class="form-input"
             type="password"
             required
-            autocomplete="current-password"
+            autocomplete="new-password"
             placeholder="••••••••"
+          >
+        </div>
+
+        <div v-if="passphraseRequired" class="form-group">
+          <label class="form-label" for="passphrase">合言葉</label>
+          <input
+            id="passphrase"
+            v-model="form.passphrase"
+            class="form-input"
+            type="text"
+            autocomplete="off"
           >
         </div>
 
@@ -71,13 +102,13 @@ async function submit(): Promise<void> {
 
         <Button.Root type="submit" class="btn btn-primary w-full" :loading="loading">
           <Button.Loading>処理中...</Button.Loading>
-          <Button.Content>サインイン</Button.Content>
+          <Button.Content>アカウント作成</Button.Content>
         </Button.Root>
       </form>
 
       <div style="margin-top:16px; text-align:center; font-size:0.875rem; color:var(--color-text-muted)">
-        <button type="button" class="btn btn-ghost" @click="navigateTo('/signup')">
-          アカウントを作成する
+        <button type="button" class="btn btn-ghost" @click="navigateTo('/signin')">
+          サインインページへ
         </button>
       </div>
     </div>

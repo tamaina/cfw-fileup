@@ -28,6 +28,11 @@ export const ROUTE_DEF = [
 		component: page(() => import('@/pages/signin.vue')),
 	},
 	{
+		path: '/signup',
+		name: 'signup',
+		component: page(() => import('@/pages/signup.vue')),
+	},
+	{
 		path: '/my/buckets',
 		name: 'my-buckets',
 		component: page(() => import('@/pages/my-buckets.vue')),
