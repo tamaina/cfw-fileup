@@ -105,6 +105,7 @@ onMounted(load);
           <p>アップロードはありません。</p>
         </div>
         <div v-else class="card" style="padding:0; overflow:hidden">
+          <div class="table-responsive">
           <table class="data-table">
             <thead>
               <tr>
@@ -147,6 +148,7 @@ onMounted(load);
               </tr>
             </tbody>
           </table>
+          </div>
         </div>
       </template>
     </template>

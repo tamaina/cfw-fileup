@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { ref, computed, defineComponent, h } from 'vue';
-import { Button } from '@vuetify/v0';
+import { Button, useTheme } from '@vuetify/v0';
 import { mainRouter } from './router';
 import { fetchCurrentUser, authStore, clearAuth } from './store/auth';
 import { navigateFn } from './navigate';
-import { isDark, toggleTheme } from './store/theme';
 import NirA from './components/nira.vue';
 
 navigateFn.value = (path) => mainRouter.pushByPath(path);
+
+const theme = useTheme();
+const isDark = theme.isDark;
 
 const isReady = ref(false);
 
@@ -36,6 +38,10 @@ function logout(): void {
 	clearAuth();
 	mainRouter.pushByPath('/signin');
 }
+
+function toggleTheme(): void {
+	theme.cycle(['light', 'dark']);
+}
 </script>
 
 <template>
@@ -44,11 +50,13 @@ function logout(): void {
       <div class="app-nav-inner">
         <NirA to="/" class="app-nav-brand">CFW FileUp</NirA>
 
-        <NirA to="/my/buckets" class="app-nav-link">マイバケット</NirA>
-        <NirA to="/my/uploadings" class="app-nav-link">アップロード中</NirA>
-        <template v-if="authStore.user?.isAdmin">
-          <NirA to="/admin" class="app-nav-link">管理</NirA>
-        </template>
+        <div class="app-nav-links">
+          <NirA to="/my/buckets" class="app-nav-link">マイバケット</NirA>
+          <NirA to="/my/uploadings" class="app-nav-link">アップロード中</NirA>
+          <template v-if="authStore.user?.isAdmin">
+            <NirA to="/admin" class="app-nav-link">管理</NirA>
+          </template>
+        </div>
 
         <div class="app-nav-spacer" />
 

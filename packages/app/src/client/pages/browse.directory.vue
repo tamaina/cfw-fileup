@@ -265,6 +265,7 @@ watch(() => [props.bucketName, props.filePath], () => { load(); loadBucketId(); 
         <div v-if="isDragOver" class="drop-zone-overlay">ここにドロップしてアップロード</div>
 
         <div class="card" style="padding:0; overflow:hidden">
+          <div class="table-responsive">
           <table class="data-table">
             <thead>
               <tr>
@@ -313,6 +314,7 @@ watch(() => [props.bucketName, props.filePath], () => { load(); loadBucketId(); 
               </tr>
             </tbody>
           </table>
+          </div>
         </div>
       </div>
     </template>

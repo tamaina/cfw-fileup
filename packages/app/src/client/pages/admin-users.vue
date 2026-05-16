@@ -82,6 +82,7 @@ async function executeSuspend(): Promise<void> {
       </div>
 
       <div v-else class="card" style="padding:0; overflow:hidden">
+        <div class="table-responsive">
         <table class="data-table">
           <thead>
             <tr>
@@ -117,6 +118,7 @@ async function executeSuspend(): Promise<void> {
             </tr>
           </tbody>
         </table>
+        </div>
       </div>
     </template>
 
