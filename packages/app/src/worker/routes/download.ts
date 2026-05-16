@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { eq, and, like, sql } from 'drizzle-orm';
-import { buckets, files, targzFiles, directories } from '../scheme/index';
+import { buckets, files, targzFiles, directories, tokens, users } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { abortUpload } from '../utils/abort-upload';
 import { authMiddleware } from '../middleware/auth';
@@ -65,6 +65,22 @@ app.get('/d/:bucketName/*', async (c) => {
 	const isDirectory = filePath === '' || filePath.endsWith('/');
 
 	if (isDirectory) {
+		// Check if requester is bucket owner or admin to show non-public files
+		let isOwnerOrAdmin = false;
+		const authorization = c.req.header('Authorization');
+		if (authorization?.startsWith('Bearer ')) {
+			const token = authorization.slice(7);
+			const tokenRecord = await db
+				.select({ userId: tokens.userId, isAdmin: users.isAdmin, isSuspended: users.isSuspended })
+				.from(tokens)
+				.innerJoin(users, eq(tokens.userId, users.id))
+				.where(eq(tokens.token, token))
+				.get();
+			if (tokenRecord && !tokenRecord.isSuspended) {
+				isOwnerOrAdmin = tokenRecord.isAdmin || tokenRecord.userId === bucket.userId;
+			}
+		}
+
 		if (filePath !== '') {
 			const dirExists = await db.select({ id: directories.id })
 				.from(directories)
@@ -79,6 +95,10 @@ app.get('/d/:bucketName/*', async (c) => {
 			}
 		}
 
+		const fileCondition = isOwnerOrAdmin
+			? and(eq(files.bucketId, bucket.id), eq(files.isClosed, true))
+			: and(eq(files.bucketId, bucket.id), eq(files.isClosed, true), eq(files.isPublic, true));
+
 		const allFiles = await db
 			.select({
 				path: files.path,
@@ -86,9 +106,10 @@ app.get('/d/:bucketName/*', async (c) => {
 				mimeType: files.mimeType,
 				isTargz: files.isTargz,
 				isTar: files.isTar,
+				isPublic: files.isPublic,
 			})
 			.from(files)
-			.where(and(eq(files.bucketId, bucket.id), eq(files.isClosed, true), eq(files.isPublic, true)));
+			.where(fileCondition);
 
 		const entries: Array<{
 			type: 'dir' | 'file';
@@ -98,6 +119,7 @@ app.get('/d/:bucketName/*', async (c) => {
 			mimeType?: string;
 			isTargz?: boolean;
 			isTar?: boolean;
+			isPublic?: boolean;
 		}> = [];
 		const seenDirs = new Set<string>();
 
@@ -124,7 +146,7 @@ app.get('/d/:bucketName/*', async (c) => {
 			const rest = f.path.slice(filePath.length);
 			const slashIdx = rest.indexOf('/');
 			if (slashIdx === -1) {
-				entries.push({ type: 'file', name: rest, path: f.path, size: f.size ?? undefined, mimeType: f.mimeType ?? undefined, isTargz: f.isTargz, isTar: f.isTar });
+				entries.push({ type: 'file', name: rest, path: f.path, size: f.size ?? undefined, mimeType: f.mimeType ?? undefined, isTargz: f.isTargz, isTar: f.isTar, isPublic: f.isPublic });
 			} else {
 				const dirName = rest.slice(0, slashIdx);
 				if (!seenDirs.has(dirName)) {
@@ -167,7 +189,20 @@ app.get('/d/:bucketName/*', async (c) => {
 	if (!file.isPublic) {
 		const passphrase = c.req.query('passphrase');
 		if (!passphrase || passphrase !== file.passphrase) {
-			throw new HTTPException(403, { message: 'Forbidden' });
+			const authorization = c.req.header('Authorization');
+			if (!authorization?.startsWith('Bearer ')) {
+				throw new HTTPException(403, { message: 'Forbidden' });
+			}
+			const token = authorization.slice(7);
+			const tokenRecord = await db
+				.select({ userId: tokens.userId, isAdmin: users.isAdmin, isSuspended: users.isSuspended })
+				.from(tokens)
+				.innerJoin(users, eq(tokens.userId, users.id))
+				.where(eq(tokens.token, token))
+				.get();
+			if (!tokenRecord || tokenRecord.isSuspended || (!tokenRecord.isAdmin && tokenRecord.userId !== bucket.userId)) {
+				throw new HTTPException(403, { message: 'Forbidden' });
+			}
 		}
 	}
 

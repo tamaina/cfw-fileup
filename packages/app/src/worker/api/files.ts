@@ -296,6 +296,38 @@ app.post('/create/status', async (c) => {
 	return c.json({ partCount, offset: partCount * PART_SIZE } as ExtractResponseType<typeof filesApiSchema, '/api/files/create/status', 'post', 200>);
 });
 
+app.post('/update', async (c) => {
+	const db = getDb(c.env);
+	const user = c.get('user');
+	const body = (await c.req.json()) as { bucketName: string; filePath: string; isPublic: boolean; passphrase?: string };
+
+	if (!body.bucketName || !body.filePath) {
+		throw new HTTPException(400, { message: 'bucketName and filePath are required' });
+	}
+
+	const bucket = await db.select().from(buckets).where(eq(buckets.name, body.bucketName)).get();
+	if (!bucket) throw new HTTPException(404, { message: 'Bucket not found' });
+	if (bucket.userId !== user.id && !user.isAdmin) throw new HTTPException(403, { message: 'Forbidden' });
+
+	const file = await db
+		.select()
+		.from(files)
+		.where(and(eq(files.bucketId, bucket.id), eq(files.path, body.filePath)))
+		.get();
+	if (!file) throw new HTTPException(404, { message: 'File not found' });
+	if (!file.isClosed) throw new HTTPException(400, { message: 'File is not closed' });
+
+	await db
+		.update(files)
+		.set({
+			isPublic: body.isPublic,
+			passphrase: body.isPublic ? null : (body.passphrase ?? null),
+		})
+		.where(eq(files.id, file.id));
+
+	return c.json({ ok: true });
+});
+
 app.post('/uploadings', async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');

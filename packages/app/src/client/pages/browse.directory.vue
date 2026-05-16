@@ -21,6 +21,7 @@ interface DisplayEntry {
 	fullPath: string;
 	size?: number;
 	label: string;
+	isPublic?: boolean;
 }
 
 const downloadUrl = computed(() => `/d/${props.bucketName}/${props.filePath}`);
@@ -112,7 +113,7 @@ async function load(): Promise<void> {
 	error.value = '';
 	try {
 		if (props.isTargz) {
-			const res = await fetch(`${downloadUrl.value}?list`);
+			const res = await fetch(`${downloadUrl.value}?list`, { headers: authHeaders() });
 			if (!res.ok) { error.value = `取得失敗: ${res.status}`; return; }
 			const raw = await res.json() as Array<{ id: string; path: string; mimeType: string }>;
 			entries.value = raw.map(e => ({
@@ -124,12 +125,12 @@ async function load(): Promise<void> {
 				label: e.mimeType,
 			}));
 		} else {
-			const res = await fetch(`${downloadUrl.value}?meta`);
+			const res = await fetch(downloadUrl.value, { headers: authHeaders() });
 			if (!res.ok) { error.value = `取得失敗: ${res.status}`; return; }
 			const data = await res.json() as {
 				entries: Array<{
 					type: 'dir' | 'file'; name: string; path?: string;
-					size?: number; mimeType?: string; isTargz?: boolean; isTar?: boolean;
+					size?: number; mimeType?: string; isTargz?: boolean; isTar?: boolean; isPublic?: boolean;
 				}>;
 			};
 			entries.value = data.entries.map(e => e.type === 'dir'
@@ -149,6 +150,7 @@ async function load(): Promise<void> {
 					fullPath: e.path ?? e.name,
 					size: e.size,
 					label: e.isTargz ? 'tar.gz' : e.isTar ? 'tar' : (e.mimeType ?? ''),
+					isPublic: e.isPublic,
 				});
 		}
 	} catch (e) {
@@ -269,12 +271,13 @@ watch(() => [props.bucketName, props.filePath], () => { load(); loadBucketId(); 
                 <th>名前</th>
                 <th class="col-right">サイズ</th>
                 <th>種類</th>
+                <th v-if="!isTargz && authStore.user">公開</th>
                 <th v-if="!isTargz && authStore.user && bucketId" class="col-actions"></th>
               </tr>
             </thead>
             <tbody>
               <tr v-if="parentPath()">
-                <td colspan="4">
+                <td :colspan="!isTargz && authStore.user && bucketId ? 5 : !isTargz && authStore.user ? 4 : 3">
                   <NirA :to="parentPath()!" class="text-muted font-mono" style="font-size:0.875rem">..</NirA>
                 </td>
               </tr>
@@ -290,6 +293,11 @@ watch(() => [props.bucketName, props.filePath], () => { load(); loadBucketId(); 
                 <td>
                   <span v-if="entry.label" class="badge badge-muted">{{ entry.label }}</span>
                 </td>
+                <td v-if="!isTargz && authStore.user">
+                  <span v-if="!entry.isDir && entry.isPublic != null" :class="entry.isPublic ? 'badge badge-success' : 'badge badge-muted'">
+                    {{ entry.isPublic ? '公開' : '非公開' }}
+                  </span>
+                </td>
                 <td v-if="!isTargz && authStore.user && bucketId" class="col-actions">
                   <Button.Root class="btn btn-ghost-danger btn-sm" @click="requestDeleteEntry(entry)">
                     <Button.Content>削除</Button.Content>
@@ -297,7 +305,7 @@ watch(() => [props.bucketName, props.filePath], () => { load(); loadBucketId(); 
                 </td>
               </tr>
               <tr v-if="entries.length === 0">
-                <td :colspan="!isTargz && authStore.user && bucketId ? 4 : 3">
+                <td :colspan="!isTargz && authStore.user && bucketId ? 5 : !isTargz && authStore.user ? 4 : 3">
                   <div class="empty-state">
                     <p>エントリがありません。</p>
                   </div>

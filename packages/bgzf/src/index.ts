@@ -14,23 +14,34 @@ function calculateCrc32(data: Uint8Array): number {
 
 // ---- Raw deflate compression ----
 
-async function compressDeflate(data: Uint8Array): Promise<Uint8Array> {
+async function compressDeflate(data: Uint8Array<ArrayBuffer>): Promise<Uint8Array> {
 	// 'deflate-raw' = RFC 1951 raw deflate, required by BGZF (gzip CDATA)
+	// Write and read must run concurrently: TransformStream backpressure causes
+	// writer.write/close to stall if the readable side is not being drained.
 	const cs = new CompressionStream('deflate-raw');
-	const writer = cs.writable.getWriter();
-	await writer.write(new Uint8Array(data));
-	await writer.close();
 	const chunks: Uint8Array[] = [];
-	const reader = cs.readable.getReader();
-	try {
-		while (true) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			if (value instanceof Uint8Array) chunks.push(value);
+
+	const writePromise = (async () => {
+		const writer = cs.writable.getWriter();
+		await writer.write(data);
+		await writer.close();
+	})();
+
+	const readPromise = (async () => {
+		const reader = cs.readable.getReader();
+		try {
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				if (value instanceof Uint8Array) chunks.push(value);
+			}
+		} finally {
+			reader.releaseLock();
 		}
-	} finally {
-		reader.releaseLock();
-	}
+	})();
+
+	await Promise.all([writePromise, readPromise]);
+
 	const total = chunks.reduce((s, c) => s + c.length, 0);
 	const out = new Uint8Array(total);
 	let pos = 0;
@@ -57,7 +68,7 @@ function storeDeflateRaw(data: Uint8Array): Uint8Array {
 // BGZF per-block overhead: 18-byte header + 4-byte CRC32 + 4-byte ISIZE = 26 bytes
 const BGZF_OVERHEAD = 26;
 
-export async function createBgzfBlock(uncompressed: Uint8Array): Promise<Uint8Array> {
+export async function createBgzfBlock(uncompressed: Uint8Array<ArrayBuffer>): Promise<Uint8Array> {
 	let deflated = await compressDeflate(uncompressed);
 	const crc32 = calculateCrc32(uncompressed);
 
@@ -83,6 +94,7 @@ export async function createBgzfBlock(uncompressed: Uint8Array): Promise<Uint8Ar
 	const isize = uncompressed.length;
 	block[o++] = isize & 0xff; block[o++] = (isize >> 8) & 0xff;
 	block[o++] = (isize >> 16) & 0xff; block[o++] = (isize >> 24) & 0xff;
+
 	return block;
 }
 

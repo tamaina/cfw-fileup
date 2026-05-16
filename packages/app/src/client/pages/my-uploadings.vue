@@ -132,6 +132,9 @@ onMounted(load);
                 <td>
                   <span v-if="entry.isClosed" class="badge badge-success">完了</span>
                   <span v-else class="badge badge-warning">アップロード中</span>
+                  <span v-if="entry.isClosed" :class="entry.isPublic ? 'badge badge-success' : 'badge badge-muted'" style="margin-left:4px">
+                    {{ entry.isPublic ? '公開' : '非公開' }}
+                  </span>
                 </td>
                 <td class="col-actions">
                   <div class="flex gap-2 items-center">

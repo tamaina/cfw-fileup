@@ -215,6 +215,33 @@ export const filesApiSchema = [
 		},
 	},
 	{
+		path: '/api/files/update',
+		method: 'post',
+		summary: 'Update file visibility',
+		tags: ['Files'],
+		requestBody: {
+			'application/json': {
+				type: 'object',
+				properties: {
+					bucketName: { type: 'string' },
+					filePath: { type: 'string' },
+					isPublic: { type: 'boolean' },
+					passphrase: { type: 'string' },
+				},
+				required: ['bucketName', 'filePath', 'isPublic'],
+			} as const satisfies Schema,
+		},
+		responses: {
+			200: {
+				description: 'Success',
+				content: { 'application/json': { schema: { ref: 'OkResponse' } } },
+			},
+			400: { description: 'Bad request' },
+			403: { description: 'Forbidden' },
+			404: { description: 'Not found' },
+		},
+	},
+	{
 		path: '/api/files/uploadings',
 		method: 'post',
 		summary: 'List user files',
