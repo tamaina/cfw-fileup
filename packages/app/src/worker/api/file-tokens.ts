@@ -6,12 +6,11 @@ import { getDb } from '../utils/db';
 import { generateToken } from '../utils/crypto';
 import { genEaidx, parseEaidx } from '../../shared/eaid-x';
 import { authMiddleware } from '../middleware/auth';
+import { verifyTurnstile } from '../utils/turnstile';
 
 const app = new Hono<{ Bindings: Env }>();
 
-app.use(authMiddleware);
-
-app.post('/create', async (c) => {
+app.post('/create', authMiddleware, async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
 	const body = (await c.req.json()) as { bucketName: string; filePath: string; expiresIn: number | null };
@@ -47,7 +46,7 @@ app.post('/create', async (c) => {
 	return c.json({ id, token, expiresAt });
 });
 
-app.post('/list', async (c) => {
+app.post('/list', authMiddleware, async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
 	const body = (await c.req.json()) as { bucketName: string; filePath: string };
@@ -81,7 +80,7 @@ app.post('/list', async (c) => {
 	});
 });
 
-app.post('/delete', async (c) => {
+app.post('/delete', authMiddleware, async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
 	const body = (await c.req.json()) as { tokenId: string };
@@ -108,6 +107,48 @@ app.post('/delete', async (c) => {
 	await db.delete(fileAccessTokens).where(eq(fileAccessTokens.id, body.tokenId));
 
 	return c.json({ ok: true });
+});
+
+app.post('/create-by-passphrase', async (c) => {
+	const db = getDb(c.env);
+	const body = (await c.req.json()) as { bucketName: string; filePath: string; passphrase: string; turnstileToken?: string };
+
+	if (!body.bucketName || !body.filePath || !body.passphrase) {
+		throw new HTTPException(400, { message: 'bucketName, filePath and passphrase are required' });
+	}
+
+	const turnstileSecret = c.env.TURNSTILE_SECRET as string;
+	if (turnstileSecret !== '') {
+		if (!body.turnstileToken) {
+			throw new HTTPException(400, { message: 'turnstileToken is required' });
+		}
+		const ok = await verifyTurnstile(body.turnstileToken, turnstileSecret);
+		if (!ok) {
+			throw new HTTPException(400, { message: 'Turnstile verification failed' });
+		}
+	}
+
+	const bucket = await db.select().from(buckets).where(eq(buckets.name, body.bucketName)).get();
+	if (!bucket) throw new HTTPException(404, { message: 'Bucket not found' });
+
+	const file = await db
+		.select()
+		.from(files)
+		.where(and(eq(files.bucketId, bucket.id), eq(files.path, body.filePath)))
+		.get();
+	if (!file) throw new HTTPException(404, { message: 'File not found' });
+	if (!file.isClosed) throw new HTTPException(400, { message: 'File is not closed' });
+	if (file.isPublic) throw new HTTPException(400, { message: 'File is public' });
+	if (file.passphrase === null) throw new HTTPException(403, { message: 'No passphrase set for this file' });
+	if (body.passphrase !== file.passphrase) throw new HTTPException(403, { message: 'Invalid passphrase' });
+
+	const id = genEaidx(Date.now());
+	const token = generateToken();
+	const expiresAt = Date.now() + 3600 * 1000;
+
+	await db.insert(fileAccessTokens).values({ id, fileId: file.id, token, expiresAt });
+
+	return c.json({ id, token, expiresAt });
 });
 
 export { app as fileTokenRoutes };

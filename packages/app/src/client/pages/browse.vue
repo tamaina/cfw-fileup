@@ -3,6 +3,7 @@ import { ref, computed, watch, onMounted } from 'vue';
 import BrowseDirectory from './browse.directory.vue';
 import BrowseFile from './browse.file.vue';
 import BrowseFileTokens from './browse.file-tokens.vue';
+import TurnstileWidget from '@/components/turnstile-widget.vue';
 import NirA from '@/components/nira.vue';
 import { authStore, authHeaders } from '@/store/auth';
 import { mainRouter } from '@/router';
@@ -99,6 +100,14 @@ const fileIsPublic = ref(true);
 const activeTab = ref<'info' | 'tokens'>('info');
 const autoToken = ref<string | null>(null);
 
+const passphraseMode = ref(false);
+const passphraseInput = ref('');
+const passphraseError = ref('');
+const passphraseLoading = ref(false);
+const turnstileEnabled = ref(false);
+const turnstileSiteKey = ref('');
+const turnstileToken = ref<string | null>(null);
+
 async function fetchInnerMeta(): Promise<void> {
 	if (!isEntryFile.value || !entryPath.value) return;
 	const tokenParam = autoToken.value ? `&token=${autoToken.value}` : '';
@@ -120,16 +129,36 @@ async function fetchMeta(): Promise<void> {
 	metaLoading.value = true;
 	metaError.value = '';
 	innerMeta.value = null;
+	passphraseMode.value = false;
 	try {
-		const res = await fetch(`/d/${props.bucketName}/${props.filePath}?meta`);
-		if (!res.ok) { metaError.value = `取得失敗: ${res.status}`; return; }
-		const data = await res.json() as { isTargz?: boolean; isTar?: boolean; isPublic?: boolean; size?: number };
+		const [metaRes, apiMetaRes] = await Promise.all([
+			fetch(`/d/${props.bucketName}/${props.filePath}?meta`),
+			fetch('/api/meta'),
+		]);
+		if (!metaRes.ok) { metaError.value = `取得失敗: ${metaRes.status}`; return; }
+		const data = await metaRes.json() as { isTargz?: boolean; isTar?: boolean; isPublic?: boolean; size?: number };
 		isTargz.value = data.isTargz ?? false;
 		isTar.value = data.isTar ?? false;
 		fileSize.value = data.size ?? null;
 		fileIsPublic.value = data.isPublic ?? true;
-		if (!fileIsPublic.value && authStore.user) {
-			await issueAutoToken();
+
+		if (apiMetaRes.ok) {
+			const apiMeta = await apiMetaRes.json() as { turnstileEnabled?: boolean; turnstileSiteKey?: string };
+			turnstileEnabled.value = apiMeta.turnstileEnabled ?? false;
+			turnstileSiteKey.value = apiMeta.turnstileSiteKey ?? '';
+		}
+
+		if (!fileIsPublic.value) {
+			if (authStore.user) {
+				await issueAutoToken();
+			} else {
+				const cached = loadCachedToken();
+				if (cached) {
+					autoToken.value = cached;
+				} else {
+					passphraseMode.value = true;
+				}
+			}
 		}
 		if (isEntryFile.value) {
 			await fetchInnerMeta();
@@ -138,6 +167,40 @@ async function fetchMeta(): Promise<void> {
 		metaError.value = String(e);
 	} finally {
 		metaLoading.value = false;
+	}
+}
+
+async function submitPassphrase(): Promise<void> {
+	passphraseError.value = '';
+	passphraseLoading.value = true;
+	try {
+		const body: Record<string, string> = {
+			bucketName: props.bucketName,
+			filePath: props.filePath,
+			passphrase: passphraseInput.value,
+		};
+		if (turnstileEnabled.value && turnstileToken.value) {
+			body.turnstileToken = turnstileToken.value;
+		}
+		const res = await fetch('/api/file-tokens/create-by-passphrase', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(body),
+		});
+		const result = await res.json() as { token?: string; expiresAt?: number | null; error?: string };
+		if (!res.ok) {
+			passphraseError.value = result.error ?? `エラー: ${res.status}`;
+			return;
+		}
+		autoToken.value = result.token ?? null;
+		saveCachedToken(result.token ?? '', result.expiresAt ?? null);
+		passphraseMode.value = false;
+		passphraseInput.value = '';
+		turnstileToken.value = null;
+	} catch (e) {
+		passphraseError.value = String(e);
+	} finally {
+		passphraseLoading.value = false;
 	}
 }
 
@@ -260,8 +323,41 @@ watch(() => entryPath.value, () => {
 
       <!-- ログインなし or ディレクトリ: タブなし -->
       <template v-else>
-        <BrowseDirectory v-if="isDirectory || isTargz || isTar" :bucketName="bucketName" :filePath="filePath" :isTargz="isTargz" :isTar="isTar" :entryPath="entryPath ?? ''" />
-        <BrowseFile v-else-if="!isDirectory" :bucketName="bucketName" :filePath="filePath" />
+        <!-- パスフレーズ入力フォーム（非公開ファイル・未ログイン） -->
+        <div v-if="passphraseMode" style="display:flex; justify-content:center; padding-top:32px">
+          <div class="card max-w-sm" style="width:100%">
+            <h3 style="margin-bottom:16px; text-align:center">パスフレーズを入力</h3>
+            <form @submit.prevent="submitPassphrase" style="display:flex; flex-direction:column; gap:14px">
+              <div class="form-group">
+                <label class="form-label" for="passphrase-input">パスフレーズ</label>
+                <input
+                  id="passphrase-input"
+                  v-model="passphraseInput"
+                  class="form-input"
+                  type="password"
+                  required
+                  autocomplete="off"
+                  placeholder="••••••••"
+                >
+              </div>
+              <TurnstileWidget
+                v-if="turnstileEnabled"
+                :site-key="turnstileSiteKey"
+                @update:token="turnstileToken = $event"
+              />
+              <div v-if="passphraseError" class="alert alert-error">{{ passphraseError }}</div>
+              <button
+                type="submit"
+                class="btn btn-primary"
+                :disabled="passphraseLoading || (turnstileEnabled && !turnstileToken)"
+              >
+                {{ passphraseLoading ? '確認中...' : 'アクセス' }}
+              </button>
+            </form>
+          </div>
+        </div>
+        <BrowseDirectory v-else-if="isDirectory || isTargz || isTar" :bucketName="bucketName" :filePath="filePath" :isTargz="isTargz" :isTar="isTar" :entryPath="entryPath ?? ''" />
+        <BrowseFile v-else-if="!isDirectory" :bucketName="bucketName" :filePath="filePath" :token="autoToken ?? undefined" />
       </template>
     </template>
   </div>

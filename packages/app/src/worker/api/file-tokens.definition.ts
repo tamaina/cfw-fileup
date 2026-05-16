@@ -122,4 +122,44 @@ export const fileTokensApiSchema = [
 			404: { description: 'Token not found' },
 		},
 	},
+	{
+		path: '/api/file-tokens/create-by-passphrase',
+		method: 'post',
+		summary: 'Create a file access token by passphrase',
+		description: 'Issues an access token for a private file using a passphrase. No authentication required. If Turnstile is enabled, a turnstileToken is required.',
+		tags: ['FileTokens'],
+		requestBody: {
+			'application/json': {
+				type: 'object',
+				properties: {
+					bucketName: { type: 'string', description: 'Bucket name' },
+					filePath: { type: 'string', description: 'File path within the bucket' },
+					passphrase: { type: 'string', description: 'Passphrase for the file' },
+					turnstileToken: { type: 'string', description: 'Cloudflare Turnstile token (required when Turnstile is enabled)' },
+				},
+				required: ['bucketName', 'filePath', 'passphrase'],
+			} as const satisfies Schema,
+		},
+		responses: {
+			200: {
+				description: 'Token created',
+				content: {
+					'application/json': {
+						schema: {
+							type: 'object',
+							properties: {
+								id: { type: 'string', description: 'Token ID (EAID-X)' },
+								token: { type: 'string', description: 'Token value to use as ?token= query parameter' },
+								expiresAt: { type: 'number', nullable: true, description: 'Expiry timestamp in ms' },
+							},
+							required: ['id', 'token', 'expiresAt'],
+						} as const satisfies Schema,
+					},
+				},
+			},
+			400: { description: 'Bad request (missing fields, Turnstile verification failed, file not closed, or file is public)' },
+			403: { description: 'Forbidden (no passphrase set or invalid passphrase)' },
+			404: { description: 'Bucket or file not found' },
+		},
+	},
 ] as const;
