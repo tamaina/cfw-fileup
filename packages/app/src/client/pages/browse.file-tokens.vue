@@ -306,7 +306,7 @@ onMounted(loadTokens);
       <table v-else class="table" style="width:100%; font-size:0.875rem">
         <thead>
           <tr>
-            <th>ID</th>
+            <th style="width: 9.5em;">ID</th>
             <th>発行日時</th>
             <th>有効期限</th>
             <th>状態</th>
@@ -315,8 +315,8 @@ onMounted(loadTokens);
         </thead>
         <tbody>
           <tr v-for="t in tokens" :key="t.id">
-            <td>
-              <code style="font-size:0.8rem">{{ t.id.slice(0, 12) }}...</code>
+            <td style="max-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">
+              <code style="font-size:0.8rem">{{ t.id }}</code>
             </td>
             <td>{{ new Date(t.createdAt).toLocaleString() }}</td>
             <td>{{ formatDate(t.expiresAt) }}</td>
