@@ -42,6 +42,7 @@ app.get('/meta', async (c) => {
 			turnstileSiteKey: c.env.TURNSTILE_SITE_KEY,
 			googleAuthEnabled,
 			googleRequired,
+			indieAuthEnabled: true,
 		} as ExtractResponseType<typeof metaApiSchema, '/api/meta', 'get', 200>);
 	} catch {
 		return c.json({
@@ -51,6 +52,7 @@ app.get('/meta', async (c) => {
 			turnstileSiteKey: '',
 			googleAuthEnabled: false,
 			googleRequired: false,
+			indieAuthEnabled: true,
 		} as ExtractResponseType<typeof metaApiSchema, '/api/meta', 'get', 200>);
 	}
 });

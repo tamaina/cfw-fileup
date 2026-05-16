@@ -11,12 +11,15 @@ export async function setupDb(): Promise<void> {
 			username text NOT NULL UNIQUE,
 			password_hash text,
 			google_id text UNIQUE,
+			misskey_id text UNIQUE,
 			is_admin integer DEFAULT false NOT NULL,
 			is_suspended integer DEFAULT false NOT NULL
 		)`),
 		env.DB.prepare(`CREATE TABLE IF NOT EXISTS oauth_states (
 			id text PRIMARY KEY NOT NULL,
 			state text NOT NULL UNIQUE,
+			code_verifier text,
+			profile_url text,
 			expires_at integer NOT NULL
 		)`),
 		env.DB.prepare(`CREATE TABLE IF NOT EXISTS tokens (

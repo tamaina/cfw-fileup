@@ -27,6 +27,13 @@ export const KNOWN_SETTINGS = [
 		label: 'Googleアカウント登録必須',
 		description: '有効にするとGoogleアカウントによる登録・サインインのみが許可されます',
 	},
+	{
+		key: 'indieauth_blocked_servers',
+		type: 'text',
+		defaultValue: '',
+		label: 'IndieAuth ブロックサーバー',
+		description: 'IndieAuth（Misskeyアカウント）でのログインを拒否するサーバーのホスト名をカンマ区切りで指定（例: example.com,bad.instance.net）',
+	},
 ] as const satisfies readonly SettingDef[];
 
 export type KnownSettingKey = (typeof KNOWN_SETTINGS)[number]['key'];

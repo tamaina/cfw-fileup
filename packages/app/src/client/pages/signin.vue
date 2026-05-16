@@ -12,22 +12,81 @@ const error = ref('');
 const loading = ref(false);
 const passkeyLoading = ref(false);
 const googleLoading = ref(false);
+const indieauthLoading = ref(false);
+const indieauthProfileUrl = ref('');
 const turnstileEnabled = ref(false);
 const turnstileSiteKey = ref('');
 const turnstileToken = ref<string | null>(null);
 const googleAuthEnabled = ref(false);
 const googleRequired = ref(false);
+const indieAuthEnabled = ref(false);
 
 async function fetchMeta(): Promise<void> {
 	try {
 		const res = await fetch('/api/meta');
-		const data = (await res.json()) as { turnstileEnabled?: boolean; turnstileSiteKey?: string; googleAuthEnabled?: boolean; googleRequired?: boolean };
+		const data = (await res.json()) as { turnstileEnabled?: boolean; turnstileSiteKey?: string; googleAuthEnabled?: boolean; googleRequired?: boolean; indieAuthEnabled?: boolean };
 		turnstileEnabled.value = data.turnstileEnabled ?? false;
 		turnstileSiteKey.value = data.turnstileSiteKey ?? '';
 		googleAuthEnabled.value = data.googleAuthEnabled ?? false;
 		googleRequired.value = data.googleRequired ?? false;
+		indieAuthEnabled.value = data.indieAuthEnabled ?? true;
 	} catch (e) {
 		console.error('Failed to fetch meta:', e);
+	}
+}
+
+// Handle IndieAuth callback
+async function handleIndieAuthCallback(): Promise<void> {
+	const params = new URLSearchParams(window.location.search);
+	const indieauthToken = params.get('indieauth_token');
+	const indieauthError = params.get('indieauth_error');
+
+	const newUrl = new URL(window.location.href);
+	newUrl.searchParams.delete('indieauth_token');
+	newUrl.searchParams.delete('indieauth_error');
+	window.history.replaceState({}, '', newUrl.toString());
+
+	if (indieauthError) {
+		const errorMessages: Record<string, string> = {
+			missing_params: 'パラメータが不足しています',
+			invalid_state: '無効または期限切れのセッションです',
+			missing_verifier: 'セッション情報が不正です',
+			server_blocked: 'このMisskeyサーバーは許可されていません',
+			discovery_failed: 'IndieAuth認証エンドポイントを見つけられませんでした',
+			no_token_endpoint: 'IndieAuthトークンエンドポイントを見つけられませんでした',
+			token_exchange_failed: 'トークン交換に失敗しました',
+			suspended: 'アカウントが停止されています',
+			registration_closed: '新規登録は現在受け付けていません',
+			user_creation_failed: 'ユーザー作成に失敗しました',
+		};
+		error.value = errorMessages[indieauthError] ?? `IndieAuthエラー: ${indieauthError}`;
+		return;
+	}
+
+	if (!indieauthToken) return;
+
+	indieauthLoading.value = true;
+	error.value = '';
+	try {
+		const res = await fetch('/api/auth/indieauth/complete', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ indieauthToken }),
+		});
+		const data = (await res.json()) as { token?: string; error?: string };
+		if (!res.ok) {
+			error.value = data.error ?? 'Misskeyサインインに失敗しました';
+			return;
+		}
+		if (data.token) {
+			setToken(data.token);
+			await fetchCurrentUser();
+			navigateTo('/my/buckets');
+		}
+	} catch (e) {
+		error.value = String(e);
+	} finally {
+		indieauthLoading.value = false;
 	}
 }
 
@@ -69,6 +128,7 @@ async function handleGoogleCallback(): Promise<void> {
 
 onMounted(async () => {
 	await fetchMeta();
+	await handleIndieAuthCallback();
 	await handleGoogleCallback();
 });
 
@@ -162,6 +222,16 @@ async function signinWithPasskey(): Promise<void> {
 function signinWithGoogle(): void {
 	location.href = '/api/auth/google';
 }
+
+function signinWithIndieAuth(): void {
+	const url = indieauthProfileUrl.value.trim();
+	if (!url) {
+		error.value = 'MisskeyのプロフィールURLを入力してください';
+		return;
+	}
+	indieauthLoading.value = true;
+	location.href = `/api/auth/indieauth/begin?profile_url=${encodeURIComponent(url)}`;
+}
 </script>
 
 <template>
@@ -237,6 +307,27 @@ function signinWithGoogle(): void {
           <Button.Loading>認証中...</Button.Loading>
           <Button.Content>Googleでサインイン</Button.Content>
         </Button.Root>
+        <template v-if="indieAuthEnabled">
+          <div style="display:flex; gap:8px; width:100%">
+            <input
+              v-model="indieauthProfileUrl"
+              class="form-input"
+              type="url"
+              placeholder="https://misskey.io/@username"
+              style="flex:1"
+              @keydown.enter.prevent="signinWithIndieAuth"
+            >
+            <Button.Root
+              type="button"
+              class="btn btn-ghost"
+              :loading="indieauthLoading"
+              @click="signinWithIndieAuth"
+            >
+              <Button.Loading>認証中...</Button.Loading>
+              <Button.Content>Misskeyでサインイン</Button.Content>
+            </Button.Root>
+          </div>
+        </template>
       </div>
 
       <div style="margin-top:16px; text-align:center; font-size:0.875rem; color:var(--color-text-muted)">
