@@ -79,6 +79,15 @@ npx playwright show-report packages/app/playwright-report
 
 ## スクリーンショット撮影
 
+### 撮影後の確認（エージェント向け）
+
+撮影したPNGはReadツールで目視確認すること。以下の問題が写り込んでいる場合は、揉み消さずに原因を調べて対処する:
+
+- **Vite HMR エラーオーバーレイ** (`Cannot read properties of null (reading 'invalidateTypeCache')`)  
+  → `@vitejs/plugin-vue` のHMRバグ。worktreeでdev serverを起動した直後にファイル変更が検知されると発生することがある。`vite.config.ts` の `server.watch.ignored` に `.wrangler/**` を追加するなどで根本対処する。
+- **コンポーネント読み込みエラー** (`Failed to fetch dynamically imported module`)  
+  → Vueファイルのコンパイルエラー。featureブランチに未修正のバグが残っている可能性がある（例: `browse.vue` の `/    >` 構文エラー）。mainをマージして解消する。
+
 ### E2Eテスト内で撮影する
 
 ```typescript
