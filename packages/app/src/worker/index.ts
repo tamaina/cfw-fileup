@@ -9,6 +9,8 @@ import { adminRoutes } from './api/admin';
 import { directoryRoutes } from './api/directories';
 import { metaRoutes } from './api/meta';
 import { fileTokenRoutes } from './api/file-tokens';
+import { passkeyRoutes } from './api/passkey';
+import { googleAuthRoutes } from './api/google-auth';
 import { downloadRoutes } from './routes/download';
 import { uploadRoutes } from './routes/upload';
 import { generateOpenAPISpec } from './openapi-generator';
@@ -43,6 +45,8 @@ app.route('/api/account', accountRoutes);
 app.route('/api/admin', adminRoutes);
 app.route('/api/directories', directoryRoutes);
 app.route('/api/file-tokens', fileTokenRoutes);
+app.route('/api/passkey', passkeyRoutes);
+app.route('/api/auth/google', googleAuthRoutes);
 app.route('/', downloadRoutes);
 app.route('/', uploadRoutes);
 

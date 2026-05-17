@@ -15,7 +15,12 @@
     "MAX_FILES_PER_BUCKET": "",
     "MAX_DAILY_UPLOADS": "",
     "TURNSTILE_SECRET": "",
-    "TURNSTILE_SITE_KEY": ""
+    "TURNSTILE_SITE_KEY": "",
+    // Google OAuth - set GOOGLE_CLIENT_ID here (not a secret)
+    // Set GOOGLE_CLIENT_SECRET in .dev.vars for local dev, or as a Worker secret in production
+    "GOOGLE_CLIENT_ID": "",
+    // Optional: override the OAuth redirect URI (default: auto-detected from request URL)
+    "GOOGLE_REDIRECT_URI": ""
   },
   "r2_buckets": [
     {
