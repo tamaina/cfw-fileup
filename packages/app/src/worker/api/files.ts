@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { eq, and, gte, desc, sql, count } from 'drizzle-orm';
-import { buckets, files, targzFiles, tarFiles, uploadParts } from '../scheme/index';
+import { buckets, files, targzFiles, tarFiles, uploadParts, DEFAULT_PART_SIZE, MIN_PART_SIZE } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { getQuotaForUser } from '../utils/rate-limit';
 import { authMiddleware } from '../middleware/auth';
@@ -21,6 +21,12 @@ app.post('/create/open', async (c) => {
 
 	if (!body.bucketId || !body.path) {
 		throw new HTTPException(400, { message: 'bucketId and path are required' });
+	}
+
+	// partSizeのバリデーション: R2の制約上5MiB未満は最後のパート以外NG、未指定時は32MiBを使用
+	const partSize = body.partSize ?? DEFAULT_PART_SIZE;
+	if (partSize < MIN_PART_SIZE) {
+		throw new HTTPException(400, { message: `partSize must be at least ${MIN_PART_SIZE} bytes (5 MiB)` });
 	}
 
 	const bucket = await db.select().from(buckets).where(eq(buckets.id, body.bucketId)).get();
@@ -81,9 +87,10 @@ app.post('/create/open', async (c) => {
 		path: body.path,
 		r2Key,
 		uploadExpiresAt: uploadExpiry,
+		partSize,
 	});
 
-	return c.json({ fileId, uploadExpiry } as ExtractResponseType<typeof filesApiSchema, '/api/files/create/open', 'post', 200>);
+	return c.json({ fileId, uploadExpiry, partSize } as ExtractResponseType<typeof filesApiSchema, '/api/files/create/open', 'post', 200>);
 });
 
 app.post('/create/targz-index', async (c) => {
@@ -294,8 +301,9 @@ app.post('/create/status', async (c) => {
 		.from(uploadParts)
 		.where(eq(uploadParts.fileId, file.id));
 
-	const PART_SIZE = 5 * 1024 * 1024;
-	return c.json({ partCount, offset: partCount * PART_SIZE } as ExtractResponseType<typeof filesApiSchema, '/api/files/create/status', 'post', 200>);
+	// partSizeはファイル作成時にDBに保存した値を使用（ハードコードせずDBから参照）
+	const partSize = file.partSize;
+	return c.json({ partCount, offset: partCount * partSize, partSize } as ExtractResponseType<typeof filesApiSchema, '/api/files/create/status', 'post', 200>);
 });
 
 app.post('/update', async (c) => {
