@@ -5,6 +5,7 @@ import { users, tokens, appSettings } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { hashPassword, verifyPassword, generateToken } from '../utils/crypto';
 import { genEaidx } from '../../shared/eaid-x';
+import { verifyTurnstile } from '../utils/turnstile';
 import { authApiSchema } from './auth.definition';
 import type { ExtractRequestType, ExtractResponseType } from './schema-type';
 
@@ -16,6 +17,13 @@ app.post('/signup', async (c) => {
 
 	if (!body.username || !body.password) {
 		throw new HTTPException(400, { message: 'username and password are required' });
+	}
+
+	if ((c.env.TURNSTILE_SECRET as string) !== '') {
+		const token = body.turnstileToken;
+		if (!token || !await verifyTurnstile(token, c.env.TURNSTILE_SECRET)) {
+			throw new HTTPException(400, { message: 'Turnstile verification failed' });
+		}
 	}
 
 	if (body.username.length < 1 || body.username.length > 32) {
@@ -37,7 +45,6 @@ app.post('/signup', async (c) => {
 		.get();
 
 	if (!requireSignupPassphraseSetting) {
-		// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
 		const defaultValue = c.env.SIGNUP_PASSPHRASE ? 'true' : 'false';
 		await db.insert(appSettings).values({
 			key: 'require_signup_passphrase',
@@ -51,7 +58,6 @@ app.post('/signup', async (c) => {
 	const signupPassphrase = c.env.SIGNUP_PASSPHRASE;
 
 	if (requireSignupPassphrase && !isFirstUser) {
-		// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
 		if (!signupPassphrase || !body.passphrase || body.passphrase !== signupPassphrase) {
 			throw new HTTPException(403, { message: 'Invalid passphrase' });
 		}
@@ -111,6 +117,13 @@ app.post('/signin', async (c) => {
 
 	if (!body.username || !body.password) {
 		throw new HTTPException(400, { message: 'username and password are required' });
+	}
+
+	if ((c.env.TURNSTILE_SECRET as string) !== '') {
+		const token = body.turnstileToken;
+		if (!token || !await verifyTurnstile(token, c.env.TURNSTILE_SECRET)) {
+			throw new HTTPException(400, { message: 'Turnstile verification failed' });
+		}
 	}
 
 	const user = await db.select().from(users).where(eq(users.username, body.username)).get();
