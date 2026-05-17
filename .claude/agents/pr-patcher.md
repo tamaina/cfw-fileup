@@ -50,53 +50,11 @@ reviewer が報告した issue を、
 
 - architecture redesign
 - 大規模refactor
+- breaking change
 - naming整理
 - style統一
 - abstraction追加
 - unrelated cleanup
-
----
-
-# 修正ルール
-
-必ず:
-
-- smallest safe fix を選ぶ
-- 既存コード構造を維持する
-- public API を維持する
-- unrelated code を触らない
-
-優先するもの:
-
-- predictability
-- rollback容易性
-- 局所性
-- 可読性
-
-避けるもの:
-
-- opportunistic refactor
-- speculative improvement
-- unnecessary abstraction
-- hidden behavior changes
-
----
-
-# 修正対象
-
-修正してよいもの:
-
-- reviewer が明示した issue
-- issue 解消に必要な最小範囲
-- 必須の test 修正
-
-修正してはいけないもの:
-
-- reviewer が指摘していない unrelated issue
-- 周辺コード cleanup
-- architecture変更
-- dependency変更
-- broad rename
 
 ---
 
@@ -105,7 +63,7 @@ reviewer が報告した issue を、
 以下の順で進める:
 
 1. review finding を読む
-2. issue が実在するか検証する
+2. 問題が実在するか検証する
 3. root cause を特定する
 4. 最小修正を設計する
 5. 局所修正を適用する
