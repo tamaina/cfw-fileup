@@ -139,47 +139,64 @@ git worktree remove /tmp/pr-39 --force
 ## GitHub Issue/PR への添付
 
 `gh pr comment --attach` は現在のバージョンでは使用不可。  
-**GitHub Release のドラフトアセット** を経由してURLを取得し、markdownに埋め込む:
+**GitHub Release の公開アセット** を経由してURLを取得し、markdownに埋め込む。
+
+### 重要な注意点
+
+- `gh release upload "tag" "file.png#label"` の `#label` は**表示名（label）**であり、**ダウンロードURLには使われない**
+  - ダウンロードURLは **ローカルのファイル名**（basename）が使われる
+  - 例: `gh release upload "screenshots" "/tmp/ss/signin.png#pr23-signin.png"` → URL は `…/signin.png`（`pr23-signin.png` ではない）
+- 複数PRを処理するときは、ローカルのファイル名にPR番号プレフィックスを付けてからアップロードする
+- リリースはドラフトではなく**公開リリース**にする（ドラフトのURLは外部からアクセス不可）
+- `gh` コマンドはgitリポジトリ内から実行すること（`/tmp` などgit管理外では失敗する）
 
 ```sh
-# 1. ドラフトリリース作成（初回のみ）
-gh release create "screenshots" --title "Screenshots" --notes "" --draft
+# 1. 公開リリース作成（初回のみ）
+gh release create "screenshots" --title "Screenshots" --notes ""
+# すでにドラフトで作った場合は公開に変更
+gh release edit "screenshots" --draft=false --latest=false
 
-# 2. 画像をアップロードしてURLを取得
-FILENAME="my-shot-$(date +%s).png"
-gh release upload "screenshots" "/tmp/ss/result.png#$FILENAME" --clobber
-TAG=$(gh release view "screenshots" --json tagName -q .tagName)
-URL="https://github.com/tamaina/cfw-fileup/releases/download/$TAG/$FILENAME"
+# 2. ファイル名にPR番号プレフィックスをつけてアップロード
+cp /tmp/ss/signin.png /tmp/ss/pr23-signin.png
+gh release upload "screenshots" /tmp/ss/pr23-signin.png --clobber
+URL="https://github.com/tamaina/cfw-fileup/releases/download/screenshots/pr23-signin.png"
 
-# 3. PR コメントに埋め込む
-gh pr comment <PR_NUMBER> --body "![screenshot]($URL)"
+# 3. PR コメントに埋め込む（リポジトリ内から実行すること）
+gh pr comment 23 --body "![signin]($URL)"
 ```
 
-### PR へのスクリーンショット投稿の一連の流れ
+### PR へのスクリーンショット投稿の一連の流れ（複数PR対応）
 
 ```sh
-# 1. dev サーバー起動
-pnpm --filter app dev > /tmp/dev.log 2>&1 &
-until curl -s http://localhost:5173 > /dev/null; do sleep 2; done
-
-# 2. DBマイグレーション（ワークツリーの場合）
+# 1. worktree 作成 & install & migrate
+git worktree add /tmp/wt-pr23 origin/feature/xxx
+cd /tmp/wt-pr23
+pnpm install --frozen-lockfile --ignore-scripts
+pnpm --filter app run db:reset
 pnpm --filter app run db:migrate:local
 
-# 3. 撮影
-BASE_URL=http://localhost:5173 SCENARIO=directory SCREENSHOTS_DIR=/tmp/ss \
+# 2. dev サーバー起動
+pnpm --filter app dev > /tmp/dev.log 2>&1 &
+until curl -sf http://localhost:5173 > /dev/null; do sleep 2; done
+
+# 3. 撮影（スクリプトはメインリポジトリのものを使用）
+cd /path/to/main-repo
+BASE_URL=http://localhost:5173 SCENARIO=directory SCREENSHOTS_DIR=/tmp/ss-pr23 \
   pnpm --filter app run screenshot
 
-# 4. GitHub Release にアップロードして URL 取得
-TAG=$(gh release view "screenshots" --json tagName -q .tagName)
-for f in /tmp/ss/*.png; do
-  name="$(basename $f .png)-$(date +%s%3N).png"
-  gh release upload "screenshots" "$f#$name" --clobber 2>/dev/null
-  URL="https://github.com/tamaina/cfw-fileup/releases/download/$TAG/$name"
-  gh pr comment <PR_NUMBER> --body "![$(basename $f .png)]($URL)"
+# 4. PR番号プレフィックスをつけてリネーム → アップロード（リポジトリ内から実行）
+cd /path/to/main-repo
+for f in /tmp/ss-pr23/*.png; do
+  fname="pr23-$(basename $f)"
+  cp "$f" "/tmp/ss-pr23/$fname"
+  gh release upload "screenshots" "/tmp/ss-pr23/$fname" --clobber
+  URL="https://github.com/tamaina/cfw-fileup/releases/download/screenshots/$fname"
+  gh pr comment 23 --body "![$(basename $f .png)]($URL)"
 done
 
-# 5. サーバー停止
+# 5. サーバー停止 & worktree削除
 kill %1
+git worktree remove /tmp/wt-pr23 --force
 ```
 
 ---

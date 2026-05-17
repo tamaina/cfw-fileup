@@ -220,7 +220,7 @@ watch(() => entryPath.value, () => {
     </div>
 
     <div v-if="metaLoading" class="page-loading">
-      <span class="spinner" />読み込み中...
+      <span class="spinner"></span>読み込み中...
     </div>
     <div v-else-if="metaError" class="alert alert-error">{{ metaError }}</div>
     <template v-else>
