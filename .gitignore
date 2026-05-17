@@ -41,4 +41,4 @@ packages/app/test-results/
 
 # claude
 .claude/settings.local.json
-.claude/agent-memory/feature-implementer
+.claude/agent-memory
