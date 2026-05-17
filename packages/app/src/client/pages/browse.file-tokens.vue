@@ -303,7 +303,7 @@ onMounted(loadTokens);
       <div v-if="loading" class="text-muted" style="font-size:0.875rem">読み込み中...</div>
       <div v-else-if="listError" style="color:var(--color-danger); font-size:0.875rem">{{ listError }}</div>
       <div v-else-if="tokens.length === 0" class="text-muted" style="font-size:0.875rem">トークンはありません</div>
-      <table v-else class="table" style="width:100%; font-size:0.875rem">
+      <table v-else class="table data-table" style="width:100%; font-size:0.875rem">
         <thead>
           <tr>
             <th style="width: 9.5em;">ID</th>
