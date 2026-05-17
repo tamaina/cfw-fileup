@@ -13,7 +13,9 @@
     "MAX_BUCKETS_PER_USER": "",
     "MAX_BUCKET_SIZE_BYTES": "",
     "MAX_FILES_PER_BUCKET": "",
-    "MAX_DAILY_UPLOADS": ""
+    "MAX_DAILY_UPLOADS": "",
+    "TURNSTILE_SECRET": "",
+    "TURNSTILE_SITE_KEY": ""
   },
   "r2_buckets": [
     {

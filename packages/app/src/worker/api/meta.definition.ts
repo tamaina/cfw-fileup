@@ -16,8 +16,10 @@ export const metaApiSchema = [
 							properties: {
 								registrationEnabled: { type: 'boolean', description: 'Whether new user registration is enabled' },
 								passphraseRequired: { type: 'boolean', description: 'Whether signup passphrase is required' },
+								turnstileEnabled: { type: 'boolean', description: 'Whether Turnstile bot protection is enabled' },
+								turnstileSiteKey: { type: 'string', description: 'Turnstile site key for client-side widget' },
 							},
-							required: ['registrationEnabled', 'passphraseRequired'],
+							required: ['registrationEnabled', 'passphraseRequired', 'turnstileEnabled', 'turnstileSiteKey'],
 						} as const satisfies Schema,
 					},
 				},

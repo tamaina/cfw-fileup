@@ -1,6 +1,6 @@
 ---
 name: api-definition
-description: "worker/api/*.definition.ts の書き方と、SchemaType/ExtractRequestType/ExtractResponseTypeを使った型安全なAPI実装パターン"
+description: "worker/api/*.definition.ts の書き方と、SchemaType/ExtractRequestType/ExtractResponseTypeを使った型安全なAPI実装パターン。OpenAPIを分散して書いているので、apiの使い方は*.definition.tsを読むべき。"
 tags: [api, typescript, hono, schema, openapi]
 ---
 
