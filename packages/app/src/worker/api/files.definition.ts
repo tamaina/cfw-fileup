@@ -12,6 +12,8 @@ export const filesApiSchema = [
 				properties: {
 					bucketId: { type: 'string' },
 					path: { type: 'string' },
+					/** マルチパートアップロードのパートサイズ（バイト）。R2制約上5MiB未満は不可。デフォルト32MiB */
+					partSize: { type: 'integer', optional: true },
 				},
 				required: ['bucketId', 'path'],
 			} as const satisfies Schema,
@@ -26,8 +28,9 @@ export const filesApiSchema = [
 							properties: {
 								fileId: { type: 'string', description: 'File ID for upload' },
 								uploadExpiry: { type: 'number', description: 'Upload expiration timestamp' },
+								partSize: { type: 'integer', description: 'Part size in bytes for multipart upload' },
 							},
-							required: ['fileId', 'uploadExpiry'],
+							required: ['fileId', 'uploadExpiry', 'partSize'],
 						} as const satisfies Schema,
 					},
 				},
@@ -176,8 +179,9 @@ export const filesApiSchema = [
 							properties: {
 								partCount: { type: 'integer' },
 								offset: { type: 'integer' },
+								partSize: { type: 'integer', description: 'Part size in bytes' },
 							},
-							required: ['partCount', 'offset'],
+							required: ['partCount', 'offset', 'partSize'],
 						} as const satisfies Schema,
 					},
 				},

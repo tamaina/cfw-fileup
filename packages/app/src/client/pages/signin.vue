@@ -1,21 +1,48 @@
 <script setup lang="ts">
-import { ref, reactive } from 'vue';
+import { ref, reactive, computed } from 'vue';
 import { Button } from '@vuetify/v0';
 import { setToken, fetchCurrentUser } from '../store/auth';
 import { navigateTo } from '../navigate';
+import TurnstileWidget from '../components/turnstile-widget.vue';
 
 const form = reactive({ username: '', password: '' });
 const error = ref('');
 const loading = ref(false);
+const turnstileEnabled = ref(false);
+const turnstileSiteKey = ref('');
+const turnstileToken = ref<string | null>(null);
+
+async function fetchMeta(): Promise<void> {
+	try {
+		const res = await fetch('/api/meta');
+		const data = (await res.json()) as { turnstileEnabled?: boolean; turnstileSiteKey?: string };
+		turnstileEnabled.value = data.turnstileEnabled ?? false;
+		turnstileSiteKey.value = data.turnstileSiteKey ?? '';
+	} catch (e) {
+		console.error('Failed to fetch meta:', e);
+	}
+}
+
+fetchMeta();
+
+const canSubmit = computed(() => !turnstileEnabled.value || turnstileToken.value !== null);
 
 async function submit(): Promise<void> {
+	if (!canSubmit.value) return;
 	error.value = '';
 	loading.value = true;
 	try {
+		const body: Record<string, string> = {
+			username: form.username,
+			password: form.password,
+		};
+		if (turnstileEnabled.value && turnstileToken.value) {
+			body.turnstileToken = turnstileToken.value;
+		}
 		const res = await fetch('/api/signin', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ username: form.username, password: form.password }),
+			body: JSON.stringify(body),
 		});
 		const data = (await res.json()) as { token?: string; error?: string };
 		if (!res.ok) {
@@ -67,9 +94,15 @@ async function submit(): Promise<void> {
           >
         </div>
 
+        <TurnstileWidget
+          v-if="turnstileEnabled"
+          :site-key="turnstileSiteKey"
+          @update:token="turnstileToken = $event"
+        />
+
         <div v-if="error" class="alert alert-error">{{ error }}</div>
 
-        <Button.Root type="button" class="btn btn-primary w-full" style="justify-content: center" :loading="loading" @click="submit">
+        <Button.Root type="button" class="btn btn-primary w-full" style="justify-content: center" :loading="loading" :disabled="!canSubmit" @click="submit">
           <Button.Loading>処理中...</Button.Loading>
           <Button.Content>サインイン</Button.Content>
         </Button.Root>
