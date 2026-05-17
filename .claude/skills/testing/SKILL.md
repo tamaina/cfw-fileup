@@ -7,12 +7,13 @@ tags: [test, vitest, playwright, e2e]
 
 ## テストの種類
 
-このプロジェクトには3種類のテストがあります。
+このプロジェクトには4種類のテストがあります。
 
 | 種類 | ツール | 対象 | コマンド |
 |------|--------|------|---------|
 | Worker ユニット/インテグレーション | Vitest | `packages/app/test/worker/` | `pnpm --filter app test:worker` |
 | 共有コード ユニット | Vitest | `packages/app/test/eaid-x.test.ts` | `pnpm --filter app test` |
+| BGZF ユニット | Vitest | `packages/bgzf/test/index.test.ts` | `pnpm --filter bgzf test` |
 | E2E | Playwright | `packages/app/test/e2e/` | `pnpm --filter app test:e2e` |
 
 型チェックもテストの一環として使います（→ [lint スキル](../lint/SKILL.md)）。
@@ -45,6 +46,28 @@ pnpm --filter app test:worker:watch
 # eaid-x テストを含む全 Vitest テスト
 pnpm --filter app test
 ```
+
+---
+
+## BGZF テスト （Vitest）
+
+`packages/bgzf/test/index.test.ts` — `packages/bgzf` のユニットテスト。テスト環境は `node`。
+
+### 実行コマンド
+
+```sh
+# 全 bgzf テスト
+pnpm --filter bgzf test
+
+# ウォッチモード
+pnpm --filter bgzf test:watch
+```
+
+### テスト構成（describe ブロック）
+
+- **`createBgzfBlock`** — BGZF ブロックのヘッダフィールド・CRC32・ISIZE・ラウンドトリップ・サイズ上限を検証
+- **`TarArchiver`** — `FileSystemDirectoryHandle` をモックし、tar ストリームの内容とインデックス（オフセット・サイズ）を検証
+- **`BgzfTarArchiver`** — BGZF 圧縮 tar のブロック構造・ラウンドトリップ・インデックスのブロック境界情報を検証
 
 ---
 

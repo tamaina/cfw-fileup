@@ -1,7 +1,6 @@
 ---
 name: api-definition
 description: "worker/api/*.definition.ts の書き方と、SchemaType/ExtractRequestType/ExtractResponseTypeを使った型安全なAPI実装パターン"
-context: fork
 tags: [api, typescript, hono, schema, openapi]
 ---
 
