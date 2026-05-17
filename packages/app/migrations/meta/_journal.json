@@ -29,6 +29,13 @@
       "when": 1778760279570,
       "tag": "0003_hard_oracle",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1747700000000,
+      "tag": "0010_add_part_size",
+      "breakpoints": true
     }
   ]
 }
