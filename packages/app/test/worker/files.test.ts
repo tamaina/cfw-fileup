@@ -241,7 +241,8 @@ describe('POST /api/files/create/status', () => {
 
 	test('returns correct partCount and offset after a part is uploaded', async () => {
 		const { token, bucketId } = await setupUserAndBucket();
-		const PART_SIZE = 5 * 1024 * 1024;
+		// デフォルトのpartSizeは32MiB
+		const DEFAULT_PART_SIZE = 32 * 1024 * 1024;
 
 		const openRes = await app.request('/api/files/create/open', {
 			method: 'POST',
@@ -271,7 +272,7 @@ describe('POST /api/files/create/status', () => {
 		expect(res.status).toBe(200);
 		const body = await res.json() as Record<string, unknown>;
 		expect(body.partCount).toBe(1);
-		expect(body.offset).toBe(PART_SIZE);
+		expect(body.offset).toBe(DEFAULT_PART_SIZE);
 	});
 
 	test('nonexistent fileId returns 404', async () => {
