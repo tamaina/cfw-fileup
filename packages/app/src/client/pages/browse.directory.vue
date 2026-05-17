@@ -30,6 +30,8 @@ interface DisplayEntry {
 
 const downloadUrl = computed(() => `/d/${props.bucketName}/${props.filePath}`);
 const decompressUrl = computed(() => `/d/${props.bucketName}/${props.filePath}?decompress`);
+// Issue #31: Convert tar/tar.gz to ZIP via Service Worker
+const zipUrl = computed(() => `/d/${props.bucketName}/${props.filePath}?zip`);
 
 const entries = ref<DisplayEntry[]>([]);
 const error = ref('');
@@ -308,6 +310,8 @@ watch(() => props.entryPath, (newEntryPath) => {
     <div v-if="isArchive" class="flex gap-2 items-center mb-3 flex-wrap">
       <a :href="downloadUrl" download class="btn btn-secondary">ダウンロード</a>
       <a v-if="isTargz" :href="decompressUrl" download class="btn btn-secondary">展開してダウンロード (.tar)</a>
+      <!-- Issue #31: Download as ZIP (Service Worker converts tar/tar.gz → ZIP) -->
+      <a :href="zipUrl" download class="btn btn-secondary">ZIPとしてダウンロード</a>
       <Button.Root v-if="authStore.user" class="btn btn-ghost-danger" @click="archiveDeleteDialog = true">
         <Button.Content>削除</Button.Content>
       </Button.Root>

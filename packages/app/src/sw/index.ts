@@ -1,5 +1,7 @@
 import { isBgzf, createBgzfDecompressor } from 'bgzf';
 import { fileTypeFromStream } from 'file-type';
+import { parseTar } from './tar-parser';
+import { generateZip } from './zip-generator';
 
 const sw = self as unknown as ServiceWorkerGlobalScope;
 
@@ -64,9 +66,65 @@ async function handleFileInArchive(request: Request): Promise<Response> {
 	return new Response(decompressed, { status: response.status, headers: newHeaders });
 }
 
+/**
+ * Issue #31: Convert tar/tar.gz to ZIP in the Service Worker.
+ * Fetches the original archive (removing the ?zip param), decompresses gzip if
+ * needed, parses the tar stream with parseTar, and streams a ZIP to the client.
+ */
+async function handleTarToZip(request: Request): Promise<Response> {
+	const url = new URL(request.url);
+
+	// Build origin URL without ?zip
+	const originUrl = new URL(request.url);
+	originUrl.searchParams.delete('zip');
+
+	const response = await fetch(originUrl);
+	if (!response.body) return response;
+
+	const peek = await peekStream(response.body);
+	if (!peek) return response;
+	const { rebuilt, gzip, bgzf } = peek;
+
+	// Decompress gzip layer to get raw tar stream
+	let tarStream: ReadableStream<Uint8Array<ArrayBuffer>>;
+	if (gzip) {
+		tarStream = bgzf
+			? rebuilt.pipeThrough(createBgzfDecompressor())
+			: rebuilt.pipeThrough(new DecompressionStream('gzip'));
+	} else {
+		tarStream = rebuilt;
+	}
+
+	// Determine a suitable filename for the ZIP
+	const rawFilename = url.pathname.split('/').pop() ?? 'archive';
+	let zipFilename = rawFilename;
+	if (zipFilename.endsWith('.tar.gz')) {
+		zipFilename = zipFilename.slice(0, -7);
+	} else if (zipFilename.endsWith('.tgz')) {
+		zipFilename = zipFilename.slice(0, -4);
+	} else if (zipFilename.endsWith('.tar')) {
+		zipFilename = zipFilename.slice(0, -4);
+	}
+	zipFilename += '.zip';
+
+	// parseTar yields entries one at a time; generateZip consumes them as a ZIP stream
+	const tarEntries = parseTar(tarStream);
+	const zipStream = generateZip(tarEntries);
+
+	const newHeaders = new Headers();
+	newHeaders.set('Content-Type', 'application/zip');
+	newHeaders.set('Content-Disposition', `attachment; filename="${zipFilename}"`);
+	return new Response(zipStream, { status: 200, headers: newHeaders });
+}
+
 async function handleFullArchive(request: Request): Promise<Response> {
 	const url = new URL(request.url);
 	const decompress = url.searchParams.has('decompress');
+
+	// Issue #31: convert tar/tar.gz to ZIP
+	if (url.searchParams.has('zip')) {
+		return handleTarToZip(request);
+	}
 
 	let originUrl = url;
 	if (decompress) {
