@@ -56,6 +56,43 @@ const deleteDialog = ref(false);
 const deleteTarget = ref<DisplayEntry | null>(null);
 const archiveDeleteDialog = ref(false);
 
+// 一括選択・削除用の状態
+const selectedPaths = ref<Set<string>>(new Set());
+const bulkDeleteDialog = ref(false);
+
+/** 選択可能なファイル（ディレクトリは除く）の一覧 */
+const selectableFiles = computed(() => entries.value.filter(e => !e.isDir));
+
+/** 全ファイル選択チェックボックスの状態 */
+const isAllSelected = computed(() => {
+	if (selectableFiles.value.length === 0) return false;
+	return selectableFiles.value.every(e => selectedPaths.value.has(e.fullPath));
+});
+
+/** 一部選択状態（indeterminate） */
+const isPartiallySelected = computed(() => {
+	const count = selectedPaths.value.size;
+	return count > 0 && count < selectableFiles.value.length;
+});
+
+function toggleSelectAll(): void {
+	if (isAllSelected.value) {
+		selectedPaths.value = new Set();
+	} else {
+		selectedPaths.value = new Set(selectableFiles.value.map(e => e.fullPath));
+	}
+}
+
+function toggleSelect(path: string): void {
+	const next = new Set(selectedPaths.value);
+	if (next.has(path)) {
+		next.delete(path);
+	} else {
+		next.add(path);
+	}
+	selectedPaths.value = next;
+}
+
 async function loadBucketId(): Promise<void> {
 	if (!authStore.user) return;
 	const res = await fetch('/api/buckets/list', {
@@ -124,6 +161,31 @@ async function executeDeleteEntry(): Promise<void> {
 	await load();
 }
 
+async function executeBulkDelete(): Promise<void> {
+	bulkDeleteDialog.value = false;
+	deleteError.value = '';
+	const paths = Array.from(selectedPaths.value);
+	const failed: string[] = [];
+
+	for (const path of paths) {
+		const res = await fetch(`/d/${props.bucketName}/${path}`, {
+			method: 'DELETE',
+			headers: authHeaders(),
+		});
+		if (!res.ok) {
+			failed.push(path);
+		}
+	}
+
+	selectedPaths.value = new Set();
+
+	if (failed.length > 0) {
+		deleteError.value = `${failed.length} 件の削除に失敗しました: ${failed.join(', ')}`;
+	}
+
+	await load();
+}
+
 function buildArchiveEntries(): void {
 	const seenDirs = new Set<string>();
 	const result: DisplayEntry[] = [];
@@ -184,6 +246,8 @@ function navigateArchiveUp(): void {
 async function load(): Promise<void> {
 	loading.value = true;
 	error.value = '';
+	// ロード時に選択状態をリセット
+	selectedPaths.value = new Set();
 	try {
 		if (isArchive.value) {
 			const res = await fetch(`${downloadUrl.value}?list`, { headers: authHeaders() });
@@ -332,6 +396,14 @@ watch(() => props.entryPath, (newEntryPath) => {
         </Button.Root>
       </form>
       <span v-if="mkdirError" class="text-danger" style="font-size:0.8rem">{{ mkdirError }}</span>
+
+      <!-- 一括削除ボタン -->
+      <template v-if="selectedPaths.size > 0">
+        <span class="badge badge-info">{{ selectedPaths.size }} 件選択中</span>
+        <Button.Root class="btn btn-ghost-danger" @click="bulkDeleteDialog = true">
+          <Button.Content>まとめて削除</Button.Content>
+        </Button.Root>
+      </template>
     </div>
 
     <div v-if="loading" class="page-loading">
@@ -354,6 +426,17 @@ watch(() => props.entryPath, (newEntryPath) => {
           <table class="data-table">
             <thead>
               <tr>
+                <!-- チェックボックス列 (ログイン中の通常ディレクトリのみ) -->
+                <th v-if="!isArchive && authStore.user && bucketId" class="col-checkbox">
+                  <input
+                    type="checkbox"
+                    :checked="isAllSelected"
+                    :indeterminate="isPartiallySelected"
+                    :disabled="selectableFiles.length === 0"
+                    style="cursor:pointer"
+                    @change="toggleSelectAll"
+                  >
+                </th>
                 <th>名前</th>
                 <th class="col-right">サイズ</th>
                 <th>種類</th>
@@ -368,11 +451,21 @@ watch(() => props.entryPath, (newEntryPath) => {
                 </td>
               </tr>
               <tr v-else-if="parentPath()">
-                <td :colspan="!isArchive && authStore.user && bucketId ? 5 : !isArchive && authStore.user ? 4 : 3">
+                <td :colspan="!isArchive && authStore.user && bucketId ? 6 : !isArchive && authStore.user ? 4 : 3">
                   <NirA :to="parentPath()!" class="text-muted font-mono" style="font-size:0.875rem">..</NirA>
                 </td>
               </tr>
               <tr v-for="entry in entries" :key="entry.key">
+                <!-- チェックボックスセル (ファイルのみ選択可) -->
+                <td v-if="!isArchive && authStore.user && bucketId" class="col-checkbox">
+                  <input
+                    v-if="!entry.isDir"
+                    type="checkbox"
+                    :checked="selectedPaths.has(entry.fullPath)"
+                    style="cursor:pointer"
+                    @change="toggleSelect(entry.fullPath)"
+                  >
+                </td>
                 <td>
                   <button v-if="isArchive && entry.isDir" style="background:none; border:none; cursor:pointer; padding:0; font-weight:500; font-size:inherit; color:inherit" @click="navigateArchiveDir(entry.fullPath)">
                     <span style="margin-right:4px">📁</span>{{ entry.name }}
@@ -400,7 +493,7 @@ watch(() => props.entryPath, (newEntryPath) => {
                 </td>
               </tr>
               <tr v-if="entries.length === 0">
-                <td :colspan="!isArchive && authStore.user && bucketId ? 5 : !isArchive && authStore.user ? 4 : 3">
+                <td :colspan="!isArchive && authStore.user && bucketId ? 6 : !isArchive && authStore.user ? 4 : 3">
                   <div class="empty-state">
                     <p>エントリがありません。</p>
                   </div>
@@ -422,6 +515,17 @@ watch(() => props.entryPath, (newEntryPath) => {
       :danger="true"
       @confirm="executeDeleteEntry"
       @cancel="deleteDialog = false"
+    />
+
+    <!-- 一括削除確認ダイアログ -->
+    <ConfirmDialog
+      v-model:open="bulkDeleteDialog"
+      title="複数ファイルを削除"
+      :message="`選択した ${selectedPaths.size} 件のファイルを削除しますか？`"
+      confirm-label="削除する"
+      :danger="true"
+      @confirm="executeBulkDelete"
+      @cancel="bulkDeleteDialog = false"
     />
 
     <!-- 削除確認ダイアログ（アーカイブ） -->
