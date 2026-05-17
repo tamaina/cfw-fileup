@@ -1,7 +1,6 @@
 ---
 name: ecma-stream
 description: "TypeScript/JavaScriptでStreamを扱う際の注意点。バックプレッシャーの話など。"
-context: fork
 tags: [typescript, stream]
 ---
 

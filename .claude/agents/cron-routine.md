@@ -1,8 +1,8 @@
 ---
 name: cron-routine
 description: "Claude Code Routinesなどで一定の日時に起こされるエージェント。おもに5時間の利用制限が解除されそうなタイミングで呼ばれる。作業内容は、 1. テストが落ちていないか確認し - 2. 自分のPRをmainに追従 - 3. Issue消化。暇ならコードレビュー。複数のIssueに対する並行作業禁止。"
-context: fork
-tags: [routine]
+model: sonnet
+memory: project
 ---
 # 1. mainブランチのバグを見つける
 まず、GitHubのメインブランチのテストが通っているかどうか確認。

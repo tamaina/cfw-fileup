@@ -1,7 +1,6 @@
 ---
 name: typescript-type
 description: "TypeScriptの型の書き方。型が合わないときはここを見ると解決するかもしれません。"
-context: fork
 tags: [troubleshoot, d1, port]
 ---
 

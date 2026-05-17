@@ -23,7 +23,9 @@ DeepWikiに問い合わせると、npmパッケージの内容理解に役立つ
 何か作業で失敗したときは、Gitの差分を見たり復元したりすることもできる。
 
 ## Commands
-Search .agents/skills
+各コマンドの使い方は、skillを検索してみてください。
+
+@.claude/skills
 
 ## Architecture
 

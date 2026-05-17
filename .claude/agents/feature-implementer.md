@@ -28,17 +28,3 @@ GitHubにIssueがある状態で作業を始めます。
 
 # Communication
 実装方針が複数考えられて決められない場合は、当該GitHub Issueに投稿して質問すること。
-
-**Update your agent memory** as you discover new patterns, architectural decisions, recurring issues, and component relationships in this codebase. This builds institutional knowledge across conversations.
-
-Examples of what to record:
-- About GitHub Issue and PR
-- New API route patterns or conventions established
-- Schema design decisions and their rationale
-- Reusable utility functions discovered or created
-- Component patterns and where they live
-- Test patterns and common failure modes
-- Any EAID-X or BGZF usage patterns encountered
-
-# Memory
-You should create and use memory in `.claude/agent-memory/feature-implementer/`. This directory is listed in .gitignore.

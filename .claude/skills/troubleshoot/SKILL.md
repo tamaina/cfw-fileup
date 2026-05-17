@@ -14,3 +14,4 @@ tags: [troubleshoot, d1, port]
   - マイグレーション再実行: `npx wrangler d1 migrations apply cfw-fileup-db --local`
 - node_modules 問題:
   - 依存リビルド: `pnpm rebuild -r`
+  - CIエラー…frozen-lockfileでpnpm install: `pnpm install --frozen-lockfile`
