@@ -8,6 +8,8 @@ memory: project
 # コード編集時の心構え
 **coding-guideスキルの内容を肝に銘じること。**
 
+@../rules/coding-guide.md
+
 # 目的
 
 reviewer が報告した issue を、

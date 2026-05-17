@@ -26,5 +26,7 @@ GitHubにIssueがある状態で作業を始めます。
 # コード編集時の心構え
 **coding-guideスキルの内容を肝に銘じること。**
 
+@../rules/coding-guide.md
+
 # Communication
 実装方針が複数考えられて決められない場合は、当該GitHub Issueに投稿して質問すること。
