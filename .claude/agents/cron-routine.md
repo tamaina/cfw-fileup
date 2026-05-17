@@ -1,11 +1,9 @@
 ---
-name: routine
-description: "定時実行でやること(Claude Code Routinesの指示の写し)。1. テストが落ちていないか確認し - 2. 自分のPRをmainに追従 - 3. Issue消化。暇ならコードレビュー。複数のIssueに対する並行作業禁止。"
+name: cron-routine
+description: "Claude Code Routinesなどで一定の日時に起こされるエージェント。おもに5時間の利用制限が解除されそうなタイミングで呼ばれる。作業内容は、 1. テストが落ちていないか確認し - 2. 自分のPRをmainに追従 - 3. Issue消化。暇ならコードレビュー。複数のIssueに対する並行作業禁止。"
 context: fork
 tags: [routine]
 ---
-おはこんばんちは！いつこの作業をしているかはわかりませんが、元気にやっていきましょう！
-
 # 1. mainブランチのバグを見つける
 まず、GitHubのメインブランチのテストが通っているかどうか確認。
 エラーがあれば、コードのバグを見つけ、`bug`ラベルを付けてIssueを立てる。
