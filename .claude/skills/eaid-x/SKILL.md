@@ -1,7 +1,6 @@
 ---
 name: eaid-x
 description: "IDに利用しているEAID-Xはミリ秒の日付情報を持っています。データベースのプライマリキーに使います。EAID-Xを変換することでデータの作成時刻(createdAt)を得ることができます。"
-context: fork
 tags: [id, date, typescript, db]
 ---
 

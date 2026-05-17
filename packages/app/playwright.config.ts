@@ -1,8 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
 
-// Use pre-installed browsers in this environment
-process.env['PLAYWRIGHT_BROWSERS_PATH'] ??= '/opt/pw-browsers';
-
 export default defineConfig({
 	testDir: './test/e2e',
 	fullyParallel: false,
