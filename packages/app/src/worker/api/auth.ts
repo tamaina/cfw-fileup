@@ -19,7 +19,7 @@ app.post('/signup', async (c) => {
 		throw new HTTPException(400, { message: 'username and password are required' });
 	}
 
-	if ((c.env.TURNSTILE_SECRET as string) !== '') {
+	if (c.env.TURNSTILE_SECRET !== '') {
 		const token = body.turnstileToken;
 		if (!token || !await verifyTurnstile(token, c.env.TURNSTILE_SECRET)) {
 			throw new HTTPException(400, { message: 'Turnstile verification failed' });
@@ -119,7 +119,7 @@ app.post('/signin', async (c) => {
 		throw new HTTPException(400, { message: 'username and password are required' });
 	}
 
-	if ((c.env.TURNSTILE_SECRET as string) !== '') {
+	if (c.env.TURNSTILE_SECRET !== '') {
 		const token = body.turnstileToken;
 		if (!token || !await verifyTurnstile(token, c.env.TURNSTILE_SECRET)) {
 			throw new HTTPException(400, { message: 'Turnstile verification failed' });

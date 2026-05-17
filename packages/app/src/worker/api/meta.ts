@@ -29,15 +29,15 @@ app.get('/meta', async (c) => {
 		return c.json({
 			registrationEnabled: registrationEnabledSetting?.value !== 'false',
 			passphraseRequired: !!passphraseRequired,
-			turnstileEnabled: (c.env.TURNSTILE_SECRET as string) !== '',
+			turnstileEnabled: c.env.TURNSTILE_SECRET !== '',
 			turnstileSiteKey: c.env.TURNSTILE_SITE_KEY,
 		} as ExtractResponseType<typeof metaApiSchema, '/api/meta', 'get', 200>);
 	} catch {
 		return c.json({
 			registrationEnabled: true,
 			passphraseRequired: false,
-			turnstileEnabled: false,
-			turnstileSiteKey: '',
+			turnstileEnabled: !!c.env.TURNSTILE_SECRET,
+			turnstileSiteKey: c.env.TURNSTILE_SITE_KEY,
 		} as ExtractResponseType<typeof metaApiSchema, '/api/meta', 'get', 200>);
 	}
 });

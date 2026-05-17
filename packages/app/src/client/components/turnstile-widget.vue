@@ -7,16 +7,22 @@ const emit = defineEmits<{ (e: 'update:token', token: string | null): void }>();
 const container = ref<HTMLDivElement | null>(null);
 let widgetId: string | undefined;
 
+let scriptLoadPromise: Promise<void> | null = null;
+
 function loadScript(): Promise<void> {
-	return new Promise((resolve, reject) => {
+	if (scriptLoadPromise) return scriptLoadPromise;
+	scriptLoadPromise = new Promise((resolve, reject) => {
 		if (document.querySelector('script[data-turnstile]')) { resolve(); return; }
 		const s = document.createElement('script');
-		s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
 		s.setAttribute('data-turnstile', '');
+		s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
+		s.async = true;
+		s.defer = true;
 		s.onload = () => resolve();
-		s.onerror = () => reject(new Error('Failed to load Turnstile script'));
+		s.onerror = (e) => { scriptLoadPromise = null; reject(new Error('Failed to load Turnstile script')); };
 		document.head.appendChild(s);
 	});
+	return scriptLoadPromise;
 }
 
 onMounted(async () => {

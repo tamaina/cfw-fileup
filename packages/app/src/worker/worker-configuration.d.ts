@@ -13,8 +13,8 @@ declare namespace Cloudflare {
 		MAX_BUCKET_SIZE_BYTES: "";
 		MAX_FILES_PER_BUCKET: "";
 		MAX_DAILY_UPLOADS: "";
-		TURNSTILE_SECRET: "";
-		TURNSTILE_SITE_KEY: "";
+		TURNSTILE_SECRET: string;
+		TURNSTILE_SITE_KEY: string;
 		SIGNUP_PASSPHRASE: string;
 	}
 }
