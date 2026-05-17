@@ -156,10 +156,12 @@ gh release create "screenshots" --title "Screenshots" --notes ""
 # すでにドラフトで作った場合は公開に変更
 gh release edit "screenshots" --draft=false --latest=false
 
-# 2. ファイル名にPR番号プレフィックスをつけてアップロード
-cp /tmp/ss/signin.png /tmp/ss/pr23-signin.png
-gh release upload "screenshots" /tmp/ss/pr23-signin.png --clobber
-URL="https://github.com/tamaina/cfw-fileup/releases/download/screenshots/pr23-signin.png"
+# 2. ファイル名に PR番号+Unix時刻 プレフィックスをつけてアップロード
+#    （Unix時刻でCDNキャッシュを回避）
+TS=$(date +%s)
+cp /tmp/ss/signin.png /tmp/ss/pr23-${TS}-signin.png
+gh release upload "screenshots" /tmp/ss/pr23-${TS}-signin.png --clobber
+URL="https://github.com/tamaina/cfw-fileup/releases/download/screenshots/pr23-${TS}-signin.png"
 
 # 3. PR コメントに埋め込む（リポジトリ内から実行すること）
 gh pr comment 23 --body "![signin]($URL)"
@@ -168,9 +170,13 @@ gh pr comment 23 --body "![signin]($URL)"
 ### PR へのスクリーンショット投稿の一連の流れ（複数PR対応）
 
 ```sh
+TS=$(date +%s)
+SS_DIR=/tmp/ss-pr23-${TS}
+mkdir -p "$SS_DIR"
+
 # 1. worktree 作成 & install & migrate
-git worktree add /tmp/wt-pr23 origin/feature/xxx
-cd /tmp/wt-pr23
+git worktree add /tmp/wt-pr23-${TS} origin/feature/xxx
+cd /tmp/wt-pr23-${TS}
 pnpm install --frozen-lockfile --ignore-scripts
 pnpm --filter app run db:reset
 pnpm --filter app run db:migrate:local
@@ -181,22 +187,22 @@ until curl -sf http://localhost:5173 > /dev/null; do sleep 2; done
 
 # 3. 撮影（スクリプトはメインリポジトリのものを使用）
 cd /path/to/main-repo
-BASE_URL=http://localhost:5173 SCENARIO=directory SCREENSHOTS_DIR=/tmp/ss-pr23 \
+BASE_URL=http://localhost:5173 SCENARIO=directory SCREENSHOTS_DIR="$SS_DIR" \
   pnpm --filter app run screenshot
 
-# 4. PR番号プレフィックスをつけてリネーム → アップロード（リポジトリ内から実行）
+# 4. PR番号+Unix時刻プレフィックスをつけてリネーム → アップロード（リポジトリ内から実行）
 cd /path/to/main-repo
-for f in /tmp/ss-pr23/*.png; do
-  fname="pr23-$(basename $f)"
-  cp "$f" "/tmp/ss-pr23/$fname"
-  gh release upload "screenshots" "/tmp/ss-pr23/$fname" --clobber
+for f in "${SS_DIR}"/*.png; do
+  fname="pr23-${TS}-$(basename $f)"
+  mv "$f" "${SS_DIR}/$fname"
+  gh release upload "screenshots" "${SS_DIR}/$fname" --clobber
   URL="https://github.com/tamaina/cfw-fileup/releases/download/screenshots/$fname"
   gh pr comment 23 --body "![$(basename $f .png)]($URL)"
 done
 
 # 5. サーバー停止 & worktree削除
 kill %1
-git worktree remove /tmp/wt-pr23 --force
+git worktree remove /tmp/wt-pr23-${TS} --force
 ```
 
 ---
