@@ -1,8 +1,6 @@
 ---
 name: cron-routine
 description: "Claude Code Routinesなどで一定の日時に起動して作業するためのスキル。おもに5時間の利用制限が解除されそうなタイミングで呼ばれる。作業内容は、 1. テストが落ちていないか確認し - 2. 自分のPRをmainに追従 - 3. PR/Issueについたコメントに対処 - 4. Issue消化。暇ならコードレビュー。複数のIssueに対する並行作業禁止。"
-model: sonnet
-memory: project
 ---
 
 # 1. mainブランチのバグを見つける
