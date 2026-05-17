@@ -15,7 +15,12 @@ interface Bucket {
 	name: string;
 }
 
-const CHUNK_SIZE = 5 * 1024 * 1024;
+/** デフォルトのチャンクサイズ: 32MiB
+ * R2のマルチパートアップロードはパートごとにClass A操作となるため、
+ * コストを抑えるためにデフォルトを大きく設定する。
+ * サーバーからpartSizeが返された場合はそちらを優先する。
+ */
+const DEFAULT_CHUNK_SIZE = 32 * 1024 * 1024;
 
 const buckets = ref<Bucket[]>([]);
 const selectedBucketName = ref(props.bucketName);
@@ -128,14 +133,14 @@ async function getUploadPartCount(fileId: string): Promise<number> {
 	return data?.partCount ?? -1;
 }
 
-async function tusUpload(fileId: string, blob: Blob, filename: string, onProgress?: (uploaded: number) => void): Promise<boolean> {
+async function tusUpload(fileId: string, blob: Blob, filename: string, partSize: number, onProgress?: (uploaded: number) => void): Promise<boolean> {
 	const total = blob.size;
 	let offset = Math.max(0, await getResumeOffset(fileId));
 	onProgress?.(offset);
 
 	while (offset < total) {
-		const chunk = blob.slice(offset, offset + CHUNK_SIZE);
-		const chunkIndex = offset / CHUNK_SIZE; // 0始まりのチャンク番号
+		const chunk = blob.slice(offset, offset + partSize);
+		const chunkIndex = offset / partSize; // 0始まりのチャンク番号
 		let success = false;
 
 		for (let attempt = 0; attempt < 3; attempt++) {
@@ -163,7 +168,7 @@ async function tusUpload(fileId: string, blob: Blob, filename: string, onProgres
 					await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
 					const partCount = await getUploadPartCount(fileId);
 					if (partCount > chunkIndex) {
-						offset = partCount * CHUNK_SIZE;
+						offset = partCount * partSize;
 						onProgress?.(offset);
 						success = true;
 						break;
@@ -194,16 +199,22 @@ async function deleteExistingFile(path: string): Promise<boolean> {
 	return res.ok;
 }
 
-async function openUpload(path: string): Promise<string | null> {
+interface OpenUploadResult {
+	fileId: string;
+	partSize: number;
+}
+
+async function openUpload(path: string): Promise<OpenUploadResult | null> {
 	if (!bucket.value) return null;
 	const res = await fetch('/api/files/create/open', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json', ...authHeaders() },
+		// サーバーのデフォルト (32MiB) を使用するためpartSizeは省略可能
 		body: JSON.stringify({ bucketId: bucket.value.id, path }),
 	});
-	const data = (await res.json()) as { fileId?: string; error?: string };
+	const data = (await res.json()) as { fileId?: string; partSize?: number; error?: string };
 	if (!res.ok) { uploadError.value = data.error ?? 'アップロード開始失敗'; return null; }
-	return data.fileId!;
+	return { fileId: data.fileId!, partSize: data.partSize ?? DEFAULT_CHUNK_SIZE };
 }
 
 async function closeUpload(fileId: string): Promise<boolean> {
@@ -222,9 +233,10 @@ async function closeUpload(fileId: string): Promise<boolean> {
 
 /** Upload a Blob (File or OPFS File) via TUS. */
 async function uploadBlob(blob: Blob, path: string, onProgress?: (uploaded: number) => void): Promise<boolean> {
-	const fileId = await openUpload(path);
-	if (!fileId) return false;
-	if (!(await tusUpload(fileId, blob, path, onProgress)) || !(await closeUpload(fileId))) {
+	const result = await openUpload(path);
+	if (!result) return false;
+	const { fileId, partSize } = result;
+	if (!(await tusUpload(fileId, blob, path, partSize, onProgress)) || !(await closeUpload(fileId))) {
 		await deleteExistingFile(path);
 		return false;
 	}
@@ -244,14 +256,16 @@ async function uploadStream(stream: ReadableStream<Uint8Array>, path: string, on
 class TusChunkQueue {
 	private fileId: string;
 	private path: string;
+	private partSize: number;
 	private onUploadedBytes?: (total: number) => void;
 	private queueChain: Promise<boolean> = Promise.resolve(true);
 	private hasError = false;
 	private pendingUploads: Promise<boolean>[] = [];
 
-	constructor(fileId: string, path: string, onUploadedBytes?: (total: number) => void) {
+	constructor(fileId: string, path: string, partSize: number, onUploadedBytes?: (total: number) => void) {
 		this.fileId = fileId;
 		this.path = path;
+		this.partSize = partSize;
 		this.onUploadedBytes = onUploadedBytes;
 	}
 
@@ -370,17 +384,18 @@ class TusChunkQueue {
 	}
 }
 
-/** Open upload then stream in CHUNK_SIZE pieces via OPFS. Returns fileId or null on error. */
+/** Open upload then stream in partSize pieces via OPFS. Returns fileId or null on error. */
 async function uploadChunkedStream(
 	stream: ReadableStream<Uint8Array>,
 	path: string,
 	onUploadedBytes?: (total: number) => void,
 ): Promise<string | null> {
-	const fileId = await openUpload(path);
-	if (!fileId) return null;
+	const result = await openUpload(path);
+	if (!result) return null;
+	const { fileId, partSize } = result;
 
 	const reader = stream.getReader();
-	const queue = new TusChunkQueue(fileId, path, onUploadedBytes);
+	const queue = new TusChunkQueue(fileId, path, partSize, onUploadedBytes);
 	let buf = new Uint8Array(0);
 	let offset = 0;
 	let partNum = 0;
@@ -395,9 +410,9 @@ async function uploadChunkedStream(
 				buf = next;
 			}
 
-			if (buf.length >= CHUNK_SIZE) {
-				const chunk = buf.slice(0, CHUNK_SIZE);
-				buf = buf.slice(CHUNK_SIZE);
+			if (buf.length >= partSize) {
+				const chunk = buf.slice(0, partSize);
+				buf = buf.slice(partSize);
 				if (!(await queue.appendChunk(chunk, offset, partNum++, false))) {
 					await deleteExistingFile(path);
 					return null;
@@ -406,10 +421,10 @@ async function uploadChunkedStream(
 			}
 
 			if (done) {
-				// 残りのバッファを全て送信（5MB超過でも分割して対応）
+				// 残りのバッファを全て送信（partSize超過でも分割して対応）
 				while (buf.length > 0) {
-					const isFinal = buf.length <= CHUNK_SIZE;
-					const chunk = isFinal ? buf : buf.slice(0, CHUNK_SIZE);
+					const isFinal = buf.length <= partSize;
+					const chunk = isFinal ? buf : buf.slice(0, partSize);
 					buf = buf.slice(chunk.length);
 					if (!(await queue.appendChunk(chunk, offset, partNum++, isFinal))) {
 						await deleteExistingFile(path);

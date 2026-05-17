@@ -41,6 +41,7 @@ export async function setupDb(): Promise<void> {
 			is_targz integer DEFAULT false NOT NULL,
 			is_tar integer DEFAULT false NOT NULL,
 			upload_id text,
+			part_size integer NOT NULL DEFAULT 33554432,
 			FOREIGN KEY (bucket_id) REFERENCES buckets(id) ON DELETE CASCADE,
 			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 		)`),
