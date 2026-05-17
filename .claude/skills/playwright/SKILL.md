@@ -138,23 +138,21 @@ git worktree remove /tmp/pr-39 --force
 
 ## GitHub Issue/PR への添付
 
-`gh` v2.48 以降なら `--attach` で直接添付できる:
+`gh pr comment --attach` は現在のバージョンでは使用不可。  
+**GitHub Release のドラフトアセット** を経由してURLを取得し、markdownに埋め込む:
 
 ```sh
-gh pr comment <PR_NUMBER> \
-  --body "動作確認の結果です" \
-  --attach screenshots/result.png
+# 1. ドラフトリリース作成（初回のみ）
+gh release create "screenshots" --title "Screenshots" --notes "" --draft
 
-# 複数ファイル
-gh pr comment <PR_NUMBER> \
-  --body "ビフォー/アフター" \
-  --attach screenshots/before.png \
-  --attach screenshots/after.png
+# 2. 画像をアップロードしてURLを取得
+FILENAME="my-shot-$(date +%s).png"
+gh release upload "screenshots" "/tmp/ss/result.png#$FILENAME" --clobber
+TAG=$(gh release view "screenshots" --json tagName -q .tagName)
+URL="https://github.com/tamaina/cfw-fileup/releases/download/$TAG/$FILENAME"
 
-# Issue も同様
-gh issue comment <ISSUE_NUMBER> \
-  --body "スクリーンショットです" \
-  --attach screenshots/result.png
+# 3. PR コメントに埋め込む
+gh pr comment <PR_NUMBER> --body "![screenshot]($URL)"
 ```
 
 ### PR へのスクリーンショット投稿の一連の流れ
@@ -164,15 +162,23 @@ gh issue comment <ISSUE_NUMBER> \
 pnpm --filter app dev > /tmp/dev.log 2>&1 &
 until curl -s http://localhost:5173 > /dev/null; do sleep 2; done
 
-# 2. 撮影
+# 2. DBマイグレーション（ワークツリーの場合）
+pnpm --filter app run db:migrate:local
+
+# 3. 撮影
 BASE_URL=http://localhost:5173 SCENARIO=directory SCREENSHOTS_DIR=/tmp/ss \
   pnpm --filter app run screenshot
 
-# 3. GitHub に投稿
-ATTACH=$(ls /tmp/ss/*.png | sed 's/^/--attach /' | tr '\n' ' ')
-gh pr comment 39 --body "スクリーンショット（directory ビュー）" $ATTACH
+# 4. GitHub Release にアップロードして URL 取得
+TAG=$(gh release view "screenshots" --json tagName -q .tagName)
+for f in /tmp/ss/*.png; do
+  name="$(basename $f .png)-$(date +%s%3N).png"
+  gh release upload "screenshots" "$f#$name" --clobber 2>/dev/null
+  URL="https://github.com/tamaina/cfw-fileup/releases/download/$TAG/$name"
+  gh pr comment <PR_NUMBER> --body "![$(basename $f .png)]($URL)"
+done
 
-# 4. サーバー停止
+# 5. サーバー停止
 kill %1
 ```
 
