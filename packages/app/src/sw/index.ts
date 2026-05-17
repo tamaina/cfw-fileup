@@ -1,7 +1,7 @@
 import { isBgzf, createBgzfDecompressor } from 'bgzf';
 import { fileTypeFromStream } from 'file-type';
+import { makeZip } from 'client-zip';
 import { parseTar } from './tar-parser';
-import { generateZip } from './zip-generator';
 
 const sw = self as unknown as ServiceWorkerGlobalScope;
 
@@ -107,9 +107,11 @@ async function handleTarToZip(request: Request): Promise<Response> {
 	}
 	zipFilename += '.zip';
 
-	// parseTar yields entries one at a time; generateZip consumes them as a ZIP stream
+	// parseTar yields entries one at a time; makeZip (client-zip) consumes them as a ZIP stream
 	const tarEntries = parseTar(tarStream);
-	const zipStream = generateZip(tarEntries);
+	const zipStream = makeZip(
+		(async function* () { for await (const e of tarEntries) yield { name: e.name, input: e.stream }; })(),
+	);
 
 	const newHeaders = new Headers();
 	newHeaders.set('Content-Type', 'application/zip');
