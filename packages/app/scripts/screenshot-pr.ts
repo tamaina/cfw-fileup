@@ -33,8 +33,18 @@ async function waitReady() {
 	);
 }
 
+// Vite HMR エラーオーバーレイ（vite-error-overlay）を Escape で閉じる
+async function dismissViteOverlay() {
+	const overlay = page.locator('vite-error-overlay');
+	if (await overlay.count() > 0) {
+		await page.keyboard.press('Escape');
+		await overlay.waitFor({ state: 'hidden', timeout: 3_000 }).catch(() => {});
+	}
+}
+
 async function shot(name: string, fullPage = true) {
 	await page.waitForLoadState('networkidle').catch(() => {});
+	await dismissViteOverlay();
 	const path = `${SCREENSHOTS_DIR}/${name}.png`;
 	await page.screenshot({ path, fullPage });
 	console.log(`Saved: ${path}`);
