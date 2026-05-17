@@ -125,9 +125,10 @@ describe('PATCH /upload/:fileId/resume', () => {
 		expect(res.status).toBe(400);
 	});
 
-	test('content larger than PART_SIZE returns 400', async () => {
+	test('content larger than partSize returns 400', async () => {
 		const { token, fileId } = await setupFileForUpload();
-		const PART_SIZE = 5 * 1024 * 1024;
+		// デフォルトのpartSizeは32MiB。それより大きい値を送ると400になる。
+		const DEFAULT_PART_SIZE = 32 * 1024 * 1024;
 		const data = new Uint8Array([1, 2, 3]);
 
 		// Use a large Content-Length header; server checks the header value before reading body
@@ -137,7 +138,7 @@ describe('PATCH /upload/:fileId/resume', () => {
 				Authorization: `Bearer ${token}`,
 				'Upload-Offset': '0',
 				'Content-Type': 'application/offset+octet-stream',
-				'Content-Length': String(PART_SIZE + 1),
+				'Content-Length': String(DEFAULT_PART_SIZE + 1),
 			},
 			body: data.buffer,
 		}, env);
@@ -172,9 +173,10 @@ describe('PATCH /upload/:fileId/resume', () => {
 });
 
 describe('GET /upload/:fileId/resume — offset', () => {
-	test('returns COUNT*PART_SIZE as offset after a part is uploaded', async () => {
+	test('returns COUNT*partSize as offset after a part is uploaded', async () => {
 		const { token, fileId } = await setupFileForUpload();
-		const PART_SIZE = 5 * 1024 * 1024;
+		// デフォルトのpartSizeは32MiB。1パートアップロード後のオフセットはpartSize分になる。
+		const DEFAULT_PART_SIZE = 32 * 1024 * 1024;
 		const data = new Uint8Array([1, 2, 3, 4, 5]);
 
 		await app.request(`/upload/${fileId}/resume`, {
@@ -193,7 +195,7 @@ describe('GET /upload/:fileId/resume — offset', () => {
 			headers: { Authorization: `Bearer ${token}` },
 		}, env);
 		expect(res.status).toBe(200);
-		expect(res.headers.get('Upload-Offset')).toBe(String(PART_SIZE));
+		expect(res.headers.get('Upload-Offset')).toBe(String(DEFAULT_PART_SIZE));
 	});
 
 	test('expired upload GET returns 410 and cleans up file', async () => {
