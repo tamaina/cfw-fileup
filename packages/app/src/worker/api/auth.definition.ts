@@ -13,6 +13,7 @@ export const authApiSchema = [
 					username: { type: 'string', minLength: 1, maxLength: 32 },
 					password: { type: 'string', minLength: 8 },
 					passphrase: { type: 'string', optional: true },
+					turnstileToken: { type: 'string', optional: true },
 				},
 				required: ['username', 'password'],
 			} as const satisfies Schema,
@@ -48,6 +49,7 @@ export const authApiSchema = [
 				properties: {
 					username: { type: 'string' },
 					password: { type: 'string' },
+					turnstileToken: { type: 'string', optional: true },
 				},
 				required: ['username', 'password'],
 			} as const satisfies Schema,
