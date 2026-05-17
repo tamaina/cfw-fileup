@@ -220,7 +220,7 @@ watch(() => entryPath.value, () => {
     </div>
 
     <div v-if="metaLoading" class="page-loading">
-      <span class="spinner" />読み込み中...
+      <span class="spinner"></span>読み込み中...
     </div>
     <div v-else-if="metaError" class="alert alert-error">{{ metaError }}</div>
     <template v-else>
@@ -261,7 +261,7 @@ watch(() => entryPath.value, () => {
       <!-- ログインなし or ディレクトリ: タブなし -->
       <template v-else>
         <BrowseDirectory v-if="isDirectory || isTargz || isTar" :bucketName="bucketName" :filePath="filePath" :isTargz="isTargz" :isTar="isTar" :entryPath="entryPath ?? ''" />
-        <BrowseFile v-else-if="!isDirectory" :bucketName="bucketName" :filePath="filePath" /    >
+        <BrowseFile v-else-if="!isDirectory" :bucketName="bucketName" :filePath="filePath" />
       </template>
     </template>
   </div>

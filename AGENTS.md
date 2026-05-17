@@ -2,8 +2,6 @@
 
 This file provides guidance to coding agents working on the `cfw-fileup` project. It covers the project structure, technology stacks, and important considerations for development.
 
-Please see also [CHEATSHEET.md](CHEATSHEET.md) for common commands and troubleshooting tips.
-
 ## Project Overview
 
 `cfw-fileup` is a file uploader service built on Cloudflare Workers, R2, and D1. It is a pnpm monorepo with two packages:
