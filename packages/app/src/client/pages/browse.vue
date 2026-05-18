@@ -5,6 +5,7 @@ import BrowseFile from './browse.file.vue';
 import BrowseFileTokens from './browse.file-tokens.vue';
 import NirA from '@/components/nira.vue';
 import { authStore, authHeaders } from '@/store/auth';
+import { apiPost } from '@/utils/api';
 import { mainRouter } from '@/router';
 
 const props = withDefaults(defineProps<{
@@ -170,15 +171,10 @@ async function issueAutoToken(): Promise<void> {
 	}
 	autoToken.value = null;
 	try {
-		const res = await fetch('/api/file-tokens/create', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', ...authHeaders() },
-			body: JSON.stringify({ bucketName: props.bucketName, filePath: props.filePath, expiresIn: 3600 }),
-		});
-		if (res.ok) {
-			const data = await res.json() as { token: string; expiresAt: number | null };
-			autoToken.value = data.token;
-			saveCachedToken(data.token, data.expiresAt);
+		const result = await apiPost('/api/file-tokens/create', { bucketName: props.bucketName, filePath: props.filePath, expiresIn: 3600 });
+		if (result.ok) {
+			autoToken.value = result.data.token;
+			saveCachedToken(result.data.token, result.data.expiresAt);
 		}
 	} catch { /* silent */ }
 }

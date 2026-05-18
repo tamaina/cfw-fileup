@@ -2,6 +2,7 @@
 import { ref, reactive, computed } from 'vue';
 import { Button } from '@vuetify/v0';
 import { setToken, fetchCurrentUser } from '../store/auth';
+import { apiPost } from '../utils/api';
 import { navigateTo } from '../navigate';
 import TurnstileWidget from '../components/turnstile-widget.vue';
 
@@ -32,25 +33,17 @@ async function submit(): Promise<void> {
 	error.value = '';
 	loading.value = true;
 	try {
-		const body: Record<string, string> = {
+		const result = await apiPost('/api/signin', {
 			username: form.username,
 			password: form.password,
-		};
-		if (turnstileEnabled.value && turnstileToken.value) {
-			body.turnstileToken = turnstileToken.value;
-		}
-		const res = await fetch('/api/signin', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(body),
+			turnstileToken: turnstileEnabled.value && turnstileToken.value ? turnstileToken.value : undefined,
 		});
-		const data = (await res.json()) as { token?: string; error?: string };
-		if (!res.ok) {
-			error.value = data.error ?? 'エラーが発生しました';
+		if (!result.ok) {
+			error.value = result.data.error;
 			return;
 		}
-		if (data.token) {
-			setToken(data.token);
+		if (result.data.token) {
+			setToken(result.data.token);
 			await fetchCurrentUser();
 			navigateTo('/my/buckets');
 		}
@@ -104,7 +97,7 @@ async function submit(): Promise<void> {
 
         <Button.Root type="button" class="btn btn-primary w-full" style="justify-content: center" :loading="loading" :disabled="!canSubmit" @click="submit">
           <Button.Loading>処理中...</Button.Loading>
-          <Button.Content>サインイン</Button.Content>
+          <Button.Content>{{ turnstileEnabled && !turnstileToken ? '確認中...' : 'サインイン' }}</Button.Content>
         </Button.Root>
       </form>
 

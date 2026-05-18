@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
+import { openAPIRouteHandler } from 'hono-openapi';
 import { genEaidx } from '../shared/eaid-x';
 import { authRoutes } from './api/auth';
 import { bucketRoutes } from './api/buckets';
@@ -11,7 +12,6 @@ import { metaRoutes } from './api/meta';
 import { fileTokenRoutes } from './api/file-tokens';
 import { downloadRoutes } from './routes/download';
 import { uploadRoutes } from './routes/upload';
-import { generateOpenAPISpec } from './openapi-generator';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -54,10 +54,15 @@ app.get('/id', (c) => {
 	return c.text(genEaidx(Date.now()));
 });
 
-app.get('/api.json', (c) => {
-	const spec = generateOpenAPISpec();
-	return c.json(spec);
-});
+app.get(
+	'/api.json',
+	openAPIRouteHandler(app, {
+		documentation: {
+			info: { title: 'CFW FileUp API', version: '1.0.0' },
+			servers: [{ url: '/', description: 'Current server' }],
+		},
+	}),
+);
 
 app.get('/api-doc', (c) => {
 	return c.html(`<!DOCTYPE html>

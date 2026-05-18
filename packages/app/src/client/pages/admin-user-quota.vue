@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { Button } from '@vuetify/v0';
-import { authStore, authHeaders } from '../store/auth';
+import { authStore } from '../store/auth';
+import { apiPost } from '../utils/api';
 import NirA from '@/components/nira.vue';
 import ConfirmDialog from '@/components/confirm-dialog.vue';
 
@@ -29,13 +30,13 @@ async function fetchQuota(): Promise<void> {
 	loading.value = true;
 	error.value = '';
 	try {
-		const [userRes, globalRes] = await Promise.all([
-			fetch(`/api/admin/get-user-quota/${props.userId}`, { headers: authHeaders() }),
-			fetch('/api/admin/get-global-quota', { headers: authHeaders() }),
+		const [userResult, globalResult] = await Promise.all([
+			apiPost('/api/admin/get-user-quota', { userId: props.userId }),
+			apiPost('/api/admin/get-global-quota'),
 		]);
-		if (!userRes.ok) throw new Error('クォータの取得に失敗しました');
-		const userData = await userRes.json() as Record<string, number | null>;
-		const globalData = globalRes.ok ? await globalRes.json() as Record<string, number | null> : {};
+		if (!userResult.ok) throw new Error('クォータの取得に失敗しました');
+		const userData = userResult.data;
+		const globalData = globalResult.ok ? globalResult.data : { maxBuckets: null, maxBucketSizeBytes: null, maxFilesPerBucket: null, maxDailyUploads: null };
 
 		hasUserQuota.value =
 			userData.maxBuckets !== (globalData.maxBuckets ?? null) ||
@@ -67,12 +68,8 @@ async function saveQuota(): Promise<void> {
 			maxFilesPerBucket: quota.value.maxFilesPerBucket !== '' ? Number(quota.value.maxFilesPerBucket) : null,
 			maxDailyUploads: quota.value.maxDailyUploads !== '' ? Number(quota.value.maxDailyUploads) : null,
 		};
-		const res = await fetch(`/api/admin/set-user-quota/${props.userId}`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', ...authHeaders() },
-			body: JSON.stringify(body),
-		});
-		if (!res.ok) throw new Error('保存に失敗しました');
+		const result = await apiPost('/api/admin/set-user-quota', { userId: props.userId, ...body });
+		if (!result.ok) throw new Error('保存に失敗しました');
 		hasUserQuota.value = true;
 		success.value = 'ユーザークォータを保存しました';
 	} catch (e) {
@@ -88,11 +85,8 @@ async function executeReset(): Promise<void> {
 	error.value = '';
 	success.value = '';
 	try {
-		const res = await fetch(`/api/admin/delete-user-quota/${props.userId}`, {
-			method: 'POST',
-			headers: authHeaders(),
-		});
-		if (!res.ok) throw new Error('リセットに失敗しました');
+		const result = await apiPost('/api/admin/delete-user-quota', { userId: props.userId });
+		if (!result.ok) throw new Error('リセットに失敗しました');
 		hasUserQuota.value = false;
 		success.value = 'クォータをリセットしました（グローバルデフォルト適用中）';
 		await fetchQuota();

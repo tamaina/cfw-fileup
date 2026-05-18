@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, defineComponent, h } from 'vue';
-import { Button, useTheme } from '@vuetify/v0';
+import { Button, Popover, useTheme } from '@vuetify/v0';
 import { mainRouter } from './router';
 import { fetchCurrentUser, authStore, clearAuth } from './store/auth';
 import { navigateFn } from './navigate';
@@ -66,10 +66,16 @@ function toggleTheme(): void {
 
         <div class="app-nav-user">
           <template v-if="authStore.user">
-            <span class="app-nav-username">{{ authStore.user.username }}</span>
-            <Button.Root class="btn btn-ghost" @click="logout">
-              <Button.Content>ログアウト</Button.Content>
-            </Button.Root>
+            <Popover.Root>
+              <Popover.Activator class="btn btn-ghost app-nav-username" aria-haspopup="true">
+                {{ authStore.user.username }}
+              </Popover.Activator>
+              <Popover.Content class="app-nav-user-menu">
+                <Button.Root class="btn btn-ghost w-full" style="justify-content:flex-start" @click="logout">
+                  <Button.Content>ログアウト</Button.Content>
+                </Button.Root>
+              </Popover.Content>
+            </Popover.Root>
           </template>
           <template v-else>
             <NirA to="/signin" class="btn btn-primary">サインイン</NirA>

@@ -11,14 +11,14 @@ beforeEach(async () => {
 
 describe('POST /api/signup', () => {
 	test('first user becomes admin and returns userId + token', async () => {
-		const { status, data } = await signup('admin');
+		const { status, data } = await signup('firstuser');
 		expect(status).toBe(200);
 		expect(typeof data.userId).toBe('string');
 		expect(typeof data.token).toBe('string');
 	});
 
 	test('second user is not admin (admin endpoint returns 403)', async () => {
-		await signup('admin');
+		await signup('firstuser');
 		const { data: d2 } = await signup('user2');
 		const token = String(d2.token);
 
@@ -30,8 +30,8 @@ describe('POST /api/signup', () => {
 	});
 
 	test('duplicate username returns 409', async () => {
-		await signup('admin');
-		const { status } = await signup('admin');
+		await signup('firstuser');
+		const { status } = await signup('firstuser');
 		expect(status).toBe(409);
 	});
 
@@ -67,7 +67,7 @@ describe('POST /api/signup', () => {
 		await app.request('/api/signup', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ username: 'admin', password: 'password123' }),
+			body: JSON.stringify({ username: 'firstuser', password: 'password123' }),
 		}, customEnv);
 		const res = await app.request('/api/signup', {
 			method: 'POST',
@@ -82,7 +82,7 @@ describe('POST /api/signup', () => {
 		await app.request('/api/signup', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ username: 'admin', password: 'password123' }),
+			body: JSON.stringify({ username: 'firstuser', password: 'password123' }),
 		}, customEnv);
 		const res = await app.request('/api/signup', {
 			method: 'POST',
@@ -93,7 +93,7 @@ describe('POST /api/signup', () => {
 	});
 
 	test('when registration is disabled, second signup returns 403', async () => {
-		const { data } = await signup('admin');
+		const { data } = await signup('firstuser');
 		const adminToken = String(data.token);
 
 		await app.request('/api/admin/toggle-registration', {
@@ -104,6 +104,61 @@ describe('POST /api/signup', () => {
 
 		const { status } = await signup('user2');
 		expect(status).toBe(403);
+	});
+
+	test('username with invalid characters returns 400', async () => {
+		const res = await app.request('/api/signup', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ username: 'user-name', password: 'password123' }),
+		}, env);
+		expect(res.status).toBe(400);
+	});
+
+	test('username with spaces returns 400', async () => {
+		const res = await app.request('/api/signup', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ username: 'user name', password: 'password123' }),
+		}, env);
+		expect(res.status).toBe(400);
+	});
+
+	test('username with special characters returns 400', async () => {
+		const res = await app.request('/api/signup', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ username: 'user@name', password: 'password123' }),
+		}, env);
+		expect(res.status).toBe(400);
+	});
+
+	test('valid username with alphanumeric and underscore succeeds', async () => {
+		const res = await app.request('/api/signup', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ username: 'valid_User_123', password: 'password123' }),
+		}, env);
+		expect(res.status).toBe(200);
+	});
+
+	test('forbidden username returns 400', async () => {
+		const res = await app.request('/api/signup', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ username: 'admin', password: 'password123' }),
+		}, env);
+		expect(res.status).toBe(400);
+	});
+
+	test('case-insensitive duplicate username returns 409', async () => {
+		await signup('MyUser');
+		const res = await app.request('/api/signup', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ username: 'myuser', password: 'password123' }),
+		}, env);
+		expect(res.status).toBe(409);
 	});
 });
 
@@ -127,7 +182,7 @@ describe('POST /api/signin', () => {
 	});
 
 	test('suspended user returns 401', async () => {
-		const { data: adminData } = await signup('admin');
+		const { data: adminData } = await signup('firstuser');
 		const { data: userData } = await signup('user1');
 		const adminToken = String(adminData.token);
 		const userId = String(userData.userId);

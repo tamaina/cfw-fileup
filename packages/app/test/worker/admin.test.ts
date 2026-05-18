@@ -10,7 +10,7 @@ beforeEach(async () => {
 });
 
 async function setupAdminAndUser() {
-	const { data: adminData } = await signup('admin');
+	const { data: adminData } = await signup('firstuser');
 	const { data: userData } = await signup('user1');
 	return {
 		adminToken: String(adminData.token),
@@ -21,7 +21,7 @@ async function setupAdminAndUser() {
 
 describe('Admin access control', () => {
 	test('non-admin is denied all admin endpoints', async () => {
-		await signup('admin');
+		await signup('firstuser');
 		const { data } = await signup('user1');
 		const userToken = String(data.token);
 
@@ -78,7 +78,7 @@ describe('POST /api/admin/delete-file', () => {
 		const bucketRes = await app.request('/api/buckets/create', {
 			method: 'POST',
 			headers: authHeaders(userToken),
-			body: JSON.stringify({ bucketName: 'test-bucket' }),
+			body: JSON.stringify({ bucketName: 'test_bucket' }),
 		}, env);
 		const { bucketId } = await bucketRes.json() as { bucketId: string };
 
@@ -123,7 +123,7 @@ describe('POST /api/admin/delete-bucket', () => {
 		const bucketRes = await app.request('/api/buckets/create', {
 			method: 'POST',
 			headers: authHeaders(userToken),
-			body: JSON.stringify({ bucketName: 'test-bucket' }),
+			body: JSON.stringify({ bucketName: 'test_bucket' }),
 		}, env);
 		const { bucketId } = await bucketRes.json() as { bucketId: string };
 
@@ -198,8 +198,9 @@ describe('Quota management', () => {
 		expect(res.status).toBe(200);
 
 		const quotaRes = await app.request('/api/admin/get-global-quota', {
-			method: 'GET',
+			method: 'POST',
 			headers: authHeaders(adminToken),
+			body: JSON.stringify({}),
 		}, env);
 		expect(quotaRes.status).toBe(200);
 		const quota = await quotaRes.json() as Record<string, unknown>;
@@ -210,16 +211,17 @@ describe('Quota management', () => {
 	test('admin can set per-user quota', async () => {
 		const { adminToken, userId } = await setupAdminAndUser();
 
-		const res = await app.request(`/api/admin/set-user-quota/${userId}`, {
+		const res = await app.request('/api/admin/set-user-quota', {
 			method: 'POST',
 			headers: authHeaders(adminToken),
-			body: JSON.stringify({ maxBuckets: 3 }),
+			body: JSON.stringify({ userId, maxBuckets: 3 }),
 		}, env);
 		expect(res.status).toBe(200);
 
-		const quotaRes = await app.request(`/api/admin/get-user-quota/${userId}`, {
-			method: 'GET',
+		const quotaRes = await app.request('/api/admin/get-user-quota', {
+			method: 'POST',
 			headers: authHeaders(adminToken),
+			body: JSON.stringify({ userId }),
 		}, env);
 		expect(quotaRes.status).toBe(200);
 		const quota = await quotaRes.json() as Record<string, unknown>;
@@ -238,13 +240,13 @@ describe('Quota management', () => {
 		await app.request('/api/buckets/create', {
 			method: 'POST',
 			headers: authHeaders(userToken),
-			body: JSON.stringify({ bucketName: 'bucket-1' }),
+			body: JSON.stringify({ bucketName: 'bucket_1' }),
 		}, env);
 
 		const res = await app.request('/api/buckets/create', {
 			method: 'POST',
 			headers: authHeaders(userToken),
-			body: JSON.stringify({ bucketName: 'bucket-2' }),
+			body: JSON.stringify({ bucketName: 'bucket_2' }),
 		}, env);
 		expect(res.status).toBe(429);
 	});
@@ -258,9 +260,10 @@ describe('Quota management', () => {
 			body: JSON.stringify({ userId, maxBuckets: 2 }),
 		}, env);
 
-		const res = await app.request(`/api/admin/delete-user-quota/${userId}`, {
+		const res = await app.request('/api/admin/delete-user-quota', {
 			method: 'POST',
 			headers: authHeaders(adminToken),
+			body: JSON.stringify({ userId }),
 		}, env);
 		expect(res.status).toBe(200);
 	});

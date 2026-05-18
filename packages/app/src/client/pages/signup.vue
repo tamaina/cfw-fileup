@@ -2,12 +2,21 @@
 import { ref, reactive, computed } from 'vue';
 import { Button } from '@vuetify/v0';
 import { setToken, fetchCurrentUser } from '../store/auth';
+import { apiPost } from '../utils/api';
 import { navigateTo } from '../navigate';
 import TurnstileWidget from '../components/turnstile-widget.vue';
+import { isValidNameFormat, NAME_FORMAT_ERROR } from '../../shared/name-validation';
 
 const form = reactive({ username: '', password: '', passphrase: '' });
 const error = ref('');
 const loading = ref(false);
+
+/** ユーザー名の文字種バリデーション（クライアントサイド） */
+const usernameFormatError = computed(() => {
+	if (!form.username) return '';
+	if (!isValidNameFormat(form.username)) return NAME_FORMAT_ERROR;
+	return '';
+});
 const passphraseRequired = ref(false);
 const turnstileEnabled = ref(false);
 const turnstileSiteKey = ref('');
@@ -27,35 +36,31 @@ async function fetchMeta(): Promise<void> {
 
 fetchMeta();
 
-const canSubmit = computed(() => !turnstileEnabled.value || turnstileToken.value !== null);
+const canSubmit = computed(() =>
+	(!turnstileEnabled.value || turnstileToken.value !== null) && !usernameFormatError.value,
+);
 
 async function submit(): Promise<void> {
 	if (!canSubmit.value) return;
+	if (usernameFormatError.value) {
+		error.value = usernameFormatError.value;
+		return;
+	}
 	error.value = '';
 	loading.value = true;
 	try {
-		const body: Record<string, string> = {
-			username: form.username,
+		const result = await apiPost('/api/signup', {
+			username: form.username.trim(),
 			password: form.password,
-		};
-		if (form.passphrase) {
-			body.passphrase = form.passphrase;
-		}
-		if (turnstileEnabled.value && turnstileToken.value) {
-			body.turnstileToken = turnstileToken.value;
-		}
-		const res = await fetch('/api/signup', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(body),
+			passphrase: form.passphrase || undefined,
+			turnstileToken: turnstileEnabled.value && turnstileToken.value ? turnstileToken.value : undefined,
 		});
-		const data = (await res.json()) as { token?: string; error?: string };
-		if (!res.ok) {
-			error.value = data.error ?? 'エラーが発生しました';
+		if (!result.ok) {
+			error.value = result.data.error;
 			return;
 		}
-		if (data.token) {
-			setToken(data.token);
+		if (result.data.token) {
+			setToken(result.data.token);
 			await fetchCurrentUser();
 			navigateTo('/my/buckets');
 		}
@@ -84,6 +89,8 @@ async function submit(): Promise<void> {
             autocomplete="username"
             placeholder="username"
           >
+          <div v-if="usernameFormatError" class="form-hint form-hint--error">{{ usernameFormatError }}</div>
+          <div v-else class="form-hint">英数字とアンダースコア [0-9a-zA-Z_] のみ使用できます</div>
         </div>
 
         <div class="form-group">
@@ -120,7 +127,7 @@ async function submit(): Promise<void> {
 
         <Button.Root type="button" class="btn btn-primary w-full" style="justify-content: center" :loading="loading" :disabled="!canSubmit" @click="submit">
           <Button.Loading>処理中...</Button.Loading>
-          <Button.Content>アカウント作成</Button.Content>
+          <Button.Content>{{ turnstileEnabled && !turnstileToken ? '確認中...' : 'アカウント作成' }}</Button.Content>
         </Button.Root>
       </form>
 

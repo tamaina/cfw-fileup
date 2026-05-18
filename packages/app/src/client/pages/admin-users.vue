@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { Button } from '@vuetify/v0';
-import { authStore, authHeaders } from '../store/auth';
+import { Button, Popover } from '@vuetify/v0';
+import { authStore } from '../store/auth';
+import { apiPost } from '../utils/api';
 import NirA from '@/components/nira.vue';
 import ConfirmDialog from '@/components/confirm-dialog.vue';
 
@@ -26,9 +27,9 @@ async function fetchUsers(): Promise<void> {
 	loading.value = true;
 	error.value = '';
 	try {
-		const res = await fetch('/api/admin/list-users', { headers: authHeaders() });
-		if (!res.ok) throw new Error('ユーザー一覧の取得に失敗しました');
-		userList.value = await res.json() as AdminUser[];
+		const result = await apiPost('/api/admin/list-users');
+		if (!result.ok) throw new Error('ユーザー一覧の取得に失敗しました');
+		userList.value = result.data;
 	} catch (e) {
 		error.value = String(e);
 	} finally {
@@ -48,12 +49,8 @@ async function executeSuspend(): Promise<void> {
 	suspendTarget.value = null;
 	actionError.value = '';
 	try {
-		const res = await fetch('/api/admin/suspend-user', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', ...authHeaders() },
-			body: JSON.stringify({ userId }),
-		});
-		if (!res.ok) throw new Error('停止に失敗しました');
+		const result = await apiPost('/api/admin/suspend-user', { userId });
+		if (!result.ok) throw new Error('停止に失敗しました');
 		await fetchUsers();
 	} catch (e) {
 		actionError.value = String(e);
@@ -106,13 +103,16 @@ async function executeSuspend(): Promise<void> {
               <td class="col-actions">
                 <div class="flex gap-2 items-center">
                   <NirA :to="`/admin/users/${u.id}`" class="btn btn-secondary">クォータ設定</NirA>
-                  <Button.Root
-                    v-if="!u.isSuspended && u.id !== authStore.user?.id"
-                    class="btn btn-ghost-danger"
-                    @click="requestSuspend(u)"
-                  >
-                    <Button.Content>停止</Button.Content>
-                  </Button.Root>
+                  <Popover.Root v-if="!u.isSuspended && u.id !== authStore.user?.id">
+                    <Popover.Activator class="btn btn-ghost btn-icon" aria-label="操作メニュー">
+                      …
+                    </Popover.Activator>
+                    <Popover.Content class="action-menu">
+                      <Button.Root class="btn btn-ghost-danger w-full" style="justify-content:flex-start" @click="requestSuspend(u)">
+                        <Button.Content>停止</Button.Content>
+                      </Button.Root>
+                    </Popover.Content>
+                  </Popover.Root>
                 </div>
               </td>
             </tr>

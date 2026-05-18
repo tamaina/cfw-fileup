@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { Button } from '@vuetify/v0';
-import { authStore, authHeaders } from '../store/auth';
+import { authStore } from '../store/auth';
+import { apiPost } from '../utils/api';
 import NirA from '@/components/nira.vue';
 
 interface QuotaForm {
@@ -23,14 +24,13 @@ async function fetchQuota(): Promise<void> {
 	loading.value = true;
 	error.value = '';
 	try {
-		const res = await fetch('/api/admin/get-global-quota', { headers: authHeaders() });
-		if (!res.ok) throw new Error('グローバルクォータの取得に失敗しました');
-		const data = await res.json() as Record<string, number | null>;
+		const result = await apiPost('/api/admin/get-global-quota');
+		if (!result.ok) throw new Error('グローバルクォータの取得に失敗しました');
 		quota.value = {
-			maxBuckets: data.maxBuckets != null ? String(data.maxBuckets) : '',
-			maxBucketSizeBytes: data.maxBucketSizeBytes != null ? String(data.maxBucketSizeBytes) : '',
-			maxFilesPerBucket: data.maxFilesPerBucket != null ? String(data.maxFilesPerBucket) : '',
-			maxDailyUploads: data.maxDailyUploads != null ? String(data.maxDailyUploads) : '',
+			maxBuckets: result.data.maxBuckets != null ? String(result.data.maxBuckets) : '',
+			maxBucketSizeBytes: result.data.maxBucketSizeBytes != null ? String(result.data.maxBucketSizeBytes) : '',
+			maxFilesPerBucket: result.data.maxFilesPerBucket != null ? String(result.data.maxFilesPerBucket) : '',
+			maxDailyUploads: result.data.maxDailyUploads != null ? String(result.data.maxDailyUploads) : '',
 		};
 	} catch (e) {
 		error.value = String(e);
@@ -50,12 +50,8 @@ async function saveQuota(): Promise<void> {
 			maxFilesPerBucket: quota.value.maxFilesPerBucket !== '' ? Number(quota.value.maxFilesPerBucket) : null,
 			maxDailyUploads: quota.value.maxDailyUploads !== '' ? Number(quota.value.maxDailyUploads) : null,
 		};
-		const res = await fetch('/api/admin/set-global-quota', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', ...authHeaders() },
-			body: JSON.stringify(body),
-		});
-		if (!res.ok) throw new Error('保存に失敗しました');
+		const result = await apiPost('/api/admin/set-global-quota', body);
+		if (!result.ok) throw new Error('保存に失敗しました');
 		success.value = 'グローバルクォータを保存しました';
 	} catch (e) {
 		error.value = String(e);

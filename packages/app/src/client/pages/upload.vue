@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { Button, Progress } from '@vuetify/v0';
 import { authHeaders, authStore } from '../store/auth';
+import { apiPost } from '../utils/api';
 import NirA from '@/components/nira.vue';
 import { TarArchiver, BgzfTarArchiver, type TarIndex, type TarGzIndex, type ArchiveProgress } from 'bgzf';
 import { takePendingUpload } from '@/store/pending-upload';
@@ -69,17 +70,12 @@ function getUploadPaths(): string[] {
 const supportsFileAccessAPI = typeof window !== 'undefined' && 'showDirectoryPicker' in window;
 
 async function loadBucket(): Promise<void> {
-	try {
-		const res = await fetch('/api/buckets/list', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', ...authHeaders() },
-			body: JSON.stringify({}),
-		});
-		const data = (await res.json()) as { buckets?: Bucket[] };
-		buckets.value = data.buckets ?? [];
-	} catch (e) {
-		loadError.value = String(e);
+	const result = await apiPost('/api/buckets/list');
+	if (!result.ok) {
+		loadError.value = result.data.error;
+		return;
 	}
+	buckets.value = result.data.buckets;
 }
 
 async function pickDirectory(): Promise<void> {
@@ -123,14 +119,9 @@ async function getResumeOffset(fileId: string): Promise<number> {
 }
 
 async function getUploadPartCount(fileId: string): Promise<number> {
-	const res = await fetch('/api/files/create/status', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json', ...authHeaders() },
-		body: JSON.stringify({ fileId }),
-	}).catch(() => null);
-	if (!res?.ok) return -1;
-	const data = (await res.json().catch(() => null)) as { partCount: number } | null;
-	return data?.partCount ?? -1;
+	const result = await apiPost('/api/files/create/status', { fileId }).catch(() => null);
+	if (!result?.ok) return -1;
+	return result.data.partCount;
 }
 
 async function tusUpload(fileId: string, blob: Blob, filename: string, partSize: number, onProgress?: (uploaded: number) => void): Promise<boolean> {
@@ -206,26 +197,16 @@ interface OpenUploadResult {
 
 async function openUpload(path: string): Promise<OpenUploadResult | null> {
 	if (!bucket.value) return null;
-	const res = await fetch('/api/files/create/open', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json', ...authHeaders() },
-		// サーバーのデフォルト (32MiB) を使用するためpartSizeは省略可能
-		body: JSON.stringify({ bucketId: bucket.value.id, path }),
-	});
-	const data = (await res.json()) as { fileId?: string; partSize?: number; error?: string };
-	if (!res.ok) { uploadError.value = data.error ?? 'アップロード開始失敗'; return null; }
-	return { fileId: data.fileId!, partSize: data.partSize ?? DEFAULT_CHUNK_SIZE };
+	// サーバーのデフォルト (32MiB) を使用するためpartSizeは省略可能
+	const result = await apiPost('/api/files/create/open', { bucketId: bucket.value.id, path });
+	if (!result.ok) { uploadError.value = result.data.error; return null; }
+	return { fileId: result.data.fileId, partSize: result.data.partSize };
 }
 
 async function closeUpload(fileId: string): Promise<boolean> {
-	const res = await fetch('/api/files/create/close', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json', ...authHeaders() },
-		body: JSON.stringify({ fileId, isPublic: isPublic.value, passphrase: passphrase.value || undefined }),
-	});
-	if (!res.ok) {
-		const err = (await res.json()) as { error?: string };
-		uploadError.value = err.error ?? 'アップロード完了失敗';
+	const result = await apiPost('/api/files/create/close', { fileId, isPublic: isPublic.value, passphrase: passphrase.value || undefined });
+	if (!result.ok) {
+		uploadError.value = result.data.error;
 		return false;
 	}
 	return true;
@@ -459,14 +440,9 @@ async function uploadTarStream(
 
 	const resolvedIndex = await index;
 
-	const indexRes = await fetch('/api/files/create/tar-index', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json', ...authHeaders() },
-		body: JSON.stringify({ fileId, files: resolvedIndex }),
-	});
-	if (!indexRes.ok) {
-		const err = (await indexRes.json()) as { error?: string };
-		uploadError.value = err.error ?? 'インデックス登録失敗';
+	const indexResult = await apiPost('/api/files/create/tar-index', { fileId, files: resolvedIndex });
+	if (!indexResult.ok) {
+		uploadError.value = indexResult.data.error;
 		await deleteExistingFile(archivePath);
 		return false;
 	}
@@ -490,14 +466,9 @@ async function uploadBgzfStream(
 
 	const resolvedIndex = await index;
 
-	const indexRes = await fetch('/api/files/create/targz-index', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json', ...authHeaders() },
-		body: JSON.stringify({ fileId, files: resolvedIndex }),
-	});
-	if (!indexRes.ok) {
-		const err = (await indexRes.json()) as { error?: string };
-		uploadError.value = err.error ?? 'インデックス登録失敗';
+	const bgzfIndexResult = await apiPost('/api/files/create/targz-index', { fileId, files: resolvedIndex });
+	if (!bgzfIndexResult.ok) {
+		uploadError.value = bgzfIndexResult.data.error;
 		await deleteExistingFile(archivePath);
 		return false;
 	}
