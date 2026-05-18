@@ -10,7 +10,7 @@ beforeEach(async () => {
 });
 
 async function setupAdminAndUser() {
-	const { data: adminData } = await signup('admin');
+	const { data: adminData } = await signup('firstuser');
 	const { data: userData } = await signup('user1');
 	return {
 		adminToken: String(adminData.token),
@@ -21,7 +21,7 @@ async function setupAdminAndUser() {
 
 describe('Admin access control', () => {
 	test('non-admin is denied all admin endpoints', async () => {
-		await signup('admin');
+		await signup('firstuser');
 		const { data } = await signup('user1');
 		const userToken = String(data.token);
 
@@ -78,7 +78,7 @@ describe('POST /api/admin/delete-file', () => {
 		const bucketRes = await app.request('/api/buckets/create', {
 			method: 'POST',
 			headers: authHeaders(userToken),
-			body: JSON.stringify({ bucketName: 'test-bucket' }),
+			body: JSON.stringify({ bucketName: 'test_bucket' }),
 		}, env);
 		const { bucketId } = await bucketRes.json() as { bucketId: string };
 
@@ -123,7 +123,7 @@ describe('POST /api/admin/delete-bucket', () => {
 		const bucketRes = await app.request('/api/buckets/create', {
 			method: 'POST',
 			headers: authHeaders(userToken),
-			body: JSON.stringify({ bucketName: 'test-bucket' }),
+			body: JSON.stringify({ bucketName: 'test_bucket' }),
 		}, env);
 		const { bucketId } = await bucketRes.json() as { bucketId: string };
 
@@ -238,13 +238,13 @@ describe('Quota management', () => {
 		await app.request('/api/buckets/create', {
 			method: 'POST',
 			headers: authHeaders(userToken),
-			body: JSON.stringify({ bucketName: 'bucket-1' }),
+			body: JSON.stringify({ bucketName: 'bucket_1' }),
 		}, env);
 
 		const res = await app.request('/api/buckets/create', {
 			method: 'POST',
 			headers: authHeaders(userToken),
-			body: JSON.stringify({ bucketName: 'bucket-2' }),
+			body: JSON.stringify({ bucketName: 'bucket_2' }),
 		}, env);
 		expect(res.status).toBe(429);
 	});
