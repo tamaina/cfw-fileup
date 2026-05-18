@@ -115,7 +115,7 @@ export const adminApiSchema = [
 	},
 	{
 		path: '/api/admin/get-settings',
-		method: 'get',
+		method: 'post',
 		summary: 'Get all settings',
 		tags: ['Admin'],
 		responses: {
@@ -166,7 +166,7 @@ export const adminApiSchema = [
 	},
 	{
 		path: '/api/admin/get-user-quota/:userId',
-		method: 'get',
+		method: 'post',
 		summary: 'Get user quota',
 		tags: ['Admin'],
 		responses: {
@@ -181,7 +181,7 @@ export const adminApiSchema = [
 	},
 	{
 		path: '/api/admin/get-global-quota',
-		method: 'get',
+		method: 'post',
 		summary: 'Get global quota',
 		tags: ['Admin'],
 		responses: {
@@ -210,7 +210,7 @@ export const adminApiSchema = [
 	},
 	{
 		path: '/api/admin/list-users',
-		method: 'get',
+		method: 'post',
 		summary: 'List all users',
 		tags: ['Admin'],
 		responses: {

@@ -22,7 +22,7 @@ const app = new Hono<{ Bindings: Env }>();
 
 app.use(authMiddleware);
 
-app.get('/me', (c) => {
+app.post('/me', (c) => {
 	const user = c.get('user');
 	return c.json({
 		id: user.id,

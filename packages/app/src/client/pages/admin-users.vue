@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { Button, Popover } from '@vuetify/v0';
-import { authStore, authHeaders } from '../store/auth';
+import { authStore } from '../store/auth';
+import { apiPost } from '../utils/api';
 import NirA from '@/components/nira.vue';
 import ConfirmDialog from '@/components/confirm-dialog.vue';
 
@@ -26,9 +27,9 @@ async function fetchUsers(): Promise<void> {
 	loading.value = true;
 	error.value = '';
 	try {
-		const res = await fetch('/api/admin/list-users', { headers: authHeaders() });
+		const { res, data } = await apiPost<AdminUser[]>('/api/admin/list-users');
 		if (!res.ok) throw new Error('ユーザー一覧の取得に失敗しました');
-		userList.value = await res.json() as AdminUser[];
+		userList.value = data;
 	} catch (e) {
 		error.value = String(e);
 	} finally {
@@ -48,11 +49,7 @@ async function executeSuspend(): Promise<void> {
 	suspendTarget.value = null;
 	actionError.value = '';
 	try {
-		const res = await fetch('/api/admin/suspend-user', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', ...authHeaders() },
-			body: JSON.stringify({ userId }),
-		});
+		const { res } = await apiPost('/api/admin/suspend-user', { userId });
 		if (!res.ok) throw new Error('停止に失敗しました');
 		await fetchUsers();
 	} catch (e) {

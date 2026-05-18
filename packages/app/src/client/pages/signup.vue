@@ -2,6 +2,7 @@
 import { ref, reactive, computed } from 'vue';
 import { Button } from '@vuetify/v0';
 import { setToken, fetchCurrentUser } from '../store/auth';
+import { apiPost } from '../utils/api';
 import { navigateTo } from '../navigate';
 import TurnstileWidget from '../components/turnstile-widget.vue';
 import { isValidNameFormat, NAME_FORMAT_ERROR } from '../../shared/name-validation';
@@ -58,12 +59,7 @@ async function submit(): Promise<void> {
 		if (turnstileEnabled.value && turnstileToken.value) {
 			body.turnstileToken = turnstileToken.value;
 		}
-		const res = await fetch('/api/signup', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(body),
-		});
-		const data = (await res.json()) as { token?: string; error?: string };
+		const { res, data } = await apiPost<{ token?: string; error?: string }>('/api/signup', body);
 		if (!res.ok) {
 			error.value = data.error ?? 'エラーが発生しました';
 			return;

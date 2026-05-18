@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue';
 import { Button, Popover } from '@vuetify/v0';
 import ConfirmDialog from '@/components/confirm-dialog.vue';
-import { authHeaders } from '@/store/auth';
+import { apiPost } from '@/utils/api';
 
 const props = defineProps<{
 	bucketName: string;
@@ -47,17 +47,11 @@ async function loadTokens(): Promise<void> {
 	loading.value = true;
 	listError.value = '';
 	try {
-		const res = await fetch('/api/file-tokens/list', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', ...authHeaders() },
-			body: JSON.stringify({ bucketName: props.bucketName, filePath: props.filePath }),
-		});
+		const { res, data } = await apiPost<{ tokens: FileToken[]; error?: string }>('/api/file-tokens/list', { bucketName: props.bucketName, filePath: props.filePath });
 		if (!res.ok) {
-			const err = await res.json().catch(() => ({})) as { error?: string };
-			listError.value = err.error ?? `取得失敗: ${res.status}`;
+			listError.value = data.error ?? `取得失敗: ${res.status}`;
 			return;
 		}
-		const data = await res.json() as { tokens: FileToken[] };
 		tokens.value = data.tokens.sort((a, b) => b.createdAt - a.createdAt);
 	} catch (e) {
 		listError.value = String(e);
@@ -89,21 +83,15 @@ async function createToken(): Promise<void> {
 	createdToken.value = null;
 	copied.value = false;
 	try {
-		const res = await fetch('/api/file-tokens/create', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', ...authHeaders() },
-			body: JSON.stringify({
-				bucketName: props.bucketName,
-				filePath: props.filePath,
-				expiresIn,
-			}),
+		const { res, data } = await apiPost<{ id: string; token: string; expiresAt: number | null; error?: string }>('/api/file-tokens/create', {
+			bucketName: props.bucketName,
+			filePath: props.filePath,
+			expiresIn,
 		});
 		if (!res.ok) {
-			const err = await res.json().catch(() => ({})) as { error?: string };
-			createError.value = err.error ?? `発行失敗: ${res.status}`;
+			createError.value = (data as { error?: string }).error ?? `発行失敗: ${res.status}`;
 			return;
 		}
-		const data = await res.json() as { id: string; token: string; expiresAt: number | null };
 		createdToken.value = data;
 		await loadTokens();
 	} catch (e) {
@@ -133,14 +121,9 @@ function openDeleteDialog(id: string): void {
 async function executeDelete(): Promise<void> {
 	deleteError.value = '';
 	try {
-		const res = await fetch('/api/file-tokens/delete', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', ...authHeaders() },
-			body: JSON.stringify({ tokenId: deletingId.value }),
-		});
+		const { res, data } = await apiPost<{ error?: string }>('/api/file-tokens/delete', { tokenId: deletingId.value });
 		if (!res.ok) {
-			const err = await res.json().catch(() => ({})) as { error?: string };
-			deleteError.value = err.error ?? `削除失敗: ${res.status}`;
+			deleteError.value = data.error ?? `削除失敗: ${res.status}`;
 			return;
 		}
 		tokens.value = tokens.value.filter((t) => t.id !== deletingId.value);
@@ -171,19 +154,14 @@ async function saveVisibility(): Promise<void> {
 	visibilitySaving.value = true;
 	visibilityError.value = '';
 	try {
-		const res = await fetch('/api/files/update', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', ...authHeaders() },
-			body: JSON.stringify({
-				bucketName: props.bucketName,
-				filePath: props.filePath,
-				isPublic: editIsPublic.value,
-				passphrase: editPassphrase.value || undefined,
-			}),
+		const { res, data } = await apiPost<{ error?: string }>('/api/files/update', {
+			bucketName: props.bucketName,
+			filePath: props.filePath,
+			isPublic: editIsPublic.value,
+			passphrase: editPassphrase.value || undefined,
 		});
 		if (!res.ok) {
-			const err = await res.json().catch(() => ({})) as { error?: string };
-			visibilityError.value = err.error ?? '保存失敗';
+			visibilityError.value = data.error ?? '保存失敗';
 			return;
 		}
 		emit('update:fileIsPublic', editIsPublic.value);

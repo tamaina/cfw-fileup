@@ -162,17 +162,17 @@ app.post('/set-global-quota', async (c) => {
 	return c.json({ ok: true } as ExtractResponseType<typeof adminApiSchema, '/api/admin/set-global-quota', 'post', 200>);
 });
 
-app.get('/get-user-quota/:userId', async (c) => {
+app.post('/get-user-quota/:userId', async (c) => {
 	const userId = c.req.param('userId');
 	const quota = await getQuotaForUser(c.env, userId);
 
-	return c.json(quota as ExtractResponseType<typeof adminApiSchema, '/api/admin/get-user-quota/:userId', 'get', 200>);
+	return c.json(quota as ExtractResponseType<typeof adminApiSchema, '/api/admin/get-user-quota/:userId', 'post', 200>);
 });
 
-app.get('/get-global-quota', async (c) => {
+app.post('/get-global-quota', async (c) => {
 	const quota = await getGlobalQuota(c.env);
 
-	return c.json(quota as ExtractResponseType<typeof adminApiSchema, '/api/admin/get-global-quota', 'get', 200>);
+	return c.json(quota as ExtractResponseType<typeof adminApiSchema, '/api/admin/get-global-quota', 'post', 200>);
 });
 
 app.post('/delete-user-quota/:userId', async (c) => {
@@ -189,7 +189,7 @@ app.post('/delete-user-quota/:userId', async (c) => {
 	return c.json({ ok: true } as ExtractResponseType<typeof adminApiSchema, '/api/admin/delete-user-quota/:userId', 'post', 200>);
 });
 
-app.get('/list-users', async (c) => {
+app.post('/list-users', async (c) => {
 	const db = getDb(c.env);
 	const allUsers = await db.select({
 		id: users.id,
@@ -261,11 +261,11 @@ app.post('/update-setting', async (c) => {
 	return c.json({ ok: true } as ExtractResponseType<typeof adminApiSchema, '/api/admin/update-setting', 'post', 200>);
 });
 
-app.get('/get-settings', async (c) => {
+app.post('/get-settings', async (c) => {
 	const db = getDb(c.env);
 	const settings = await db.select().from(appSettings);
 
-	return c.json(settings as ExtractResponseType<typeof adminApiSchema, '/api/admin/get-settings', 'get', 200>);
+	return c.json(settings as ExtractResponseType<typeof adminApiSchema, '/api/admin/get-settings', 'post', 200>);
 });
 
 export const adminRoutes = app;

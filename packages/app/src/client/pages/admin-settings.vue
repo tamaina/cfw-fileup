@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { Button } from '@vuetify/v0';
-import { authStore, authHeaders } from '../store/auth';
+import { authStore } from '../store/auth';
+import { apiPost } from '../utils/api';
 import NirA from '@/components/nira.vue';
 import { KNOWN_SETTINGS } from '../../shared/app-settings';
 
@@ -17,9 +18,8 @@ async function fetchSettings(): Promise<void> {
 	loading.value = true;
 	error.value = '';
 	try {
-		const res = await fetch('/api/admin/get-settings', { headers: authHeaders() });
+		const { res, data } = await apiPost<{ key: string; value: string }[]>('/api/admin/get-settings');
 		if (!res.ok) throw new Error('設定の取得に失敗しました');
-		const data = await res.json() as { key: string; value: string }[];
 		const map: Record<string, string> = {};
 		for (const s of data) map[s.key] = s.value;
 		for (const s of KNOWN_SETTINGS) {
@@ -38,11 +38,7 @@ async function saveSetting(key: string): Promise<void> {
 	error.value = '';
 	success.value = '';
 	try {
-		const res = await fetch('/api/admin/update-setting', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', ...authHeaders() },
-			body: JSON.stringify({ key, value: values.value[key] }),
-		});
+		const { res } = await apiPost('/api/admin/update-setting', { key, value: values.value[key] });
 		if (!res.ok) throw new Error('保存に失敗しました');
 		success.value = `"${key}" を保存しました`;
 	} catch (e) {

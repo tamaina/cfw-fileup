@@ -198,8 +198,9 @@ describe('Quota management', () => {
 		expect(res.status).toBe(200);
 
 		const quotaRes = await app.request('/api/admin/get-global-quota', {
-			method: 'GET',
+			method: 'POST',
 			headers: authHeaders(adminToken),
+			body: JSON.stringify({}),
 		}, env);
 		expect(quotaRes.status).toBe(200);
 		const quota = await quotaRes.json() as Record<string, unknown>;
@@ -218,8 +219,9 @@ describe('Quota management', () => {
 		expect(res.status).toBe(200);
 
 		const quotaRes = await app.request(`/api/admin/get-user-quota/${userId}`, {
-			method: 'GET',
+			method: 'POST',
 			headers: authHeaders(adminToken),
+			body: JSON.stringify({}),
 		}, env);
 		expect(quotaRes.status).toBe(200);
 		const quota = await quotaRes.json() as Record<string, unknown>;

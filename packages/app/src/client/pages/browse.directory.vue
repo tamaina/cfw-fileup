@@ -3,6 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { Button } from '@vuetify/v0';
 import NirA from '@/components/nira.vue';
 import { authStore, authHeaders } from '@/store/auth';
+import { apiPost } from '@/utils/api';
 import { setPendingUpload } from '@/store/pending-upload';
 import { mainRouter } from '@/router';
 import ConfirmDialog from '@/components/confirm-dialog.vue';
@@ -58,13 +59,8 @@ const archiveDeleteDialog = ref(false);
 
 async function loadBucketId(): Promise<void> {
 	if (!authStore.user) return;
-	const res = await fetch('/api/buckets/list', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json', ...authHeaders() },
-		body: JSON.stringify({}),
-	});
+	const { res, data } = await apiPost<{ buckets: Array<{ id: string; name: string }> }>('/api/buckets/list');
 	if (!res.ok) return;
-	const data = await res.json() as { buckets: Array<{ id: string; name: string }> };
 	bucketId.value = data.buckets.find(b => b.name === props.bucketName)?.id ?? null;
 }
 
@@ -73,14 +69,9 @@ async function createDirectory(): Promise<void> {
 	if (!name || !bucketId.value) return;
 	mkdirError.value = '';
 	const path = `${props.filePath}${name}/`;
-	const res = await fetch('/api/directories/create', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json', ...authHeaders() },
-		body: JSON.stringify({ bucketId: bucketId.value, path }),
-	});
+	const { res, data: dirResult } = await apiPost<{ error?: string }>('/api/directories/create', { bucketId: bucketId.value, path });
 	if (!res.ok) {
-		const err = await res.json() as { error?: string };
-		mkdirError.value = err.error ?? '作成失敗';
+		mkdirError.value = dirResult.error ?? '作成失敗';
 		return;
 	}
 	newDirName.value = '';
@@ -100,14 +91,9 @@ async function executeDeleteEntry(): Promise<void> {
 	deleteError.value = '';
 
 	if (entry.isDir) {
-		const res = await fetch('/api/directories/delete', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', ...authHeaders() },
-			body: JSON.stringify({ bucketId: bucketId.value, path: entry.fullPath }),
-		});
+		const { res, data: delResult } = await apiPost<{ error?: string }>('/api/directories/delete', { bucketId: bucketId.value, path: entry.fullPath });
 		if (!res.ok) {
-			const err = await res.json() as { error?: string };
-			deleteError.value = err.error ?? '削除失敗';
+			deleteError.value = delResult.error ?? '削除失敗';
 			return;
 		}
 	} else {

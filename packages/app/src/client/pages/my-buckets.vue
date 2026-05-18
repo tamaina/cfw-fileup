@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { Button, Popover } from '@vuetify/v0';
-import { authHeaders, authStore } from '../store/auth';
+import { authStore } from '../store/auth';
+import { apiPost } from '../utils/api';
 import NirA from '@/components/nira.vue';
 import ConfirmDialog from '@/components/confirm-dialog.vue';
 import { isValidNameFormat, NAME_FORMAT_ERROR } from '../../shared/name-validation';
@@ -46,12 +47,7 @@ async function loadBuckets(): Promise<void> {
 	loading.value = true;
 	error.value = '';
 	try {
-		const res = await fetch('/api/buckets/list', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', ...authHeaders() },
-			body: JSON.stringify({}),
-		});
-		const data = (await res.json()) as { buckets?: Bucket[]; maxBucketSizeBytes?: number | null; error?: string };
+		const { res, data } = await apiPost<{ buckets?: Bucket[]; maxBucketSizeBytes?: number | null; error?: string }>('/api/buckets/list');
 		if (!res.ok) {
 			error.value = data.error ?? 'バケット一覧の取得に失敗しました';
 			return;
@@ -74,12 +70,7 @@ async function createBucket(): Promise<void> {
 	creating.value = true;
 	createError.value = '';
 	try {
-		const res = await fetch('/api/buckets/create', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', ...authHeaders() },
-			body: JSON.stringify({ bucketName: newBucketName.value.trim() }),
-		});
-		const data = (await res.json()) as { bucketId?: string; error?: string };
+		const { res, data } = await apiPost<{ bucketId?: string; error?: string }>('/api/buckets/create', { bucketName: newBucketName.value.trim() });
 		if (!res.ok) {
 			createError.value = data.error ?? 'バケットの作成に失敗しました';
 			return;
@@ -104,13 +95,8 @@ async function executeDeletion(): Promise<void> {
 	deleteDialog.value = false;
 	deleteTarget.value = null;
 	try {
-		const res = await fetch('/api/buckets/delete', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', ...authHeaders() },
-			body: JSON.stringify({ bucketId }),
-		});
+		const { res, data } = await apiPost<{ error?: string }>('/api/buckets/delete', { bucketId });
 		if (!res.ok) {
-			const data = (await res.json()) as { error?: string };
 			error.value = data.error ?? '削除に失敗しました';
 			return;
 		}
