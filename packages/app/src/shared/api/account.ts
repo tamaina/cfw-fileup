@@ -1,5 +1,6 @@
 import * as v from 'valibot';
-import type { ApiEndpointDefinitionRecord } from '../api.js';
+import type { ApiEndpointDefinitionRecord } from '../api.types.js';
+import { ErrorResponse } from '../api.schemas.js';
 
 export const accountApiDef = {
 	'/api/account/me': {
@@ -8,8 +9,7 @@ export const accountApiDef = {
 		req: v.object({}),
 		res: {
 			200: { description: 'Success', content: { 'application/json': { vSchema: v.object({ id: v.string(), username: v.string(), isAdmin: v.boolean() }) } } },
-			401: { description: 'Unauthorized' },
-		},
+    },
 	},
 	'/api/account/update': {
     summary: 'Update account info',
@@ -20,11 +20,10 @@ export const accountApiDef = {
 			currentPassword: v.string(),
 		}),
 		res: {
-			200: { content: { 'application/json': { vSchema: v.object({ ok: v.literal(true) }) } } },
-			400: { description: 'Bad request (missing currentPassword or password too short)' },
-			401: { description: 'Invalid current password' },
-			404: { description: 'User not found' },
-			409: { description: 'Username already exists' },
+			200: { description: 'Success', content: { 'application/json': { vSchema: v.object({ ok: v.literal(true) }) } } },
+			400: { description: 'Bad request (missing currentPassword or password too short)', content: { 'application/json': { vSchema: ErrorResponse } } },
+			404: { description: 'User not found', content: { 'application/json': { vSchema: ErrorResponse } } },
+			409: { description: 'Username already exists', content: { 'application/json': { vSchema: ErrorResponse } } },
 		},
 	},
 } as const satisfies ApiEndpointDefinitionRecord;

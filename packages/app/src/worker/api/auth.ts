@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import { describeResponse, validator } from 'hono-openapi';
+import { describeResponse, describeRoute, validator } from 'hono-openapi';
 import { eq, count } from 'drizzle-orm';
 import { users, tokens, appSettings, usedUsernames } from '../scheme/index';
 import { getDb } from '../utils/db';
@@ -8,13 +8,18 @@ import { hashPassword, verifyPassword, generateToken } from '../utils/crypto';
 import { genEaidx } from '../../shared/eaid-x';
 import { verifyTurnstile } from '../utils/turnstile';
 import { validateUsername } from '../utils/name-validation';
-import { apiDef } from '../../shared/api';
+import { apiDef, type JsonCtx } from '../../shared/api';
+import { omitResAndReq } from '../utils/omit';
 
 const app = new Hono<{ Bindings: Env }>();
 
-app.post('/signup', validator('json', apiDef['/api/signup'].req), describeResponse(async (c) => {
-	const db = getDb(c.env);
-	const body = c.req.valid('json');
+app.post(
+	'/signup',
+	describeRoute(omitResAndReq(apiDef['/api/signup'])),
+	validator('json', apiDef['/api/signup'].req),
+	describeResponse(async (c: JsonCtx<'/api/signup', Env>) => {
+		const db = getDb(c.env);
+		const body = c.req.valid('json');
 	const username = (body.username ?? '').trim();
 
 	if (!username || !body.password) {
@@ -119,12 +124,17 @@ app.post('/signup', validator('json', apiDef['/api/signup'].req), describeRespon
 			.onConflictDoNothing();
 	}
 
-	return c.json({ userId, token: tokenValue });
-}, apiDef['/api/signup'].res));
+		return c.json({ userId, token: tokenValue }, 200);
+	}, apiDef['/api/signup'].res),
+);
 
-app.post('/signin', validator('json', apiDef['/api/signin'].req), describeResponse(async (c) => {
-	const db = getDb(c.env);
-	const body = c.req.valid('json');
+app.post(
+	'/signin',
+	describeRoute(omitResAndReq(apiDef['/api/signin'])),
+	validator('json', apiDef['/api/signin'].req),
+	describeResponse(async (c: JsonCtx<'/api/signin', Env>) => {
+		const db = getDb(c.env);
+		const body = c.req.valid('json');
 	const username = (body.username ?? '').trim();
 
 	if (!username || !body.password) {
@@ -162,7 +172,7 @@ app.post('/signin', validator('json', apiDef['/api/signin'].req), describeRespon
 		token: tokenValue,
 	});
 
-	return c.json({ token: tokenValue });
+	return c.json({ token: tokenValue }, 200);
 }, apiDef['/api/signin'].res));
 
 export const authRoutes = app;

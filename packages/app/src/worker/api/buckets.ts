@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import { describeResponse, validator } from 'hono-openapi';
+import { describeResponse, describeRoute, validator } from 'hono-openapi';
 import { eq } from 'drizzle-orm';
 import { buckets, files, usedBucketNames } from '../scheme/index';
 import { getDb } from '../utils/db';
@@ -8,16 +8,21 @@ import { getQuotaForUser } from '../utils/rate-limit';
 import { authMiddleware } from '../middleware/auth';
 import { genEaidx } from '../../shared/eaid-x';
 import { validateBucketName } from '../utils/name-validation';
-import { apiDef } from '../../shared/api';
+import { apiDef, getResponseDefWithAuth, type JsonCtx } from '../../shared/api';
+import { omitResAndReq } from '../utils/omit';
 
 const app = new Hono<{ Bindings: Env }>();
 
 app.use(authMiddleware);
 
-app.post('/create', validator('json', apiDef['/api/buckets/create'].req), describeResponse(async (c) => {
-	const db = getDb(c.env);
-	const user = c.get('user');
-	const body = c.req.valid('json');
+app.post(
+	'/create',
+	describeRoute(omitResAndReq(apiDef['/api/buckets/create'])),
+	validator('json', apiDef['/api/buckets/create'].req),
+	describeResponse(async (c: JsonCtx<'/api/buckets/create', Env>) => {
+		const db = getDb(c.env);
+		const user = c.get('user');
+		const body = c.req.valid('json');
 
 	if (!body.bucketName) {
 		throw new HTTPException(400, { message: 'bucketName is required' });
@@ -56,13 +61,18 @@ app.post('/create', validator('json', apiDef['/api/buckets/create'].req), descri
 		.values({ bucketName: body.bucketName.toLowerCase() })
 		.onConflictDoNothing();
 
-	return c.json({ bucketId });
-}, apiDef['/api/buckets/create'].res));
+		return c.json({ bucketId }, 200);
+	}, getResponseDefWithAuth('/api/buckets/create')),
+);
 
-app.post('/delete', validator('json', apiDef['/api/buckets/delete'].req), describeResponse(async (c) => {
-	const db = getDb(c.env);
-	const user = c.get('user');
-	const body = c.req.valid('json');
+app.post(
+	'/delete',
+	describeRoute(omitResAndReq(apiDef['/api/buckets/delete'])),
+	validator('json', apiDef['/api/buckets/delete'].req),
+	describeResponse(async (c: JsonCtx<'/api/buckets/delete', Env>) => {
+		const db = getDb(c.env);
+		const user = c.get('user');
+		const body = c.req.valid('json');
 
 	if (!body.bucketId) {
 		throw new HTTPException(400, { message: 'bucketId is required' });
@@ -90,12 +100,17 @@ app.post('/delete', validator('json', apiDef['/api/buckets/delete'].req), descri
 
 	await db.delete(buckets).where(eq(buckets.id, bucket.id));
 
-	return c.json({ ok: true as const });
-}, apiDef['/api/buckets/delete'].res));
+		return c.json({ ok: true as const }, 200);
+	}, getResponseDefWithAuth('/api/buckets/delete')),
+);
 
-app.post('/list', describeResponse(async (c) => {
-	const db = getDb(c.env);
-	const user = c.get('user');
+app.post(
+	'/list',
+	describeRoute(omitResAndReq(apiDef['/api/buckets/list'])),
+	validator('json', apiDef['/api/buckets/list'].req),
+	describeResponse(async (c: JsonCtx<'/api/buckets/list', Env>) => {
+		const db = getDb(c.env);
+		const user = c.get('user');
 
 	const [userBuckets, quota] = await Promise.all([
 		db
@@ -105,10 +120,11 @@ app.post('/list', describeResponse(async (c) => {
 		getQuotaForUser(c.env, user.id),
 	]);
 
-	return c.json({
-		buckets: userBuckets,
-		maxBucketSizeBytes: quota.maxBucketSizeBytes,
-	});
-}, apiDef['/api/buckets/list'].res));
+		return c.json({
+			buckets: userBuckets,
+			maxBucketSizeBytes: quota.maxBucketSizeBytes,
+		}, 200);
+	}, getResponseDefWithAuth('/api/buckets/list')),
+);
 
 export const bucketRoutes = app;

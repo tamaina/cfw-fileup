@@ -31,6 +31,7 @@
   },
   "dependencies": {
     "@hono/standard-validator": "^0.2.2",
+    "@valibot/to-json-schema": "^1.7.0",
     "@vuetify/v0": "1.0.0-alpha.4",
     "bgzf": "workspace:*",
     "file-type": "^22.0.1",

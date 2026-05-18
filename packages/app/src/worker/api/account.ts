@@ -6,7 +6,8 @@ import { users } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { authMiddleware } from '../middleware/auth';
 import { hashPassword, verifyPassword } from '../utils/crypto';
-import { apiDef } from '../../shared/api';
+import { apiDef, getResponseDefWithAuth } from '../../shared/api';
+import type { JsonCtx } from '../../shared/api';
 import { omitResAndReq } from '../utils/omit';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -24,57 +25,62 @@ app.post(
       username: user.username,
       isAdmin: user.isAdmin,
     }, 200);
-  }, apiDef['/api/account/me'].res)
+  }, getResponseDefWithAuth('/api/account/me'))
 );
 
-app.post('/update', validator('json', apiDef['/api/account/update'].req), async (c) => {
-	const db = getDb(c.env);
-	const user = c.get('user');
-	const body = c.req.valid('json');
+app.post(
+	'/update',
+	describeRoute(omitResAndReq(apiDef['/api/account/update'])),
+	validator('json', apiDef['/api/account/update'].req),
+	describeResponse(async (c: JsonCtx<'/api/account/update', Env>) => {
+		const db = getDb(c.env);
+		const user = c.get('user');
+		const body = c.req.valid('json');
 
-	if (!body.currentPassword) {
-		throw new HTTPException(400, { message: 'currentPassword is required' });
-	}
-
-	const userRecord = await db.select().from(users).where(eq(users.id, user.id)).get();
-
-	if (!userRecord) {
-		throw new HTTPException(404, { message: 'User not found' });
-	}
-
-	const passwordValid = await verifyPassword(body.currentPassword, userRecord.passwordHash);
-	if (!passwordValid) {
-		throw new HTTPException(401, { message: 'Invalid password' });
-	}
-
-	if (body.username) {
-		if (body.username.length < 1 || body.username.length > 32) {
-			throw new HTTPException(400, { message: 'username must be 1-32 characters' });
+		if (!body.currentPassword) {
+			throw new HTTPException(400, { message: 'currentPassword is required' });
 		}
 
-		const existingUser = await db
-			.select()
-			.from(users)
-			.where(eq(users.username, body.username))
-			.get();
+		const userRecord = await db.select().from(users).where(eq(users.id, user.id)).get();
 
-		if (existingUser && existingUser.id !== user.id) {
-			throw new HTTPException(409, { message: 'Username already exists' });
+		if (!userRecord) {
+			throw new HTTPException(404, { message: 'User not found' });
 		}
 
-		await db.update(users).set({ username: body.username }).where(eq(users.id, user.id));
-	}
-
-	if (body.newPassword) {
-		if (body.newPassword.length < 8) {
-			throw new HTTPException(400, { message: 'password must be at least 8 characters' });
+		const passwordValid = await verifyPassword(body.currentPassword, userRecord.passwordHash);
+		if (!passwordValid) {
+			throw new HTTPException(401, { message: 'Invalid password' });
 		}
 
-		const passwordHash = await hashPassword(body.newPassword);
-		await db.update(users).set({ passwordHash }).where(eq(users.id, user.id));
-	}
+		if (body.username) {
+			if (body.username.length < 1 || body.username.length > 32) {
+				throw new HTTPException(400, { message: 'username must be 1-32 characters' });
+			}
 
-	return c.json({ ok: true });
-});
+			const existingUser = await db
+				.select()
+				.from(users)
+				.where(eq(users.username, body.username))
+				.get();
+
+			if (existingUser && existingUser.id !== user.id) {
+				throw new HTTPException(409, { message: 'Username already exists' });
+			}
+
+			await db.update(users).set({ username: body.username }).where(eq(users.id, user.id));
+		}
+
+		if (body.newPassword) {
+			if (body.newPassword.length < 8) {
+				throw new HTTPException(400, { message: 'password must be at least 8 characters' });
+			}
+
+			const passwordHash = await hashPassword(body.newPassword);
+			await db.update(users).set({ passwordHash }).where(eq(users.id, user.id));
+		}
+
+		return c.json({ ok: true }, 200);
+	}, getResponseDefWithAuth('/api/account/update')),
+);
 
 export const accountRoutes = app;
