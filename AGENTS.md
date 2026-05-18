@@ -96,3 +96,6 @@ Uses `@misskey-dev/eslint-plugin` (recommended config) with `@typescript-eslint/
 ## BGZF
 BGZF は、このプロジェクトのモチベーションの一つで、tar.gz の中の1つのファイルをダウンロードするために使っている。  
 BGZF や tar を作成するためのコードは `packages/bgzf` に書かれていru。
+
+## Release process
+Using https://github.com/misskey-dev/release-manager-actions @ dd3ecf2 . See https://github.com/misskey-dev/release-manager-actions/blob/dd3ecf280ca42f6edbd217f494b53b0b59e837a5/README.md for details.
