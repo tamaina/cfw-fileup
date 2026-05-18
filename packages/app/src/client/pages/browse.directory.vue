@@ -56,6 +56,10 @@ const deleteDialog = ref(false);
 const deleteTarget = ref<DisplayEntry | null>(null);
 const archiveDeleteDialog = ref(false);
 
+// tar/tar.gz → ZIP 変換ダウンロード用の状態
+const tarToZipProgress = ref<{ processedFiles: number; currentFile: string } | null>(null);
+const tarToZipError = ref('');
+
 async function loadBucketId(): Promise<void> {
 	if (!authStore.user) return;
 	const res = await fetch('/api/buckets/list', {
@@ -293,6 +297,63 @@ async function executeDeleteArchive(): Promise<void> {
 }
 
 onMounted(() => { load(); loadBucketId(); });
+/**
+ * tar/tar.gz を Web Worker で ZIP に変換してダウンロードする。
+ * Web Worker はメインスレッドをブロックしないため、UI の応答性を保ちながら
+ * 大きなアーカイブを処理できる。
+ */
+function startTarToZipDownload(): void {
+	tarToZipError.value = '';
+	tarToZipProgress.value = { processedFiles: 0, currentFile: '' };
+
+	const worker = new Worker(
+		new URL('../workers/tar-to-zip.worker.ts', import.meta.url),
+		{ type: 'module' },
+	);
+
+	// ファイル名は元のアーカイブ名から拡張子を除いたもの
+	const baseName = props.filePath.replace(/\.(tar\.gz|tgz|tar)$/i, '');
+
+	import('@/store/auth').then(({ authStore: store }) => {
+		worker.postMessage({
+			url: downloadUrl.value,
+			isTargz: props.isTargz,
+			token: store.token,
+			baseName,
+		});
+	});
+
+	worker.onmessage = (event) => {
+		const msg = event.data as { type: string; processedFiles?: number; currentFile?: string; blob?: Blob; filename?: string; message?: string };
+		if (msg.type === 'progress') {
+			tarToZipProgress.value = {
+				processedFiles: msg.processedFiles ?? 0,
+				currentFile: msg.currentFile ?? '',
+			};
+		} else if (msg.type === 'done') {
+			tarToZipProgress.value = null;
+			const url = URL.createObjectURL(msg.blob!);
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = msg.filename!;
+			a.click();
+			// メモリリーク防止のため遅延後に解放
+			setTimeout(() => URL.revokeObjectURL(url), 10000);
+			worker.terminate();
+		} else if (msg.type === 'error') {
+			tarToZipProgress.value = null;
+			tarToZipError.value = msg.message ?? 'ZIP変換に失敗しました';
+			worker.terminate();
+		}
+	};
+
+	worker.onerror = (e) => {
+		tarToZipProgress.value = null;
+		tarToZipError.value = e.message ?? 'Worker エラー';
+		worker.terminate();
+	};
+}
+
 watch(() => [props.bucketName, props.filePath], () => { load(); loadBucketId(); });
 watch(() => props.entryPath, (newEntryPath) => {
 	if (isArchive.value) {
@@ -308,10 +369,22 @@ watch(() => props.entryPath, (newEntryPath) => {
     <div v-if="isArchive" class="flex gap-2 items-center mb-3 flex-wrap">
       <a :href="downloadUrl" download class="btn btn-secondary">ダウンロード</a>
       <a v-if="isTargz" :href="decompressUrl" download class="btn btn-secondary">展開してダウンロード (.tar)</a>
+      <Button.Root
+        class="btn btn-secondary"
+        :disabled="tarToZipProgress !== null"
+        @click="startTarToZipDownload"
+      >
+        <Button.Content>ZIPとしてダウンロード</Button.Content>
+      </Button.Root>
       <Button.Root v-if="authStore.user" class="btn btn-ghost-danger" @click="archiveDeleteDialog = true">
         <Button.Content>削除</Button.Content>
       </Button.Root>
       <span v-if="deleteError" class="alert alert-error" style="padding:4px 10px; font-size:0.8rem">{{ deleteError }}</span>
+      <span v-if="tarToZipProgress" class="text-muted" style="font-size:0.85rem">
+        ZIP変換中... {{ tarToZipProgress.processedFiles }}件処理済み
+        <template v-if="tarToZipProgress.currentFile"> ({{ tarToZipProgress.currentFile }})</template>
+      </span>
+      <span v-if="tarToZipError" class="alert alert-error" style="padding:4px 10px; font-size:0.8rem">{{ tarToZipError }}</span>
     </div>
 
     <!-- 通常ディレクトリ操作 -->
