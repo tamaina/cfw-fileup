@@ -32,6 +32,7 @@
   "dependencies": {
     "@vuetify/v0": "1.0.0-alpha.4",
     "bgzf": "workspace:*",
+    "client-zip": "^2.5.0",
     "file-type": "^22.0.1"
   },
   "devDependencies": {
