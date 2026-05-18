@@ -1,11 +1,12 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { eq, count } from 'drizzle-orm';
-import { users, tokens, appSettings } from '../scheme/index';
+import { users, tokens, appSettings, usedUsernames } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { hashPassword, verifyPassword, generateToken } from '../utils/crypto';
 import { genEaidx } from '../../shared/eaid-x';
 import { verifyTurnstile } from '../utils/turnstile';
+import { validateUsername } from '../utils/name-validation';
 import { authApiSchema } from './auth.definition';
 import type { ExtractRequestType, ExtractResponseType } from './schema-type';
 
@@ -28,6 +29,14 @@ app.post('/signup', async (c) => {
 
 	if (body.username.length < 1 || body.username.length > 32) {
 		throw new HTTPException(400, { message: 'username must be 1-32 characters' });
+	}
+
+	// 使用可能な文字・禁止ワード・重複（大文字小文字を区別しない）チェック
+	const usernameError = await validateUsername(db, body.username);
+	if (usernameError) {
+		// 重複エラーのみ409、それ以外は400
+		const status = usernameError === 'Username already exists' ? 409 : 400;
+		throw new HTTPException(status, { message: usernameError });
 	}
 
 	if (body.password.length < 8) {
@@ -63,11 +72,6 @@ app.post('/signup', async (c) => {
 		}
 	}
 
-	const existingUser = await db.select().from(users).where(eq(users.username, body.username)).get();
-	if (existingUser) {
-		throw new HTTPException(409, { message: 'Username already exists' });
-	}
-
 	const registrationEnabled = await db
 		.select()
 		.from(appSettings)
@@ -88,6 +92,12 @@ app.post('/signup', async (c) => {
 		isAdmin: isFirstUser,
 		isSuspended: false,
 	});
+
+	// lowercaseで used_usernames に登録（削除後も同名再利用不可）
+	await db
+		.insert(usedUsernames)
+		.values({ username: body.username.toLowerCase() })
+		.onConflictDoNothing();
 
 	const tokenId = genEaidx(Date.now());
 	const tokenValue = generateToken();

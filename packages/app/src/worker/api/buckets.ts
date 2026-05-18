@@ -1,11 +1,12 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { eq } from 'drizzle-orm';
-import { buckets, files } from '../scheme/index';
+import { buckets, files, usedBucketNames } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { getQuotaForUser } from '../utils/rate-limit';
 import { authMiddleware } from '../middleware/auth';
 import { genEaidx } from '../../shared/eaid-x';
+import { validateBucketName } from '../utils/name-validation';
 import { bucketsApiSchema } from './buckets.definition';
 import type { ExtractRequestType, ExtractResponseType } from './schema-type';
 
@@ -22,6 +23,14 @@ app.post('/create', async (c) => {
 		throw new HTTPException(400, { message: 'bucketName is required' });
 	}
 
+	// 使用可能な文字・禁止ワード・重複（大文字小文字を区別しない）チェック
+	const bucketNameError = await validateBucketName(db, body.bucketName);
+	if (bucketNameError) {
+		// 重複エラーのみ409、それ以外は400
+		const status = bucketNameError === 'Bucket name already exists' ? 409 : 400;
+		throw new HTTPException(status, { message: bucketNameError });
+	}
+
 	const quota = await getQuotaForUser(c.env, user.id);
 	if (quota.maxBuckets !== null) {
 		const userBucketCount = await db.query.buckets
@@ -33,16 +42,6 @@ app.post('/create', async (c) => {
 		}
 	}
 
-	const existingBucket = await db
-		.select()
-		.from(buckets)
-		.where(eq(buckets.name, body.bucketName))
-		.get();
-
-	if (existingBucket) {
-		throw new HTTPException(409, { message: 'Bucket name already exists' });
-	}
-
 	const bucketId = genEaidx(Date.now());
 
 	await db.insert(buckets).values({
@@ -50,6 +49,12 @@ app.post('/create', async (c) => {
 		userId: user.id,
 		name: body.bucketName,
 	});
+
+	// lowercaseで used_bucket_names に登録（削除後も同名再利用不可）
+	await db
+		.insert(usedBucketNames)
+		.values({ bucketName: body.bucketName.toLowerCase() })
+		.onConflictDoNothing();
 
 	return c.json({ bucketId } as ExtractResponseType<typeof bucketsApiSchema, '/api/buckets/create', 'post', 201>);
 });

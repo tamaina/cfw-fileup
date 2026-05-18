@@ -242,7 +242,7 @@ app.post('/update-setting', async (c) => {
 
 	// eslint-disable-next-line @typescript-eslint/no-non-null-assertion
 	const settingDef = KNOWN_SETTINGS.find((s) => s.key === body.key)!;
-	// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+	 
 	if (settingDef.type === 'boolean' && body.value !== 'true' && body.value !== 'false') {
 		throw new HTTPException(400, { message: `Value for "${body.key}" must be "true" or "false"` });
 	}
