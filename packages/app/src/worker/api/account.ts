@@ -1,22 +1,12 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
+import { validator } from 'hono-openapi';
 import { eq } from 'drizzle-orm';
 import { users } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { authMiddleware } from '../middleware/auth';
 import { hashPassword, verifyPassword } from '../utils/crypto';
-import type { Schema, SchemaType } from './schema-type';
-
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const updateAccountSchema = {
-	type: 'object',
-	properties: {
-		username: { type: 'string', minLength: 1, maxLength: 32, optional: true },
-		newPassword: { type: 'string', minLength: 8, optional: true },
-		currentPassword: { type: 'string' },
-	},
-	required: ['currentPassword'],
-} as const satisfies Schema;
+import { UpdateAccountBody } from '../../shared/api/account';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -31,10 +21,10 @@ app.post('/me', (c) => {
 	});
 });
 
-app.post('/update', async (c) => {
+app.post('/update', validator('json', UpdateAccountBody), async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
-	const body = (await c.req.json()) as SchemaType<typeof updateAccountSchema>;
+	const body = c.req.valid('json');
 
 	if (!body.currentPassword) {
 		throw new HTTPException(400, { message: 'currentPassword is required' });

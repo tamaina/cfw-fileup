@@ -4,13 +4,10 @@
  */
 
 /**
- * Tests for the validateBodyMiddleware.
+ * Tests for request body validation via hono-openapi/valibot validator.
  *
- * These tests verify that invalid request bodies are rejected with HTTP 400
- * and that valid bodies pass through to the handler.
- *
- * The middleware is registered globally in `worker/index.ts` and uses
- * `c.req.routePath` to look up the compiled ajv schema for the matched route.
+ * Each route handler registers a `validator('json', schema)` middleware that
+ * rejects invalid bodies with HTTP 400 before the handler runs.
  */
 
 import { describe, test, expect, beforeAll, beforeEach } from 'vitest';
@@ -24,54 +21,41 @@ beforeEach(async () => {
 	await clearDb();
 });
 
-describe('validateBodyMiddleware — POST /api/signup', () => {
+describe('valibot validator — POST /api/signup', () => {
 	test('valid body passes through (returns non-400 or domain error)', async () => {
 		const res = await app.request('/api/signup', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ username: 'testuser', password: 'password123' }),
 		}, env);
-		// Should not be rejected by the middleware (400 from middleware has specific error key)
-		if (res.status === 400) {
-			const body = await res.json() as Record<string, unknown>;
-			expect(body.error).not.toBe('validation error');
-		} else {
-			expect([200, 201, 409]).toContain(res.status);
-		}
+		expect([200, 201, 409]).toContain(res.status);
 	});
 
-	test('missing required field (password) returns 400 with validation error', async () => {
+	test('missing required field (password) returns 400', async () => {
 		const res = await app.request('/api/signup', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ username: 'testuser' }),
 		}, env);
 		expect(res.status).toBe(400);
-		const body = await res.json() as Record<string, unknown>;
-		expect(body.error).toBe('validation error');
-		expect(Array.isArray(body.details)).toBe(true);
 	});
 
-	test('missing required field (username) returns 400 with validation error', async () => {
+	test('missing required field (username) returns 400', async () => {
 		const res = await app.request('/api/signup', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ password: 'password123' }),
 		}, env);
 		expect(res.status).toBe(400);
-		const body = await res.json() as Record<string, unknown>;
-		expect(body.error).toBe('validation error');
 	});
 
-	test('password shorter than minLength returns 400 with validation error', async () => {
+	test('password shorter than minLength returns 400', async () => {
 		const res = await app.request('/api/signup', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ username: 'testuser', password: 'short' }),
 		}, env);
 		expect(res.status).toBe(400);
-		const body = await res.json() as Record<string, unknown>;
-		expect(body.error).toBe('validation error');
 	});
 
 	test('invalid JSON returns 400', async () => {
@@ -84,8 +68,8 @@ describe('validateBodyMiddleware — POST /api/signup', () => {
 	});
 });
 
-describe('validateBodyMiddleware — POST /api/buckets/create', () => {
-	test('missing bucketName returns 400 with validation error', async () => {
+describe('valibot validator — POST /api/buckets/create', () => {
+	test('missing bucketName returns 400', async () => {
 		const { token } = await setupUser();
 		const res = await app.request('/api/buckets/create', {
 			method: 'POST',
@@ -93,46 +77,24 @@ describe('validateBodyMiddleware — POST /api/buckets/create', () => {
 			body: JSON.stringify({}),
 		}, env);
 		expect(res.status).toBe(400);
-		const body = await res.json() as Record<string, unknown>;
-		expect(body.error).toBe('validation error');
 	});
 
-	test('valid body passes (returns 200 or domain error, not validation error)', async () => {
+	test('valid body passes (returns 200/201 or domain error, not validation error)', async () => {
 		const { token } = await setupUser();
 		const res = await app.request('/api/buckets/create', {
 			method: 'POST',
 			headers: authHeaders(token),
-			body: JSON.stringify({ bucketName: 'my-bucket' }),
+			body: JSON.stringify({ bucketName: 'mybucket' }),
 		}, env);
-		if (res.status === 400) {
-			const body = await res.json() as Record<string, unknown>;
-			expect(body.error).not.toBe('validation error');
-		} else {
-			expect([200, 201]).toContain(res.status);
-		}
+		expect([200, 201]).toContain(res.status);
 	});
 });
 
-describe('validateBodyMiddleware — non-JSON content types are skipped', () => {
-	test('multipart/form-data is not validated and passes to handler', async () => {
-		// The upload endpoint accepts multipart; the middleware should skip it
-		const res = await app.request('/api/signup', {
-			method: 'POST',
-			headers: { 'Content-Type': 'multipart/form-data; boundary=abc' },
-			body: '--abc--',
-		}, env);
-		// Middleware should skip; response should NOT be "validation error"
-		const body = await res.json() as Record<string, unknown>;
-		expect(body.error).not.toBe('validation error');
-	});
-});
-
-describe('validateBodyMiddleware — GET requests are skipped', () => {
-	test('GET request is not validated', async () => {
+describe('valibot validator — GET requests are skipped', () => {
+	test('GET /api/meta responds normally', async () => {
 		const res = await app.request('/api/meta', {
 			method: 'GET',
 		}, env);
-		// Should respond normally
 		expect(res.status).toBe(200);
 	});
 });

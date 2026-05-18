@@ -1,23 +1,30 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
+import { validator } from 'hono-openapi';
 import { eq, and, gte, desc, sql, count } from 'drizzle-orm';
 import { buckets, files, targzFiles, tarFiles, uploadParts, DEFAULT_PART_SIZE, MIN_PART_SIZE } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { getQuotaForUser } from '../utils/rate-limit';
 import { authMiddleware } from '../middleware/auth';
 import { genEaidx } from '../../shared/eaid-x';
-import { filesApiSchema } from './files.definition';
-import type { ExtractRequestType, ExtractResponseType } from './schema-type';
+import {
+	CreateOpenBody,
+	TargzIndexBody,
+	TarIndexBody,
+	CreateCloseBody,
+	CreateStatusBody,
+	DeleteFileBody,
+	UpdateFileBody,
+} from '../../shared/api/files';
 
 const app = new Hono<{ Bindings: Env }>();
 
 app.use(authMiddleware);
 
-app.post('/create/open', async (c) => {
+app.post('/create/open', validator('json', CreateOpenBody), async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
-	type CreateOpenReq = ExtractRequestType<typeof filesApiSchema, '/api/files/create/open', 'post'>;
-	const body = (await c.req.json()) as CreateOpenReq;
+	const body = c.req.valid('json');
 
 	if (!body.bucketId || !body.path) {
 		throw new HTTPException(400, { message: 'bucketId and path are required' });
@@ -90,14 +97,13 @@ app.post('/create/open', async (c) => {
 		partSize,
 	});
 
-	return c.json({ fileId, uploadExpiry, partSize } as ExtractResponseType<typeof filesApiSchema, '/api/files/create/open', 'post', 200>);
+	return c.json({ fileId, uploadExpiry, partSize });
 });
 
-app.post('/create/targz-index', async (c) => {
+app.post('/create/targz-index', validator('json', TargzIndexBody), async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
-	type TargzIndexReq = ExtractRequestType<typeof filesApiSchema, '/api/files/create/targz-index', 'post'>;
-	const body = (await c.req.json()) as TargzIndexReq;
+	const body = c.req.valid('json');
 
 	// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
 	if (!body.fileId || !body.files) {
@@ -144,14 +150,13 @@ app.post('/create/targz-index', async (c) => {
 
 	await db.update(files).set({ isTargz: true }).where(eq(files.id, file.id));
 
-	return c.json({ ok: true } as ExtractResponseType<typeof filesApiSchema, '/api/files/create/targz-index', 'post', 200>);
+	return c.json({ ok: true });
 });
 
-app.post('/create/tar-index', async (c) => {
+app.post('/create/tar-index', validator('json', TarIndexBody), async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
-	type TarIndexReq = ExtractRequestType<typeof filesApiSchema, '/api/files/create/tar-index', 'post'>;
-	const body = (await c.req.json()) as TarIndexReq;
+	const body = c.req.valid('json');
 
 	// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
 	if (!body.fileId || !body.files) {
@@ -181,14 +186,13 @@ app.post('/create/tar-index', async (c) => {
 
 	await db.update(files).set({ isTar: true }).where(eq(files.id, file.id));
 
-	return c.json({ ok: true } as ExtractResponseType<typeof filesApiSchema, '/api/files/create/tar-index', 'post', 200>);
+	return c.json({ ok: true });
 });
 
-app.post('/create/close', async (c) => {
+app.post('/create/close', validator('json', CreateCloseBody), async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
-	type CreateCloseReq = ExtractRequestType<typeof filesApiSchema, '/api/files/create/close', 'post'>;
-	const body = (await c.req.json()) as CreateCloseReq;
+	const body = c.req.valid('json');
 
 	if (!body.fileId) {
 		throw new HTTPException(400, { message: 'fileId is required' });
@@ -273,14 +277,13 @@ app.post('/create/close', async (c) => {
 		.set({ usedBytes: sql`${buckets.usedBytes} + ${fileSize}` })
 		.where(eq(buckets.id, bucket.id));
 
-	return c.json({ ok: true } as ExtractResponseType<typeof filesApiSchema, '/api/files/create/close', 'post', 200>);
+	return c.json({ ok: true });
 });
 
-app.post('/create/status', async (c) => {
+app.post('/create/status', validator('json', CreateStatusBody), async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
-	type CreateStatusReq = ExtractRequestType<typeof filesApiSchema, '/api/files/create/status', 'post'>;
-	const body = (await c.req.json().catch(() => null)) as CreateStatusReq | null;
+	const body = c.req.valid('json');
 
 	if (!body?.fileId) {
 		throw new HTTPException(400, { message: 'fileId is required' });
@@ -303,13 +306,13 @@ app.post('/create/status', async (c) => {
 
 	// partSizeはファイル作成時にDBに保存した値を使用（ハードコードせずDBから参照）
 	const partSize = file.partSize;
-	return c.json({ partCount, offset: partCount * partSize, partSize } as ExtractResponseType<typeof filesApiSchema, '/api/files/create/status', 'post', 200>);
+	return c.json({ partCount, offset: partCount * partSize, partSize });
 });
 
-app.post('/update', async (c) => {
+app.post('/update', validator('json', UpdateFileBody), async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
-	const body = (await c.req.json()) as { bucketName: string; filePath: string; isPublic: boolean; passphrase?: string };
+	const body = c.req.valid('json');
 
 	if (!body.bucketName || !body.filePath) {
 		throw new HTTPException(400, { message: 'bucketName and filePath are required' });
@@ -360,14 +363,13 @@ app.post('/uploadings', async (c) => {
 		.where(eq(files.userId, user.id))
 		.orderBy(desc(files.id));
 
-	return c.json({ files: userFiles } as ExtractResponseType<typeof filesApiSchema, '/api/files/uploadings', 'post', 200>);
+	return c.json({ files: userFiles });
 });
 
-app.post('/delete', async (c) => {
+app.post('/delete', validator('json', DeleteFileBody), async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
-	type DeleteFileReq = ExtractRequestType<typeof filesApiSchema, '/api/files/delete', 'post'>;
-	const body = (await c.req.json()) as DeleteFileReq;
+	const body = c.req.valid('json');
 
 	if (!body.bucketId || !body.path) {
 		throw new HTTPException(400, { message: 'bucketId and path are required' });
@@ -408,7 +410,7 @@ app.post('/delete', async (c) => {
 			.where(eq(buckets.id, bucket.id));
 	}
 
-	return c.json({ ok: true } as ExtractResponseType<typeof filesApiSchema, '/api/files/delete', 'post', 200>);
+	return c.json({ ok: true });
 });
 
 export const fileRoutes = app;

@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
+import { validator } from 'hono-openapi';
 import { eq, count } from 'drizzle-orm';
 import { users, tokens, appSettings, usedUsernames } from '../scheme/index';
 import { getDb } from '../utils/db';
@@ -7,14 +8,13 @@ import { hashPassword, verifyPassword, generateToken } from '../utils/crypto';
 import { genEaidx } from '../../shared/eaid-x';
 import { verifyTurnstile } from '../utils/turnstile';
 import { validateUsername } from '../utils/name-validation';
-import { authApiSchema } from './auth.definition';
-import type { ExtractRequestType, ExtractResponseType } from './schema-type';
+import { SignupBody, SigninBody } from '../../shared/api/auth';
 
 const app = new Hono<{ Bindings: Env }>();
 
-app.post('/signup', async (c) => {
+app.post('/signup', validator('json', SignupBody), async (c) => {
 	const db = getDb(c.env);
-	const body = (await c.req.json()) as ExtractRequestType<typeof authApiSchema, '/api/signup', 'post'>;
+	const body = c.req.valid('json');
 	const username = (body.username ?? '').trim();
 
 	if (!username || !body.password) {
@@ -119,12 +119,12 @@ app.post('/signup', async (c) => {
 			.onConflictDoNothing();
 	}
 
-	return c.json({ userId, token: tokenValue } as ExtractResponseType<typeof authApiSchema, '/api/signup', 'post', 201>);
+	return c.json({ userId, token: tokenValue });
 });
 
-app.post('/signin', async (c) => {
+app.post('/signin', validator('json', SigninBody), async (c) => {
 	const db = getDb(c.env);
-	const body = (await c.req.json()) as ExtractRequestType<typeof authApiSchema, '/api/signin', 'post'>;
+	const body = c.req.valid('json');
 	const username = (body.username ?? '').trim();
 
 	if (!username || !body.password) {
@@ -162,7 +162,7 @@ app.post('/signin', async (c) => {
 		token: tokenValue,
 	});
 
-	return c.json({ token: tokenValue } as ExtractResponseType<typeof authApiSchema, '/api/signin', 'post', 200>);
+	return c.json({ token: tokenValue });
 });
 
 export const authRoutes = app;

@@ -1,23 +1,29 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
+import { validator } from 'hono-openapi';
 import { eq, sql } from 'drizzle-orm';
 import { users, tokens, files, buckets, appSettings, userQuotas, globalQuotas } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { getQuotaForUser, getGlobalQuota } from '../utils/rate-limit';
 import { authMiddleware, adminMiddleware } from '../middleware/auth';
 import { KNOWN_SETTINGS, KNOWN_SETTING_KEYS } from '../../shared/app-settings';
-import { adminApiSchema } from './admin.definition';
-import type { ExtractRequestType, ExtractResponseType } from './schema-type';
+import {
+	SuspendUserBody,
+	DeleteFileAdminBody,
+	DeleteBucketAdminBody,
+	QuotaBody,
+	UpdateSettingBody,
+	ToggleRegistrationBody,
+} from '../../shared/api/admin';
 
 const app = new Hono<{ Bindings: Env }>();
 
 app.use(authMiddleware);
 app.use(adminMiddleware);
 
-app.post('/suspend-user', async (c) => {
+app.post('/suspend-user', validator('json', SuspendUserBody), async (c) => {
 	const db = getDb(c.env);
-	type SuspendUserReq = ExtractRequestType<typeof adminApiSchema, '/api/admin/suspend-user', 'post'>;
-	const body = (await c.req.json()) as SuspendUserReq;
+	const body = c.req.valid('json');
 
 	if (!body.userId) {
 		throw new HTTPException(400, { message: 'userId is required' });
@@ -33,13 +39,12 @@ app.post('/suspend-user', async (c) => {
 
 	await db.delete(tokens).where(eq(tokens.userId, body.userId));
 
-	return c.json({ ok: true } as ExtractResponseType<typeof adminApiSchema, '/api/admin/suspend-user', 'post', 200>);
+	return c.json({ ok: true });
 });
 
-app.post('/delete-file', async (c) => {
+app.post('/delete-file', validator('json', DeleteFileAdminBody), async (c) => {
 	const db = getDb(c.env);
-	type DeleteFileAdminReq = ExtractRequestType<typeof adminApiSchema, '/api/admin/delete-file', 'post'>;
-	const body = (await c.req.json()) as DeleteFileAdminReq;
+	const body = c.req.valid('json');
 
 	if (!body.fileId) {
 		throw new HTTPException(400, { message: 'fileId is required' });
@@ -66,13 +71,12 @@ app.post('/delete-file', async (c) => {
 			.where(eq(buckets.id, file.bucketId));
 	}
 
-	return c.json({ ok: true } as ExtractResponseType<typeof adminApiSchema, '/api/admin/delete-file', 'post', 200>);
+	return c.json({ ok: true });
 });
 
-app.post('/delete-bucket', async (c) => {
+app.post('/delete-bucket', validator('json', DeleteBucketAdminBody), async (c) => {
 	const db = getDb(c.env);
-	type DeleteBucketAdminReq = ExtractRequestType<typeof adminApiSchema, '/api/admin/delete-bucket', 'post'>;
-	const body = (await c.req.json()) as DeleteBucketAdminReq;
+	const body = c.req.valid('json');
 
 	if (!body.bucketId) {
 		throw new HTTPException(400, { message: 'bucketId is required' });
@@ -96,12 +100,12 @@ app.post('/delete-bucket', async (c) => {
 
 	await db.delete(buckets).where(eq(buckets.id, bucket.id));
 
-	return c.json({ ok: true } as ExtractResponseType<typeof adminApiSchema, '/api/admin/delete-bucket', 'post', 200>);
+	return c.json({ ok: true });
 });
 
-app.post('/set-user-quota/:userId', async (c) => {
+app.post('/set-user-quota/:userId', validator('json', QuotaBody), async (c) => {
 	const db = getDb(c.env);
-	const body = (await c.req.json()) as Record<string, unknown>;
+	const body = c.req.valid('json');
 
 	const userId = c.req.param('userId');
 
@@ -116,63 +120,63 @@ app.post('/set-user-quota/:userId', async (c) => {
 		.insert(userQuotas)
 		.values({
 			userId,
-			maxBuckets: body.maxBuckets ? Number(body.maxBuckets) : null,
-			maxBucketSizeBytes: body.maxBucketSizeBytes ? Number(body.maxBucketSizeBytes) : null,
-			maxFilesPerBucket: body.maxFilesPerBucket ? Number(body.maxFilesPerBucket) : null,
-			maxDailyUploads: body.maxDailyUploads ? Number(body.maxDailyUploads) : null,
+			maxBuckets: body.maxBuckets ?? null,
+			maxBucketSizeBytes: body.maxBucketSizeBytes ?? null,
+			maxFilesPerBucket: body.maxFilesPerBucket ?? null,
+			maxDailyUploads: body.maxDailyUploads ?? null,
 			updatedAt: now,
 		})
 		.onConflictDoUpdate({
 			target: userQuotas.userId,
 			set: {
-				maxBuckets: body.maxBuckets ? Number(body.maxBuckets) : null,
-				maxBucketSizeBytes: body.maxBucketSizeBytes ? Number(body.maxBucketSizeBytes) : null,
-				maxFilesPerBucket: body.maxFilesPerBucket ? Number(body.maxFilesPerBucket) : null,
-				maxDailyUploads: body.maxDailyUploads ? Number(body.maxDailyUploads) : null,
+				maxBuckets: body.maxBuckets ?? null,
+				maxBucketSizeBytes: body.maxBucketSizeBytes ?? null,
+				maxFilesPerBucket: body.maxFilesPerBucket ?? null,
+				maxDailyUploads: body.maxDailyUploads ?? null,
 				updatedAt: now,
 			},
 		});
 
-	return c.json({ ok: true } as ExtractResponseType<typeof adminApiSchema, '/api/admin/set-user-quota/:userId', 'post', 200>);
+	return c.json({ ok: true });
 });
 
-app.post('/set-global-quota', async (c) => {
+app.post('/set-global-quota', validator('json', QuotaBody), async (c) => {
 	const db = getDb(c.env);
-	const body = (await c.req.json()) as Record<string, unknown>;
+	const body = c.req.valid('json');
 
 	await db
 		.insert(globalQuotas)
 		.values({
 			key: 'default',
-			maxBuckets: body.maxBuckets ? Number(body.maxBuckets) : null,
-			maxBucketSizeBytes: body.maxBucketSizeBytes ? Number(body.maxBucketSizeBytes) : null,
-			maxFilesPerBucket: body.maxFilesPerBucket ? Number(body.maxFilesPerBucket) : null,
-			maxDailyUploads: body.maxDailyUploads ? Number(body.maxDailyUploads) : null,
+			maxBuckets: body.maxBuckets ?? null,
+			maxBucketSizeBytes: body.maxBucketSizeBytes ?? null,
+			maxFilesPerBucket: body.maxFilesPerBucket ?? null,
+			maxDailyUploads: body.maxDailyUploads ?? null,
 		})
 		.onConflictDoUpdate({
 			target: globalQuotas.key,
 			set: {
-				maxBuckets: body.maxBuckets ? Number(body.maxBuckets) : null,
-				maxBucketSizeBytes: body.maxBucketSizeBytes ? Number(body.maxBucketSizeBytes) : null,
-				maxFilesPerBucket: body.maxFilesPerBucket ? Number(body.maxFilesPerBucket) : null,
-				maxDailyUploads: body.maxDailyUploads ? Number(body.maxDailyUploads) : null,
+				maxBuckets: body.maxBuckets ?? null,
+				maxBucketSizeBytes: body.maxBucketSizeBytes ?? null,
+				maxFilesPerBucket: body.maxFilesPerBucket ?? null,
+				maxDailyUploads: body.maxDailyUploads ?? null,
 			},
 		});
 
-	return c.json({ ok: true } as ExtractResponseType<typeof adminApiSchema, '/api/admin/set-global-quota', 'post', 200>);
+	return c.json({ ok: true });
 });
 
 app.post('/get-user-quota/:userId', async (c) => {
 	const userId = c.req.param('userId');
 	const quota = await getQuotaForUser(c.env, userId);
 
-	return c.json(quota as ExtractResponseType<typeof adminApiSchema, '/api/admin/get-user-quota/:userId', 'post', 200>);
+	return c.json(quota);
 });
 
 app.post('/get-global-quota', async (c) => {
 	const quota = await getGlobalQuota(c.env);
 
-	return c.json(quota as ExtractResponseType<typeof adminApiSchema, '/api/admin/get-global-quota', 'post', 200>);
+	return c.json(quota);
 });
 
 app.post('/delete-user-quota/:userId', async (c) => {
@@ -186,7 +190,7 @@ app.post('/delete-user-quota/:userId', async (c) => {
 
 	await db.delete(userQuotas).where(eq(userQuotas.userId, userId));
 
-	return c.json({ ok: true } as ExtractResponseType<typeof adminApiSchema, '/api/admin/delete-user-quota/:userId', 'post', 200>);
+	return c.json({ ok: true });
 });
 
 app.post('/list-users', async (c) => {
@@ -200,15 +204,9 @@ app.post('/list-users', async (c) => {
 	return c.json(allUsers);
 });
 
-app.post('/toggle-registration', async (c) => {
+app.post('/toggle-registration', validator('json', ToggleRegistrationBody), async (c) => {
 	const db = getDb(c.env);
-	type ToggleRegistrationReq = ExtractRequestType<typeof adminApiSchema, '/api/admin/toggle-registration', 'post'>;
-	const body = (await c.req.json()) as ToggleRegistrationReq;
-
-	// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-	if (body.enabled === undefined || body.enabled === null) {
-		throw new HTTPException(400, { message: 'enabled is required' });
-	}
+	const body = c.req.valid('json');
 
 	const value = body.enabled ? 'true' : 'false';
 
@@ -223,18 +221,12 @@ app.post('/toggle-registration', async (c) => {
 			set: { value },
 		});
 
-	return c.json({ ok: true } as ExtractResponseType<typeof adminApiSchema, '/api/admin/toggle-registration', 'post', 200>);
+	return c.json({ ok: true });
 });
 
-app.post('/update-setting', async (c) => {
+app.post('/update-setting', validator('json', UpdateSettingBody), async (c) => {
 	const db = getDb(c.env);
-	type UpdateSettingReq = ExtractRequestType<typeof adminApiSchema, '/api/admin/update-setting', 'post'>;
-	const body = (await c.req.json()) as UpdateSettingReq;
-
-	// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-	if (!body.key || body.value === undefined) {
-		throw new HTTPException(400, { message: 'key and value are required' });
-	}
+	const body = c.req.valid('json');
 
 	if (!KNOWN_SETTING_KEYS.includes(body.key)) {
 		throw new HTTPException(400, { message: `Unknown setting key: ${body.key}` });
@@ -258,14 +250,14 @@ app.post('/update-setting', async (c) => {
 			set: { value: body.value },
 		});
 
-	return c.json({ ok: true } as ExtractResponseType<typeof adminApiSchema, '/api/admin/update-setting', 'post', 200>);
+	return c.json({ ok: true });
 });
 
 app.post('/get-settings', async (c) => {
 	const db = getDb(c.env);
 	const settings = await db.select().from(appSettings);
 
-	return c.json(settings as ExtractResponseType<typeof adminApiSchema, '/api/admin/get-settings', 'post', 200>);
+	return c.json(settings);
 });
 
 export const adminRoutes = app;

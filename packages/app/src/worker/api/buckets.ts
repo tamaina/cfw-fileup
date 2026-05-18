@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
+import { validator } from 'hono-openapi';
 import { eq } from 'drizzle-orm';
 import { buckets, files, usedBucketNames } from '../scheme/index';
 import { getDb } from '../utils/db';
@@ -7,17 +8,16 @@ import { getQuotaForUser } from '../utils/rate-limit';
 import { authMiddleware } from '../middleware/auth';
 import { genEaidx } from '../../shared/eaid-x';
 import { validateBucketName } from '../utils/name-validation';
-import { bucketsApiSchema } from './buckets.definition';
-import type { ExtractRequestType, ExtractResponseType } from './schema-type';
+import { CreateBucketBody, DeleteBucketBody } from '../../shared/api/buckets';
 
 const app = new Hono<{ Bindings: Env }>();
 
 app.use(authMiddleware);
 
-app.post('/create', async (c) => {
+app.post('/create', validator('json', CreateBucketBody), async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
-	const body = (await c.req.json()) as ExtractRequestType<typeof bucketsApiSchema, '/api/buckets/create', 'post'>;
+	const body = c.req.valid('json');
 
 	if (!body.bucketName) {
 		throw new HTTPException(400, { message: 'bucketName is required' });
@@ -56,13 +56,13 @@ app.post('/create', async (c) => {
 		.values({ bucketName: body.bucketName.toLowerCase() })
 		.onConflictDoNothing();
 
-	return c.json({ bucketId } as ExtractResponseType<typeof bucketsApiSchema, '/api/buckets/create', 'post', 201>);
+	return c.json({ bucketId });
 });
 
-app.post('/delete', async (c) => {
+app.post('/delete', validator('json', DeleteBucketBody), async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
-	const body = (await c.req.json()) as ExtractRequestType<typeof bucketsApiSchema, '/api/buckets/delete', 'post'>;
+	const body = c.req.valid('json');
 
 	if (!body.bucketId) {
 		throw new HTTPException(400, { message: 'bucketId is required' });
@@ -90,7 +90,7 @@ app.post('/delete', async (c) => {
 
 	await db.delete(buckets).where(eq(buckets.id, bucket.id));
 
-	return c.json({ ok: true } as ExtractResponseType<typeof bucketsApiSchema, '/api/buckets/delete', 'post', 200>);
+	return c.json({ ok: true });
 });
 
 app.post('/list', async (c) => {
@@ -108,7 +108,7 @@ app.post('/list', async (c) => {
 	return c.json({
 		buckets: userBuckets,
 		maxBucketSizeBytes: quota.maxBucketSizeBytes,
-	} as ExtractResponseType<typeof bucketsApiSchema, '/api/buckets/list', 'post', 200>);
+	});
 });
 
 export const bucketRoutes = app;

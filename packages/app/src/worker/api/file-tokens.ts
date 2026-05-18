@@ -1,28 +1,25 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
+import { validator } from 'hono-openapi';
 import { eq, and } from 'drizzle-orm';
 import { buckets, files, fileAccessTokens } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { generateToken } from '../utils/crypto';
 import { genEaidx, parseEaidx } from '../../shared/eaid-x';
 import { authMiddleware } from '../middleware/auth';
+import { CreateFileTokenBody, ListFileTokensBody, DeleteFileTokenBody } from '../../shared/api/file-tokens';
 
 const app = new Hono<{ Bindings: Env }>();
 
 app.use(authMiddleware);
 
-app.post('/create', async (c) => {
+app.post('/create', validator('json', CreateFileTokenBody), async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
-	const body = (await c.req.json()) as { bucketName: string; filePath: string; expiresIn: number | null };
+	const body = c.req.valid('json');
 
-	if (!body.bucketName || !body.filePath) {
-		throw new HTTPException(400, { message: 'bucketName and filePath are required' });
-	}
-	if (body.expiresIn !== null) {
-		if (typeof body.expiresIn !== 'number' || body.expiresIn <= 0) {
-			throw new HTTPException(400, { message: 'expiresIn must be a positive number or null' });
-		}
+	if (body.expiresIn !== null && body.expiresIn <= 0) {
+		throw new HTTPException(400, { message: 'expiresIn must be a positive number or null' });
 	}
 
 	const bucket = await db.select().from(buckets).where(eq(buckets.name, body.bucketName)).get();
@@ -47,14 +44,10 @@ app.post('/create', async (c) => {
 	return c.json({ id, token, expiresAt });
 });
 
-app.post('/list', async (c) => {
+app.post('/list', validator('json', ListFileTokensBody), async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
-	const body = (await c.req.json()) as { bucketName: string; filePath: string };
-
-	if (!body.bucketName || !body.filePath) {
-		throw new HTTPException(400, { message: 'bucketName and filePath are required' });
-	}
+	const body = c.req.valid('json');
 
 	const bucket = await db.select().from(buckets).where(eq(buckets.name, body.bucketName)).get();
 	if (!bucket) throw new HTTPException(404, { message: 'Bucket not found' });
@@ -81,14 +74,10 @@ app.post('/list', async (c) => {
 	});
 });
 
-app.post('/delete', async (c) => {
+app.post('/delete', validator('json', DeleteFileTokenBody), async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
-	const body = (await c.req.json()) as { tokenId: string };
-
-	if (!body.tokenId) {
-		throw new HTTPException(400, { message: 'tokenId is required' });
-	}
+	const body = c.req.valid('json');
 
 	const row = await db
 		.select({
