@@ -104,10 +104,8 @@ async function executeSuspend(): Promise<void> {
                 <div class="flex gap-2 items-center">
                   <NirA :to="`/admin/users/${u.id}`" class="btn btn-secondary">クォータ設定</NirA>
                   <Popover.Root v-if="!u.isSuspended && u.id !== authStore.user?.id">
-                    <Popover.Activator>
-                      <Button.Root class="btn btn-ghost btn-icon" aria-label="操作メニュー">
-                        <Button.Content>…</Button.Content>
-                      </Button.Root>
+                    <Popover.Activator class="btn btn-ghost btn-icon" aria-label="操作メニュー">
+                      …
                     </Popover.Activator>
                     <Popover.Content class="action-menu">
                       <Button.Root class="btn btn-ghost-danger w-full" style="justify-content:flex-start" @click="requestSuspend(u)">

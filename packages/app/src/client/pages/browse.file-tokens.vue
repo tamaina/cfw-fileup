@@ -305,10 +305,8 @@ onMounted(loadTokens);
             </td>
             <td>
               <Popover.Root>
-                <Popover.Activator>
-                  <Button.Root class="btn btn-ghost btn-icon" aria-label="操作メニュー">
-                    <Button.Content>…</Button.Content>
-                  </Button.Root>
+                <Popover.Activator class="btn btn-ghost btn-icon" aria-label="操作メニュー">
+                  …
                 </Popover.Activator>
                 <Popover.Content class="action-menu">
                   <Button.Root class="btn btn-ghost-danger w-full" style="justify-content:flex-start" @click="openDeleteDialog(t.id)">

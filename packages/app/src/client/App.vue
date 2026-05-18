@@ -67,10 +67,8 @@ function toggleTheme(): void {
         <div class="app-nav-user">
           <template v-if="authStore.user">
             <Popover.Root>
-              <Popover.Activator>
-                <Button.Root class="btn btn-ghost app-nav-username" aria-haspopup="true">
-                  <Button.Content>{{ authStore.user.username }}</Button.Content>
-                </Button.Root>
+              <Popover.Activator class="btn btn-ghost app-nav-username" aria-haspopup="true">
+                {{ authStore.user.username }}
               </Popover.Activator>
               <Popover.Content class="app-nav-user-menu">
                 <Button.Root class="btn btn-ghost w-full" style="justify-content:flex-start" @click="logout">

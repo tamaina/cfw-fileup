@@ -131,14 +131,14 @@ onMounted(loadBuckets);
               maxlength="64"
               style="max-width:280px"
             >
-            <div v-if="bucketNameFormatError" class="form-hint form-hint--error">{{ bucketNameFormatError }}</div>
-            <div v-else class="form-hint">英数字とアンダースコア [0-9a-zA-Z_] のみ使用できます</div>
           </div>
           <Button.Root type="submit" class="btn btn-primary" :loading="creating" :disabled="!!bucketNameFormatError">
             <Button.Loading>作成中...</Button.Loading>
             <Button.Content>作成</Button.Content>
           </Button.Root>
         </form>
+        <div v-if="bucketNameFormatError" class="form-hint form-hint--error mt-1">{{ bucketNameFormatError }}</div>
+        <div v-else class="form-hint mt-1">英数字とアンダースコア [0-9a-zA-Z_] のみ使用できます</div>
         <div v-if="createError" class="alert alert-error mt-2">{{ createError }}</div>
       </div>
 
@@ -192,10 +192,8 @@ onMounted(loadBuckets);
                       アップロード
                     </NirA>
                     <Popover.Root>
-                      <Popover.Activator>
-                        <Button.Root class="btn btn-ghost btn-icon" aria-label="操作メニュー">
-                          <Button.Content>…</Button.Content>
-                        </Button.Root>
+                      <Popover.Activator class="btn btn-ghost btn-icon" aria-label="操作メニュー">
+                        …
                       </Popover.Activator>
                       <Popover.Content class="action-menu">
                         <Button.Root class="btn btn-ghost-danger w-full" style="justify-content:flex-start" @click="requestDelete(b)">
