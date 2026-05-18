@@ -27,6 +27,9 @@ importers:
       '@vuetify/v0':
         specifier: 1.0.0-alpha.4
         version: 1.0.0-alpha.4(vue@3.5.34(typescript@6.0.3))
+      ajv:
+        specifier: ^8.20.0
+        version: 8.20.0
       bgzf:
         specifier: workspace:*
         version: link:../bgzf
@@ -36,7 +39,7 @@ importers:
     devDependencies:
       '@cloudflare/vite-plugin':
         specifier: ^1.36.3
-        version: 1.36.3(vite@8.0.12(@types/node@25.7.0)(esbuild@0.27.3)(terser@5.47.1)(tsx@4.21.0))(workerd@1.20260508.1)(wrangler@4.90.0)
+        version: 1.36.3(vite@8.0.12(@types/node@25.7.0)(esbuild@0.27.3)(terser@5.47.1)(tsx@4.21.0))(workerd@1.20260507.1)(wrangler@4.90.0)
       '@cloudflare/vitest-pool-workers':
         specifier: ^0.16.4
         version: 0.16.4(@vitest/runner@4.1.6)(@vitest/snapshot@4.1.6)(vitest@4.1.6(@types/node@25.7.0)(vite@8.0.12(@types/node@25.7.0)(esbuild@0.27.3)(terser@5.47.1)(tsx@4.21.0)))
@@ -4468,9 +4471,9 @@ snapshots:
     optionalDependencies:
       workerd: 1.20260508.1
 
-  '@cloudflare/vite-plugin@1.36.3(vite@8.0.12(@types/node@25.7.0)(esbuild@0.27.3)(terser@5.47.1)(tsx@4.21.0))(workerd@1.20260508.1)(wrangler@4.90.0)':
+  '@cloudflare/vite-plugin@1.36.3(vite@8.0.12(@types/node@25.7.0)(esbuild@0.27.3)(terser@5.47.1)(tsx@4.21.0))(workerd@1.20260507.1)(wrangler@4.90.0)':
     dependencies:
-      '@cloudflare/unenv-preset': 2.16.1(unenv@2.0.0-rc.24)(workerd@1.20260508.1)
+      '@cloudflare/unenv-preset': 2.16.1(unenv@2.0.0-rc.24)(workerd@1.20260507.1)
       miniflare: 4.20260507.1
       unenv: 2.0.0-rc.24
       vite: 8.0.12(@types/node@25.7.0)(esbuild@0.27.3)(terser@5.47.1)(tsx@4.21.0)

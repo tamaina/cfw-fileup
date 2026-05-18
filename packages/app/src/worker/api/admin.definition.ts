@@ -1,14 +1,15 @@
 import type { Schema } from './schema-type';
 
+// All quota fields are optional — callers may omit any field to leave it
+// unchanged (treated as null / no limit by the handler).
 const quotaSchema = {
 	type: 'object',
 	properties: {
-		maxBuckets: { type: 'integer', nullable: true, description: 'Max buckets per user' },
-		maxBucketSizeBytes: { type: 'integer', nullable: true, description: 'Max bucket size in bytes' },
-		maxFilesPerBucket: { type: 'integer', nullable: true, description: 'Max files per bucket' },
-		maxDailyUploads: { type: 'integer', nullable: true, description: 'Max daily uploads' },
+		maxBuckets: { type: 'integer', nullable: true, optional: true, description: 'Max buckets per user' },
+		maxBucketSizeBytes: { type: 'integer', nullable: true, optional: true, description: 'Max bucket size in bytes' },
+		maxFilesPerBucket: { type: 'integer', nullable: true, optional: true, description: 'Max files per bucket' },
+		maxDailyUploads: { type: 'integer', nullable: true, optional: true, description: 'Max daily uploads' },
 	},
-	required: ['maxBuckets', 'maxBucketSizeBytes', 'maxFilesPerBucket', 'maxDailyUploads'],
 } as const satisfies Schema;
 
 export const adminApiSchema = [

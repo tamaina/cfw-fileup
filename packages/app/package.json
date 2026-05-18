@@ -31,6 +31,7 @@
   },
   "dependencies": {
     "@vuetify/v0": "1.0.0-alpha.4",
+    "ajv": "^8.20.0",
     "bgzf": "workspace:*",
     "file-type": "^22.0.1"
   },

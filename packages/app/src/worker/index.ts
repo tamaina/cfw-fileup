@@ -12,8 +12,11 @@ import { fileTokenRoutes } from './api/file-tokens';
 import { downloadRoutes } from './routes/download';
 import { uploadRoutes } from './routes/upload';
 import { generateOpenAPISpec } from './openapi-generator';
+import { validateBodyMiddleware } from './middleware/validate-body';
 
 const app = new Hono<{ Bindings: Env }>();
+
+app.use('*', validateBodyMiddleware);
 
 app.onError((err, c) => {
 	console.error('Error:', err);
