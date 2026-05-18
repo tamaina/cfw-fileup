@@ -61,29 +61,6 @@ R2はS3互換だがenv.R2から操作すべき。
 - `worker/scheme` — Drizzle ORMスキーマ定義
 - `worker/utils` — Worker内で使うユーティリティ関数
 
-#### API
-API routes are defined in `src/worker/index.ts` using Hono's routing. Each route handler is imported from `src/worker/api/`.
-
-`worker/api/**/*.definition.ts` files contain OpenAPI like endpoint and schema definitions. It uses for documentation and type definition with SchemaType.
-
-#### Database Schema
-
-`src/worker/scheme/` contains Drizzle ORM table definitions.
-
-**Important:** `createdAt` timestamps in `users` and `tokens` tables are derived from EAID-X IDs, not from `Date.now()`. This ensures consistency between the ID generation timestamp and the stored timestamp:
-
-See `.claude/skills/eaid-x/SKILL.md` for details on EAID-X and how to parse it for timestamps.
-
-#### Tests
-
-```sh
-# tsc型チェック
-pnpm --filter app run typecheck:worker
-
-# Vitest
-pnpm --filter app run test:worker
-```
-
 ### Shared code
 
 `src/shared/` contains code used by both Worker and client.
@@ -98,13 +75,6 @@ pnpm --filter app run test:worker
 - Vite for bundling
 - nirax は、Misskeyプロジェクトから持ち出してきたrouterライブラリ。router.definition.tsにルート定義あり。
 - Vuetify 0 for UI
-
-#### Tests
-
-```sh
-# vue-tsc型チェック
-pnpm --filter app run typecheck:client
-```
 
 ### Client Service Worker
 `packages/app/src/sw/index.ts` is the entrypoint for the client-side Service Worker.  
@@ -126,3 +96,6 @@ Uses `@misskey-dev/eslint-plugin` (recommended config) with `@typescript-eslint/
 ## BGZF
 BGZF は、このプロジェクトのモチベーションの一つで、tar.gz の中の1つのファイルをダウンロードするために使っている。  
 BGZF や tar を作成するためのコードは `packages/bgzf` に書かれていru。
+
+## Release process
+Using https://github.com/misskey-dev/release-manager-actions @ dd3ecf2 . See https://github.com/misskey-dev/release-manager-actions/blob/dd3ecf280ca42f6edbd217f494b53b0b59e837a5/README.md for details.
