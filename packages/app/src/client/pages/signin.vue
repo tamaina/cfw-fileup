@@ -104,7 +104,7 @@ async function submit(): Promise<void> {
 
         <Button.Root type="button" class="btn btn-primary w-full" style="justify-content: center" :loading="loading" :disabled="!canSubmit" @click="submit">
           <Button.Loading>処理中...</Button.Loading>
-          <Button.Content>サインイン</Button.Content>
+          <Button.Content>{{ turnstileEnabled && !turnstileToken ? '確認中...' : 'サインイン' }}</Button.Content>
         </Button.Root>
       </form>
 

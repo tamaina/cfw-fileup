@@ -49,7 +49,7 @@ async function submit(): Promise<void> {
 	loading.value = true;
 	try {
 		const body: Record<string, string> = {
-			username: form.username,
+			username: form.username.trim(),
 			password: form.password,
 		};
 		if (form.passphrase) {
@@ -136,7 +136,7 @@ async function submit(): Promise<void> {
 
         <Button.Root type="button" class="btn btn-primary w-full" style="justify-content: center" :loading="loading" :disabled="!canSubmit" @click="submit">
           <Button.Loading>処理中...</Button.Loading>
-          <Button.Content>アカウント作成</Button.Content>
+          <Button.Content>{{ turnstileEnabled && !turnstileToken ? '確認中...' : 'アカウント作成' }}</Button.Content>
         </Button.Root>
       </form>
 

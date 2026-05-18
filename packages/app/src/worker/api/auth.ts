@@ -15,8 +15,9 @@ const app = new Hono<{ Bindings: Env }>();
 app.post('/signup', async (c) => {
 	const db = getDb(c.env);
 	const body = (await c.req.json()) as ExtractRequestType<typeof authApiSchema, '/api/signup', 'post'>;
+	const username = (body.username ?? '').trim();
 
-	if (!body.username || !body.password) {
+	if (!username || !body.password) {
 		throw new HTTPException(400, { message: 'username and password are required' });
 	}
 
@@ -27,12 +28,12 @@ app.post('/signup', async (c) => {
 		}
 	}
 
-	if (body.username.length < 1 || body.username.length > 32) {
+	if (username.length < 1 || username.length > 32) {
 		throw new HTTPException(400, { message: 'username must be 1-32 characters' });
 	}
 
 	// 使用可能な文字・禁止ワード・重複（大文字小文字を区別しない）チェック
-	const usernameError = await validateUsername(db, body.username);
+	const usernameError = await validateUsername(db, username);
 	if (usernameError) {
 		// 重複エラーのみ409、それ以外は400
 		const status = usernameError === 'Username already exists' ? 409 : 400;
@@ -87,7 +88,7 @@ app.post('/signup', async (c) => {
 
 	await db.insert(users).values({
 		id: userId,
-		username: body.username,
+		username,
 		passwordHash,
 		isAdmin: isFirstUser,
 		isSuspended: false,
@@ -96,7 +97,7 @@ app.post('/signup', async (c) => {
 	// lowercaseで used_usernames に登録（削除後も同名再利用不可）
 	await db
 		.insert(usedUsernames)
-		.values({ username: body.username.toLowerCase() })
+		.values({ username: username.toLowerCase() })
 		.onConflictDoNothing();
 
 	const tokenId = genEaidx(Date.now());
@@ -124,8 +125,9 @@ app.post('/signup', async (c) => {
 app.post('/signin', async (c) => {
 	const db = getDb(c.env);
 	const body = (await c.req.json()) as ExtractRequestType<typeof authApiSchema, '/api/signin', 'post'>;
+	const username = (body.username ?? '').trim();
 
-	if (!body.username || !body.password) {
+	if (!username || !body.password) {
 		throw new HTTPException(400, { message: 'username and password are required' });
 	}
 
@@ -136,7 +138,7 @@ app.post('/signin', async (c) => {
 		}
 	}
 
-	const user = await db.select().from(users).where(eq(users.username, body.username)).get();
+	const user = await db.select().from(users).where(eq(users.username, username)).get();
 
 	if (!user) {
 		throw new HTTPException(401, { message: 'Invalid credentials' });
