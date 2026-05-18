@@ -102,17 +102,17 @@ function toggleSelect(path: string): void {
  * Service Worker は公開ファイルのみ fetch できるため、非公開ファイルは
  * ダウンロードに失敗する（空ファイルが含まれる場合がある）。
  */
-function downloadSelectedAsTar(): void {
+function downloadSelected(format: 'tar' | 'zip'): void {
 	const paths = Array.from(selectedPaths.value);
 	if (paths.length === 0) return;
 	const encodedPaths = paths.map(p => encodeURIComponent(p)).join(',');
 	const folderName = props.filePath.replace(/\/$/, '').split('/').pop() ?? props.bucketName;
-	const filename = encodeURIComponent(`${folderName}.tar`);
-	const url = `/sw-archive?bucket=${encodeURIComponent(props.bucketName)}&paths=${encodedPaths}&filename=${filename}`;
-	// <a download> でダウンロード
+	const ext = format === 'zip' ? 'zip' : 'tar';
+	const filename = encodeURIComponent(`${folderName}.${ext}`);
+	const url = `/sw-archive?bucket=${encodeURIComponent(props.bucketName)}&paths=${encodedPaths}&filename=${filename}&format=${format}`;
 	const a = document.createElement('a');
 	a.href = url;
-	a.download = `${folderName}.tar`;
+	a.download = `${folderName}.${ext}`;
 	document.body.appendChild(a);
 	a.click();
 	document.body.removeChild(a);
@@ -427,8 +427,11 @@ watch(() => props.entryPath, (newEntryPath) => {
       <!-- 一括操作ボタン (選択中のみ) -->
       <template v-if="selectedPaths.size > 0">
         <span class="badge badge-info">{{ selectedPaths.size }} 件選択中</span>
-        <Button.Root class="btn btn-secondary" @click="downloadSelectedAsTar">
+        <Button.Root class="btn btn-secondary" @click="downloadSelected('tar')">
           <Button.Content>tarでダウンロード</Button.Content>
+        </Button.Root>
+        <Button.Root class="btn btn-secondary" @click="downloadSelected('zip')">
+          <Button.Content>ZIPでダウンロード</Button.Content>
         </Button.Root>
         <Button.Root class="btn btn-ghost-danger" @click="bulkDeleteDialog = true">
           <Button.Content>まとめて削除</Button.Content>

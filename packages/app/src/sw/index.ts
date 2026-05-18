@@ -288,10 +288,13 @@ async function* generateTarEntries(files: Array<{ name: string; url: string }>):
 	yield new Uint8Array(1024);
 }
 
+// /sw-archive?bucket=<bucket>&paths=<path1>,<path2>&filename=<name>[&format=tar|zip]
 function handleBulkArchive(request: Request): Response {
 	const url = new URL(request.url);
 	const bucket = url.searchParams.get('bucket') ?? '';
-	const filename = url.searchParams.get('filename') ?? 'archive.tar';
+	const format = url.searchParams.get('format') ?? 'tar';
+	const defaultFilename = format === 'zip' ? 'archive.zip' : 'archive.tar';
+	const filename = url.searchParams.get('filename') ?? defaultFilename;
 	const pathsParam = url.searchParams.get('paths') ?? '';
 
 	if (!bucket || !pathsParam) {
@@ -305,11 +308,39 @@ function handleBulkArchive(request: Request): Response {
 	}
 
 	const files = paths.map(p => ({
-		// Use the last path segment as the file name within the archive
 		name: p,
 		url: `/d/${bucket}/${p}`,
 	}));
 
+	if (format === 'zip') {
+		// ZIP形式: client-zip の makeZip でストリーミング生成
+		async function* zipEntries() {
+			for (const file of files) {
+				let res: Response;
+				try {
+					res = await fetch(file.url);
+				} catch {
+					console.warn(`sw-archive: failed to fetch ${file.url}`);
+					continue;
+				}
+				if (!res.ok) {
+					console.warn(`sw-archive: ${file.url} returned ${res.status}`);
+					continue;
+				}
+				yield { name: file.name, input: res };
+			}
+		}
+		const zipStream = makeZip(zipEntries());
+		return new Response(zipStream, {
+			status: 200,
+			headers: {
+				'Content-Type': 'application/zip',
+				'Content-Disposition': `attachment; filename="${filename}"`,
+			},
+		});
+	}
+
+	// TAR形式 (既存実装)
 	const gen = generateTarEntries(files);
 	const stream = new ReadableStream<Uint8Array>({
 		async pull(controller) {
@@ -329,12 +360,13 @@ function handleBulkArchive(request: Request): Response {
 		},
 	});
 
-	const headers = new Headers({
-		'Content-Type': 'application/x-tar',
-		'Content-Disposition': `attachment; filename="${filename}"`,
+	return new Response(stream, {
+		status: 200,
+		headers: {
+			'Content-Type': 'application/x-tar',
+			'Content-Disposition': `attachment; filename="${filename}"`,
+		},
 	});
-
-	return new Response(stream, { status: 200, headers });
 }
 
 sw.addEventListener('fetch', (event) => {
