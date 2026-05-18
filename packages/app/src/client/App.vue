@@ -53,6 +53,7 @@ function toggleTheme(): void {
         <div class="app-nav-links">
           <NirA to="/my/buckets" class="app-nav-link">マイバケット</NirA>
           <NirA to="/my/uploadings" class="app-nav-link">アップロード中</NirA>
+          <NirA to="/my/passkeys" class="app-nav-link">パスキー</NirA>
           <template v-if="authStore.user?.isAdmin">
             <NirA to="/admin" class="app-nav-link">管理</NirA>
           </template>

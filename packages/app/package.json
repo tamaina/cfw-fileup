@@ -31,6 +31,8 @@
   },
   "dependencies": {
     "@hono/standard-validator": "^0.2.2",
+    "@simplewebauthn/browser": "^13.3.0",
+    "@simplewebauthn/server": "^13.3.0",
     "@valibot/to-json-schema": "^1.7.0",
     "@vuetify/v0": "1.0.0-alpha.4",
     "bgzf": "workspace:*",
