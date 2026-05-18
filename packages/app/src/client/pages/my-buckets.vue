@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { Button } from '@vuetify/v0';
 import { authHeaders, authStore } from '../store/auth';
 import NirA from '@/components/nira.vue';
 import ConfirmDialog from '@/components/confirm-dialog.vue';
+import { isValidNameFormat, NAME_FORMAT_ERROR } from '../../shared/name-validation';
 
 interface Bucket {
 	id: string;
@@ -18,6 +19,13 @@ const loading = ref(true);
 const newBucketName = ref('');
 const creating = ref(false);
 const createError = ref('');
+
+/** バケット名の文字種バリデーション（クライアントサイド） */
+const bucketNameFormatError = computed(() => {
+	if (!newBucketName.value) return '';
+	if (!isValidNameFormat(newBucketName.value)) return NAME_FORMAT_ERROR;
+	return '';
+});
 
 function formatBytes(bytes: number): string {
 	if (bytes === 0) return '0 B';
@@ -59,6 +67,10 @@ async function loadBuckets(): Promise<void> {
 
 async function createBucket(): Promise<void> {
 	if (!newBucketName.value.trim()) return;
+	if (bucketNameFormatError.value) {
+		createError.value = bucketNameFormatError.value;
+		return;
+	}
 	creating.value = true;
 	createError.value = '';
 	try {
@@ -124,15 +136,19 @@ onMounted(loadBuckets);
       <div class="card mb-4">
         <p class="card-title">新しいバケットを作成</p>
         <form @submit.prevent="createBucket" class="form-row">
-          <input
-            v-model="newBucketName"
-            class="form-input"
-            type="text"
-            placeholder="バケット名"
-            maxlength="64"
-            style="max-width:280px"
-          >
-          <Button.Root type="submit" class="btn btn-primary" :loading="creating">
+          <div style="display:flex; flex-direction:column; gap:4px">
+            <input
+              v-model="newBucketName"
+              class="form-input"
+              type="text"
+              placeholder="バケット名"
+              maxlength="64"
+              style="max-width:280px"
+            >
+            <div v-if="bucketNameFormatError" class="form-hint form-hint--error">{{ bucketNameFormatError }}</div>
+            <div v-else class="form-hint">英数字とアンダースコア [0-9a-zA-Z_] のみ使用できます</div>
+          </div>
+          <Button.Root type="submit" class="btn btn-primary" :loading="creating" :disabled="!!bucketNameFormatError">
             <Button.Loading>作成中...</Button.Loading>
             <Button.Content>作成</Button.Content>
           </Button.Root>

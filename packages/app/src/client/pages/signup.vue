@@ -4,10 +4,18 @@ import { Button } from '@vuetify/v0';
 import { setToken, fetchCurrentUser } from '../store/auth';
 import { navigateTo } from '../navigate';
 import TurnstileWidget from '../components/turnstile-widget.vue';
+import { isValidNameFormat, NAME_FORMAT_ERROR } from '../../shared/name-validation';
 
 const form = reactive({ username: '', password: '', passphrase: '' });
 const error = ref('');
 const loading = ref(false);
+
+/** ユーザー名の文字種バリデーション（クライアントサイド） */
+const usernameFormatError = computed(() => {
+	if (!form.username) return '';
+	if (!isValidNameFormat(form.username)) return NAME_FORMAT_ERROR;
+	return '';
+});
 const passphraseRequired = ref(false);
 const turnstileEnabled = ref(false);
 const turnstileSiteKey = ref('');
@@ -27,10 +35,16 @@ async function fetchMeta(): Promise<void> {
 
 fetchMeta();
 
-const canSubmit = computed(() => !turnstileEnabled.value || turnstileToken.value !== null);
+const canSubmit = computed(() =>
+	(!turnstileEnabled.value || turnstileToken.value !== null) && !usernameFormatError.value,
+);
 
 async function submit(): Promise<void> {
 	if (!canSubmit.value) return;
+	if (usernameFormatError.value) {
+		error.value = usernameFormatError.value;
+		return;
+	}
 	error.value = '';
 	loading.value = true;
 	try {
@@ -84,6 +98,8 @@ async function submit(): Promise<void> {
             autocomplete="username"
             placeholder="username"
           >
+          <div v-if="usernameFormatError" class="form-hint form-hint--error">{{ usernameFormatError }}</div>
+          <div v-else class="form-hint">英数字とアンダースコア [0-9a-zA-Z_] のみ使用できます</div>
         </div>
 
         <div class="form-group">
