@@ -27,9 +27,9 @@ async function fetchUsers(): Promise<void> {
 	loading.value = true;
 	error.value = '';
 	try {
-		const { res, data } = await apiPost<AdminUser[]>('/api/admin/list-users');
-		if (!res.ok) throw new Error('ユーザー一覧の取得に失敗しました');
-		userList.value = data;
+		const result = await apiPost('/api/admin/list-users');
+		if (!result.ok) throw new Error('ユーザー一覧の取得に失敗しました');
+		userList.value = result.data;
 	} catch (e) {
 		error.value = String(e);
 	} finally {
@@ -49,8 +49,8 @@ async function executeSuspend(): Promise<void> {
 	suspendTarget.value = null;
 	actionError.value = '';
 	try {
-		const { res } = await apiPost('/api/admin/suspend-user', { userId });
-		if (!res.ok) throw new Error('停止に失敗しました');
+		const result = await apiPost('/api/admin/suspend-user', { userId });
+		if (!result.ok) throw new Error('停止に失敗しました');
 		await fetchUsers();
 	} catch (e) {
 		actionError.value = String(e);

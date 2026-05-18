@@ -1,18 +1,12 @@
-/*
- * SPDX-FileCopyrightText: tamaina and contributors
- * SPDX-License-Identifier: AGPL-3.0-only
- */
-
 import * as v from 'valibot';
 
 export const accountApiDef = {
 	'/api/account/me': {
 		req: v.object({}),
-		res: v.object({
-			id: v.string(),
-			username: v.string(),
-			isAdmin: v.boolean(),
-		}),
+		res: {
+			200: { content: { 'application/json': { vSchema: v.object({ id: v.string(), username: v.string(), isAdmin: v.boolean() }) } } },
+			401: { description: 'Unauthorized' },
+		},
 	},
 	'/api/account/update': {
 		req: v.object({
@@ -20,6 +14,12 @@ export const accountApiDef = {
 			newPassword: v.optional(v.pipe(v.string(), v.minLength(8))),
 			currentPassword: v.string(),
 		}),
-		res: v.object({ ok: v.literal(true) }),
+		res: {
+			200: { content: { 'application/json': { vSchema: v.object({ ok: v.literal(true) }) } } },
+			400: { description: 'Bad request (missing currentPassword or password too short)' },
+			401: { description: 'Invalid current password' },
+			404: { description: 'User not found' },
+			409: { description: 'Username already exists' },
+		},
 	},
 };

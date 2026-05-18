@@ -59,9 +59,9 @@ const archiveDeleteDialog = ref(false);
 
 async function loadBucketId(): Promise<void> {
 	if (!authStore.user) return;
-	const { res, data } = await apiPost<{ buckets: Array<{ id: string; name: string }> }>('/api/buckets/list');
-	if (!res.ok) return;
-	bucketId.value = data.buckets.find(b => b.name === props.bucketName)?.id ?? null;
+	const result = await apiPost('/api/buckets/list');
+	if (!result.ok) return;
+	bucketId.value = result.data.buckets.find(b => b.name === props.bucketName)?.id ?? null;
 }
 
 async function createDirectory(): Promise<void> {
@@ -69,9 +69,9 @@ async function createDirectory(): Promise<void> {
 	if (!name || !bucketId.value) return;
 	mkdirError.value = '';
 	const path = `${props.filePath}${name}/`;
-	const { res, data: dirResult } = await apiPost<{ error?: string }>('/api/directories/create', { bucketId: bucketId.value, path });
-	if (!res.ok) {
-		mkdirError.value = dirResult.error ?? '作成失敗';
+	const dirResult = await apiPost('/api/directories/create', { bucketId: bucketId.value!, path });
+	if (!dirResult.ok) {
+		mkdirError.value = dirResult.data.error;
 		return;
 	}
 	newDirName.value = '';
@@ -91,9 +91,9 @@ async function executeDeleteEntry(): Promise<void> {
 	deleteError.value = '';
 
 	if (entry.isDir) {
-		const { res, data: delResult } = await apiPost<{ error?: string }>('/api/directories/delete', { bucketId: bucketId.value, path: entry.fullPath });
-		if (!res.ok) {
-			deleteError.value = delResult.error ?? '削除失敗';
+		const delResult = await apiPost('/api/directories/delete', { bucketId: bucketId.value!, path: entry.fullPath });
+		if (!delResult.ok) {
+			deleteError.value = delResult.data.error;
 			return;
 		}
 	} else {

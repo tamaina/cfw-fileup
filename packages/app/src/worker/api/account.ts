@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import { validator } from 'hono-openapi';
+import { describeResponse, validator } from 'hono-openapi';
 import { eq } from 'drizzle-orm';
 import { users } from '../scheme/index';
 import { getDb } from '../utils/db';

@@ -171,10 +171,10 @@ async function issueAutoToken(): Promise<void> {
 	}
 	autoToken.value = null;
 	try {
-		const { res, data } = await apiPost<{ token: string; expiresAt: number | null }>('/api/file-tokens/create', { bucketName: props.bucketName, filePath: props.filePath, expiresIn: 3600 });
-		if (res.ok) {
-			autoToken.value = data.token;
-			saveCachedToken(data.token, data.expiresAt);
+		const result = await apiPost('/api/file-tokens/create', { bucketName: props.bucketName, filePath: props.filePath, expiresIn: 3600 });
+		if (result.ok) {
+			autoToken.value = result.data.token;
+			saveCachedToken(result.data.token, result.data.expiresAt);
 		}
 	} catch { /* silent */ }
 }

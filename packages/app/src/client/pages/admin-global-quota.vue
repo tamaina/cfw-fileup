@@ -24,13 +24,13 @@ async function fetchQuota(): Promise<void> {
 	loading.value = true;
 	error.value = '';
 	try {
-		const { res, data } = await apiPost<Record<string, number | null>>('/api/admin/get-global-quota');
-		if (!res.ok) throw new Error('グローバルクォータの取得に失敗しました');
+		const result = await apiPost('/api/admin/get-global-quota');
+		if (!result.ok) throw new Error('グローバルクォータの取得に失敗しました');
 		quota.value = {
-			maxBuckets: data.maxBuckets != null ? String(data.maxBuckets) : '',
-			maxBucketSizeBytes: data.maxBucketSizeBytes != null ? String(data.maxBucketSizeBytes) : '',
-			maxFilesPerBucket: data.maxFilesPerBucket != null ? String(data.maxFilesPerBucket) : '',
-			maxDailyUploads: data.maxDailyUploads != null ? String(data.maxDailyUploads) : '',
+			maxBuckets: result.data.maxBuckets != null ? String(result.data.maxBuckets) : '',
+			maxBucketSizeBytes: result.data.maxBucketSizeBytes != null ? String(result.data.maxBucketSizeBytes) : '',
+			maxFilesPerBucket: result.data.maxFilesPerBucket != null ? String(result.data.maxFilesPerBucket) : '',
+			maxDailyUploads: result.data.maxDailyUploads != null ? String(result.data.maxDailyUploads) : '',
 		};
 	} catch (e) {
 		error.value = String(e);
@@ -50,8 +50,8 @@ async function saveQuota(): Promise<void> {
 			maxFilesPerBucket: quota.value.maxFilesPerBucket !== '' ? Number(quota.value.maxFilesPerBucket) : null,
 			maxDailyUploads: quota.value.maxDailyUploads !== '' ? Number(quota.value.maxDailyUploads) : null,
 		};
-		const { res } = await apiPost('/api/admin/set-global-quota', body);
-		if (!res.ok) throw new Error('保存に失敗しました');
+		const result = await apiPost('/api/admin/set-global-quota', body);
+		if (!result.ok) throw new Error('保存に失敗しました');
 		success.value = 'グローバルクォータを保存しました';
 	} catch (e) {
 		error.value = String(e);

@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import { validator } from 'hono-openapi';
+import { describeResponse, validator } from 'hono-openapi';
 import { eq, count } from 'drizzle-orm';
 import { users, tokens, appSettings, usedUsernames } from '../scheme/index';
 import { getDb } from '../utils/db';
@@ -12,7 +12,7 @@ import { apiDef } from '../../shared/api';
 
 const app = new Hono<{ Bindings: Env }>();
 
-app.post('/signup', validator('json', apiDef['/api/signup'].req), async (c) => {
+app.post('/signup', validator('json', apiDef['/api/signup'].req), describeResponse(async (c) => {
 	const db = getDb(c.env);
 	const body = c.req.valid('json');
 	const username = (body.username ?? '').trim();
@@ -120,9 +120,9 @@ app.post('/signup', validator('json', apiDef['/api/signup'].req), async (c) => {
 	}
 
 	return c.json({ userId, token: tokenValue });
-});
+}, apiDef['/api/signup'].res));
 
-app.post('/signin', validator('json', apiDef['/api/signin'].req), async (c) => {
+app.post('/signin', validator('json', apiDef['/api/signin'].req), describeResponse(async (c) => {
 	const db = getDb(c.env);
 	const body = c.req.valid('json');
 	const username = (body.username ?? '').trim();
@@ -163,6 +163,6 @@ app.post('/signin', validator('json', apiDef['/api/signin'].req), async (c) => {
 	});
 
 	return c.json({ token: tokenValue });
-});
+}, apiDef['/api/signin'].res));
 
 export const authRoutes = app;

@@ -47,12 +47,12 @@ async function loadTokens(): Promise<void> {
 	loading.value = true;
 	listError.value = '';
 	try {
-		const { res, data } = await apiPost<{ tokens: FileToken[]; error?: string }>('/api/file-tokens/list', { bucketName: props.bucketName, filePath: props.filePath });
-		if (!res.ok) {
-			listError.value = data.error ?? `取得失敗: ${res.status}`;
+		const result = await apiPost('/api/file-tokens/list', { bucketName: props.bucketName, filePath: props.filePath });
+		if (!result.ok) {
+			listError.value = result.data.error;
 			return;
 		}
-		tokens.value = data.tokens.sort((a, b) => b.createdAt - a.createdAt);
+		tokens.value = result.data.tokens.sort((a, b) => b.createdAt - a.createdAt);
 	} catch (e) {
 		listError.value = String(e);
 	} finally {
@@ -83,16 +83,16 @@ async function createToken(): Promise<void> {
 	createdToken.value = null;
 	copied.value = false;
 	try {
-		const { res, data } = await apiPost<{ id: string; token: string; expiresAt: number | null; error?: string }>('/api/file-tokens/create', {
+		const result = await apiPost('/api/file-tokens/create', {
 			bucketName: props.bucketName,
 			filePath: props.filePath,
 			expiresIn,
 		});
-		if (!res.ok) {
-			createError.value = (data as { error?: string }).error ?? `発行失敗: ${res.status}`;
+		if (!result.ok) {
+			createError.value = result.data.error;
 			return;
 		}
-		createdToken.value = data;
+		createdToken.value = result.data;
 		await loadTokens();
 	} catch (e) {
 		createError.value = String(e);
@@ -121,9 +121,9 @@ function openDeleteDialog(id: string): void {
 async function executeDelete(): Promise<void> {
 	deleteError.value = '';
 	try {
-		const { res, data } = await apiPost<{ error?: string }>('/api/file-tokens/delete', { tokenId: deletingId.value });
-		if (!res.ok) {
-			deleteError.value = data.error ?? `削除失敗: ${res.status}`;
+		const result = await apiPost('/api/file-tokens/delete', { tokenId: deletingId.value });
+		if (!result.ok) {
+			deleteError.value = result.data.error;
 			return;
 		}
 		tokens.value = tokens.value.filter((t) => t.id !== deletingId.value);
@@ -154,14 +154,14 @@ async function saveVisibility(): Promise<void> {
 	visibilitySaving.value = true;
 	visibilityError.value = '';
 	try {
-		const { res, data } = await apiPost<{ error?: string }>('/api/files/update', {
+		const result = await apiPost('/api/files/update', {
 			bucketName: props.bucketName,
 			filePath: props.filePath,
 			isPublic: editIsPublic.value,
 			passphrase: editPassphrase.value || undefined,
 		});
-		if (!res.ok) {
-			visibilityError.value = data.error ?? '保存失敗';
+		if (!result.ok) {
+			visibilityError.value = result.data.error;
 			return;
 		}
 		emit('update:fileIsPublic', editIsPublic.value);

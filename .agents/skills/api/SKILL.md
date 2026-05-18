@@ -1,21 +1,27 @@
 ---
-name: api-definition
-description: "worker/api/*.definition.ts の書き方と、SchemaType/ExtractRequestType/ExtractResponseTypeを使った型安全なAPI実装パターン。OpenAPIを分散して書いているので、apiの使い方は*.definition.tsを読むべき。"
+name: api
+description: "APIのプロトコルとソースの場所。"
 tags: [api, typescript, hono, schema, openapi]
 ---
 
 ## 概要
 
-`packages/app/src/worker/api/*.definition.ts` は、各APIエンドポイントのスキーマ定義ファイル。  
-OpenAPI風の構造をTypeScriptの `as const satisfies Schema` で型付けし、ハンドラ側でリクエスト/レスポンス型を自動導出するために使う。
+- `packages/app/src/shared/api/index.ts` - APIスキーマ定義ファイルのインデックス
+- `packages/app/src/shared/api/*.ts` - APIスキーマ定義ファイル
+- `packages/app/src/worker/api/*.ts` - API実装ファイル (関心ごとに分割) 
 
-関連ファイル:
-- `schema-type.ts` — `Schema` 型・`SchemaType` 型・`ExtractRequestType` / `ExtractResponseType` ユーティリティ・共有 `refs` の定義
-- `openapi-generator.ts` — OpenAPIドキュメント生成。サーバーで`/api.json`で公開され、`/api-doc`にアクセスするとScalarによって人間が閲覧しやすい形で閲覧できる。
+## プロトコル
+- エンドポイントは`/api/`以下。
+- apiリクエストはなんでもかんでも`applications/json`をbodyにした`POST`にしたい  
+  ただ、次のような場面ではGETにする。性質上、要求はクエリ文字列にする
+  * 全ユーザーに対してキャッシュを効かせられる
+    * 短期間 - `/api/meta`
+    * 長期間
+    * etagを利用
 
 ---
 
-## definition.ts の構造
+## 定義ファイル `shared/api/*.ts`
 
 ```ts
 import type { Schema } from './schema-type';

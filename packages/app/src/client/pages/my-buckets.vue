@@ -47,13 +47,13 @@ async function loadBuckets(): Promise<void> {
 	loading.value = true;
 	error.value = '';
 	try {
-		const { res, data } = await apiPost<{ buckets?: Bucket[]; maxBucketSizeBytes?: number | null; error?: string }>('/api/buckets/list');
-		if (!res.ok) {
-			error.value = data.error ?? 'バケット一覧の取得に失敗しました';
+		const result = await apiPost('/api/buckets/list');
+		if (!result.ok) {
+			error.value = result.data.error;
 			return;
 		}
-		buckets.value = data.buckets ?? [];
-		maxBucketSizeBytes.value = data.maxBucketSizeBytes ?? null;
+		buckets.value = result.data.buckets;
+		maxBucketSizeBytes.value = result.data.maxBucketSizeBytes;
 	} catch (e) {
 		error.value = String(e);
 	} finally {
@@ -70,9 +70,9 @@ async function createBucket(): Promise<void> {
 	creating.value = true;
 	createError.value = '';
 	try {
-		const { res, data } = await apiPost<{ bucketId?: string; error?: string }>('/api/buckets/create', { bucketName: newBucketName.value.trim() });
-		if (!res.ok) {
-			createError.value = data.error ?? 'バケットの作成に失敗しました';
+		const result = await apiPost('/api/buckets/create', { bucketName: newBucketName.value.trim() });
+		if (!result.ok) {
+			createError.value = result.data.error;
 			return;
 		}
 		newBucketName.value = '';
@@ -95,9 +95,9 @@ async function executeDeletion(): Promise<void> {
 	deleteDialog.value = false;
 	deleteTarget.value = null;
 	try {
-		const { res, data } = await apiPost<{ error?: string }>('/api/buckets/delete', { bucketId });
-		if (!res.ok) {
-			error.value = data.error ?? '削除に失敗しました';
+		const result = await apiPost('/api/buckets/delete', { bucketId });
+		if (!result.ok) {
+			error.value = result.data.error;
 			return;
 		}
 		await loadBuckets();

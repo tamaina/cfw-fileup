@@ -59,13 +59,13 @@ async function submit(): Promise<void> {
 		if (turnstileEnabled.value && turnstileToken.value) {
 			body.turnstileToken = turnstileToken.value;
 		}
-		const { res, data } = await apiPost<{ token?: string; error?: string }>('/api/signup', body);
-		if (!res.ok) {
-			error.value = data.error ?? 'エラーが発生しました';
+		const result = await apiPost('/api/signup', body);
+		if (!result.ok) {
+			error.value = result.data.error;
 			return;
 		}
-		if (data.token) {
-			setToken(data.token);
+		if (result.data.token) {
+			setToken(result.data.token);
 			await fetchCurrentUser();
 			navigateTo('/my/buckets');
 		}

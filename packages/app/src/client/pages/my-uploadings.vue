@@ -47,9 +47,9 @@ async function load(): Promise<void> {
 	loading.value = true;
 	error.value = '';
 	try {
-		const { res, data } = await apiPost<{ files: UploadEntry[] }>('/api/files/uploadings');
-		if (!res.ok) { error.value = `取得失敗: ${res.status}`; return; }
-		entries.value = data.files;
+		const result = await apiPost('/api/files/uploadings');
+		if (!result.ok) { error.value = result.data.error; return; }
+		entries.value = result.data.files;
 	} catch (e) {
 		error.value = String(e);
 	} finally {

@@ -18,10 +18,10 @@ async function fetchSettings(): Promise<void> {
 	loading.value = true;
 	error.value = '';
 	try {
-		const { res, data } = await apiPost<{ key: string; value: string }[]>('/api/admin/get-settings');
-		if (!res.ok) throw new Error('設定の取得に失敗しました');
+		const result = await apiPost('/api/admin/get-settings');
+		if (!result.ok) throw new Error('設定の取得に失敗しました');
 		const map: Record<string, string> = {};
-		for (const s of data) map[s.key] = s.value;
+		for (const s of result.data) map[s.key] = s.value;
 		for (const s of KNOWN_SETTINGS) {
 			map[s.key] ??= s.defaultValue;
 		}
@@ -38,8 +38,8 @@ async function saveSetting(key: string): Promise<void> {
 	error.value = '';
 	success.value = '';
 	try {
-		const { res } = await apiPost('/api/admin/update-setting', { key, value: values.value[key] });
-		if (!res.ok) throw new Error('保存に失敗しました');
+		const result = await apiPost('/api/admin/update-setting', { key, value: values.value[key] });
+		if (!result.ok) throw new Error('保存に失敗しました');
 		success.value = `"${key}" を保存しました`;
 	} catch (e) {
 		error.value = String(e);

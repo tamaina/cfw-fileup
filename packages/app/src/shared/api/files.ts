@@ -1,8 +1,3 @@
-/*
- * SPDX-FileCopyrightText: tamaina and contributors
- * SPDX-License-Identifier: AGPL-3.0-only
- */
-
 import * as v from 'valibot';
 
 const UploadingFileResponse = v.pipe(
@@ -28,11 +23,15 @@ export const filesApiDef = {
 			path: v.string(),
 			partSize: v.optional(v.number()),
 		}),
-		res: v.object({
-			fileId: v.string(),
-			uploadExpiry: v.number(),
-			partSize: v.number(),
-		}),
+		res: {
+			200: { content: { 'application/json': { vSchema: v.object({ fileId: v.string(), uploadExpiry: v.number(), partSize: v.number() }) } } },
+			400: { description: 'Bad request (missing fields or invalid partSize)' },
+			401: { description: 'Unauthorized' },
+			403: { description: 'Forbidden' },
+			404: { description: 'Bucket not found' },
+			409: { description: 'File already exists' },
+			429: { description: 'File or upload limit exceeded' },
+		},
 	},
 	'/api/files/create/targz-index': {
 		req: v.object({
@@ -48,7 +47,14 @@ export const filesApiDef = {
 				rEndOffset: v.number(),
 			})),
 		}),
-		res: v.object({ ok: v.literal(true) }),
+		res: {
+			200: { content: { 'application/json': { vSchema: v.object({ ok: v.literal(true) }) } } },
+			400: { description: 'Bad request (missing fields)' },
+			401: { description: 'Unauthorized' },
+			403: { description: 'Forbidden' },
+			404: { description: 'File not found' },
+			410: { description: 'Upload expired' },
+		},
 	},
 	'/api/files/create/tar-index': {
 		req: v.object({
@@ -60,7 +66,14 @@ export const filesApiDef = {
 				size: v.number(),
 			})),
 		}),
-		res: v.object({ ok: v.literal(true) }),
+		res: {
+			200: { content: { 'application/json': { vSchema: v.object({ ok: v.literal(true) }) } } },
+			400: { description: 'Bad request (missing fields)' },
+			401: { description: 'Unauthorized' },
+			403: { description: 'Forbidden' },
+			404: { description: 'File not found' },
+			410: { description: 'Upload expired' },
+		},
 	},
 	'/api/files/create/close': {
 		req: v.object({
@@ -68,17 +81,27 @@ export const filesApiDef = {
 			isPublic: v.boolean(),
 			passphrase: v.optional(v.string()),
 		}),
-		res: v.object({ ok: v.literal(true) }),
+		res: {
+			200: { content: { 'application/json': { vSchema: v.object({ ok: v.literal(true) }) } } },
+			400: { description: 'Bad request (missing fileId, upload incomplete, or finalization failure)' },
+			401: { description: 'Unauthorized' },
+			403: { description: 'Forbidden' },
+			404: { description: 'File not found' },
+			410: { description: 'Upload expired' },
+			429: { description: 'Bucket size limit exceeded' },
+		},
 	},
 	'/api/files/create/status': {
 		req: v.object({
 			fileId: v.string(),
 		}),
-		res: v.object({
-			partCount: v.number(),
-			offset: v.number(),
-			partSize: v.number(),
-		}),
+		res: {
+			200: { content: { 'application/json': { vSchema: v.object({ partCount: v.number(), offset: v.number(), partSize: v.number() }) } } },
+			400: { description: 'Bad request (missing fileId)' },
+			401: { description: 'Unauthorized' },
+			403: { description: 'Forbidden' },
+			404: { description: 'File not found' },
+		},
 	},
 	'/api/files/update': {
 		req: v.object({
@@ -87,19 +110,32 @@ export const filesApiDef = {
 			isPublic: v.boolean(),
 			passphrase: v.optional(v.string()),
 		}),
-		res: v.object({ ok: v.literal(true) }),
+		res: {
+			200: { content: { 'application/json': { vSchema: v.object({ ok: v.literal(true) }) } } },
+			400: { description: 'Bad request (missing fields or file not closed)' },
+			401: { description: 'Unauthorized' },
+			403: { description: 'Forbidden' },
+			404: { description: 'Bucket or file not found' },
+		},
 	},
 	'/api/files/uploadings': {
 		req: v.object({}),
-		res: v.object({
-			files: v.array(UploadingFileResponse),
-		}),
+		res: {
+			200: { content: { 'application/json': { vSchema: v.object({ files: v.array(UploadingFileResponse) }) } } },
+			401: { description: 'Unauthorized' },
+		},
 	},
 	'/api/files/delete': {
 		req: v.object({
 			bucketId: v.string(),
 			path: v.string(),
 		}),
-		res: v.object({ ok: v.literal(true) }),
+		res: {
+			200: { content: { 'application/json': { vSchema: v.object({ ok: v.literal(true) }) } } },
+			400: { description: 'Bad request (missing fields)' },
+			401: { description: 'Unauthorized' },
+			403: { description: 'Forbidden' },
+			404: { description: 'File or bucket not found' },
+		},
 	},
 };

@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import { validator } from 'hono-openapi';
+import { describeResponse, validator } from 'hono-openapi';
 import { eq } from 'drizzle-orm';
 import { buckets, files, usedBucketNames } from '../scheme/index';
 import { getDb } from '../utils/db';
@@ -14,7 +14,7 @@ const app = new Hono<{ Bindings: Env }>();
 
 app.use(authMiddleware);
 
-app.post('/create', validator('json', apiDef['/api/buckets/create'].req), async (c) => {
+app.post('/create', validator('json', apiDef['/api/buckets/create'].req), describeResponse(async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
 	const body = c.req.valid('json');
@@ -57,9 +57,9 @@ app.post('/create', validator('json', apiDef['/api/buckets/create'].req), async 
 		.onConflictDoNothing();
 
 	return c.json({ bucketId });
-});
+}, apiDef['/api/buckets/create'].res));
 
-app.post('/delete', validator('json', apiDef['/api/buckets/delete'].req), async (c) => {
+app.post('/delete', validator('json', apiDef['/api/buckets/delete'].req), describeResponse(async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
 	const body = c.req.valid('json');
@@ -90,10 +90,10 @@ app.post('/delete', validator('json', apiDef['/api/buckets/delete'].req), async 
 
 	await db.delete(buckets).where(eq(buckets.id, bucket.id));
 
-	return c.json({ ok: true });
-});
+	return c.json({ ok: true as const });
+}, apiDef['/api/buckets/delete'].res));
 
-app.post('/list', async (c) => {
+app.post('/list', describeResponse(async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
 
@@ -109,6 +109,6 @@ app.post('/list', async (c) => {
 		buckets: userBuckets,
 		maxBucketSizeBytes: quota.maxBucketSizeBytes,
 	});
-});
+}, apiDef['/api/buckets/list'].res));
 
 export const bucketRoutes = app;
