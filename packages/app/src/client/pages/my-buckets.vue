@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-import { Button, Popover } from '@vuetify/v0';
+import { Button, Form, Popover } from '@vuetify/v0';
 import { authStore } from '../store/auth';
 import { apiPost } from '../utils/api';
 import NirA from '@/components/nira.vue';
@@ -61,7 +61,8 @@ async function loadBuckets(): Promise<void> {
 	}
 }
 
-async function createBucket(): Promise<void> {
+async function createBucket({ valid }: { valid: boolean }): Promise<void> {
+	if (!valid) return;
 	if (!newBucketName.value.trim()) return;
 	if (bucketNameFormatError.value) {
 		createError.value = bucketNameFormatError.value;
@@ -121,7 +122,7 @@ onMounted(loadBuckets);
       <!-- 作成フォーム -->
       <div class="card mb-4">
         <p class="card-title">新しいバケットを作成</p>
-        <form @submit.prevent="createBucket" class="form-row">
+        <Form @submit="createBucket" class="form-row">
           <div style="display:flex; flex-direction:column; gap:4px">
             <input
               v-model="newBucketName"
@@ -132,11 +133,10 @@ onMounted(loadBuckets);
               style="max-width:280px"
             >
           </div>
-          <Button.Root type="submit" class="btn btn-primary" :loading="creating" :disabled="!!bucketNameFormatError">
-            <Button.Loading>作成中...</Button.Loading>
-            <Button.Content>作成</Button.Content>
-          </Button.Root>
-        </form>
+          <button type="submit" class="btn btn-primary" :disabled="creating || !!bucketNameFormatError">
+            {{ creating ? '作成中...' : '作成' }}
+          </button>
+        </Form>
         <div v-if="bucketNameFormatError" class="form-hint form-hint--error mt-1">{{ bucketNameFormatError }}</div>
         <div v-else class="form-hint mt-1">英数字とアンダースコア [0-9a-zA-Z_] のみ使用できます</div>
         <div v-if="createError" class="alert alert-error mt-2">{{ createError }}</div>

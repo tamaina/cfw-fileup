@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { Button } from '@vuetify/v0';
+import { Button, Form } from '@vuetify/v0';
 import { authStore } from '../store/auth';
 import { apiPost } from '../utils/api';
 import NirA from '@/components/nira.vue';
@@ -57,7 +57,8 @@ async function fetchQuota(): Promise<void> {
 	}
 }
 
-async function saveQuota(): Promise<void> {
+async function saveQuota({ valid }: { valid: boolean }): Promise<void> {
+	if (!valid) return;
 	saving.value = true;
 	error.value = '';
 	success.value = '';
@@ -124,7 +125,7 @@ async function executeReset(): Promise<void> {
       <div v-if="loading" class="page-loading">
         <span class="spinner" />読み込み中...
       </div>
-      <form v-else @submit.prevent="saveQuota" style="display:flex; flex-direction:column; gap:12px; max-width:400px">
+      <Form v-else @submit="saveQuota" style="display:flex; flex-direction:column; gap:12px; max-width:400px">
         <p class="text-muted" style="font-size:0.875rem; margin:0">空欄は無制限（またはグローバルデフォルト準拠）。</p>
         <div class="form-group">
           <label class="form-label">バケット数上限</label>
@@ -143,10 +144,9 @@ async function executeReset(): Promise<void> {
           <input v-model="quota.maxDailyUploads" class="form-input" type="number" min="0" placeholder="無制限">
         </div>
         <div class="flex gap-2">
-          <Button.Root type="submit" class="btn btn-primary" :loading="saving">
-            <Button.Loading>保存中...</Button.Loading>
-            <Button.Content>保存する</Button.Content>
-          </Button.Root>
+          <button type="submit" class="btn btn-primary" :disabled="saving">
+            {{ saving ? '保存中...' : '保存する' }}
+          </button>
           <Button.Root
             v-if="hasUserQuota"
             type="button"
@@ -158,7 +158,7 @@ async function executeReset(): Promise<void> {
             <Button.Content>リセット（グローバルに戻す）</Button.Content>
           </Button.Root>
         </div>
-      </form>
+      </Form>
     </template>
 
     <ConfirmDialog

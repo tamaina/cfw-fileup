@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
-import { Button } from '@vuetify/v0';
+import { Button, Form } from '@vuetify/v0';
 import NirA from '@/components/nira.vue';
 import { authStore, authHeaders } from '@/store/auth';
 import { apiPost } from '@/utils/api';
@@ -64,7 +64,8 @@ async function loadBucketId(): Promise<void> {
 	bucketId.value = result.data.buckets.find(b => b.name === props.bucketName)?.id ?? null;
 }
 
-async function createDirectory(): Promise<void> {
+async function createDirectory({ valid }: { valid: boolean }): Promise<void> {
+	if (!valid) return;
 	const name = newDirName.value.trim();
 	if (!name || !bucketId.value) return;
 	mkdirError.value = '';
@@ -305,7 +306,7 @@ watch(() => props.entryPath, (newEntryPath) => {
       <Button.Root class="btn btn-primary" @click="goUpload">
         <Button.Content>アップロード</Button.Content>
       </Button.Root>
-      <form class="flex gap-2 items-center" @submit.prevent="createDirectory">
+      <Form class="flex gap-2 items-center" @submit="createDirectory">
         <input
           v-model="newDirName"
           class="form-input form-input-mono"
@@ -313,10 +314,10 @@ watch(() => props.entryPath, (newEntryPath) => {
           placeholder="新しいフォルダ名"
           style="width:180px"
         >
-        <Button.Root type="submit" class="btn btn-secondary" :disabled="!newDirName.trim() || !bucketId">
-          <Button.Content>フォルダ作成</Button.Content>
-        </Button.Root>
-      </form>
+        <button type="submit" class="btn btn-secondary" :disabled="!newDirName.trim() || !bucketId">
+          フォルダ作成
+        </button>
+      </Form>
       <span v-if="mkdirError" class="text-danger" style="font-size:0.8rem">{{ mkdirError }}</span>
     </div>
 

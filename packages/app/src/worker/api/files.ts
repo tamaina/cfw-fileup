@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { describeResponse, describeRoute, validator } from 'hono-openapi';
 import { eq, and, gte, desc, sql, count } from 'drizzle-orm';
+import { fileTypeFromStream } from 'file-type';
 import { buckets, files, targzFiles, tarFiles, uploadParts, DEFAULT_PART_SIZE, MIN_PART_SIZE } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { getQuotaForUser } from '../utils/rate-limit';
@@ -269,6 +270,20 @@ app.post(
 
 		const fileSize = r2Object.size;
 
+		let detectedMimeType: string | undefined;
+		if (fileSize > 0) {
+			try {
+				const r2Slice = await c.env.R2.get(file.r2Key, { range: { offset: 0, length: 4100 } });
+				if (r2Slice?.body) {
+					const result = await fileTypeFromStream(r2Slice.body as ReadableStream<Uint8Array>);
+					detectedMimeType = result?.mime;
+				}
+			} catch {
+				// fall back to client-provided content type
+			}
+		}
+		const mimeType = detectedMimeType ?? r2Object.httpMetadata?.contentType;
+
 		await db
 			.update(files)
 			.set({
@@ -276,7 +291,7 @@ app.post(
 				isPublic: body.isPublic,
 				passphrase: body.passphrase,
 				size: fileSize,
-				mimeType: r2Object.httpMetadata?.contentType,
+				mimeType,
 			})
 			.where(eq(files.id, file.id));
 

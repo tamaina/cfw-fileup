@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, computed } from 'vue';
-import { Button } from '@vuetify/v0';
+import { Form } from '@vuetify/v0';
 import { setToken, fetchCurrentUser } from '../store/auth';
 import { apiPost } from '../utils/api';
 import { navigateTo } from '../navigate';
@@ -28,8 +28,8 @@ fetchMeta();
 
 const canSubmit = computed(() => !turnstileEnabled.value || turnstileToken.value !== null);
 
-async function submit(): Promise<void> {
-	if (!canSubmit.value) return;
+async function submit({ valid }: { valid: boolean }): Promise<void> {
+	if (!valid || !canSubmit.value) return;
 	error.value = '';
 	loading.value = true;
 	try {
@@ -60,7 +60,7 @@ async function submit(): Promise<void> {
     <div class="card max-w-sm" style="width:100%">
       <h2 style="margin-bottom:20px; text-align:center">サインイン</h2>
 
-      <form @submit.prevent="submit" style="display:flex; flex-direction:column; gap:14px">
+      <Form @submit="submit" style="display:flex; flex-direction:column; gap:14px">
         <div class="form-group">
           <label class="form-label" for="username">ユーザー名</label>
           <input
@@ -95,11 +95,10 @@ async function submit(): Promise<void> {
 
         <div v-if="error" class="alert alert-error">{{ error }}</div>
 
-        <Button.Root type="button" class="btn btn-primary w-full" style="justify-content: center" :loading="loading" :disabled="!canSubmit" @click="submit">
-          <Button.Loading>処理中...</Button.Loading>
-          <Button.Content>{{ turnstileEnabled && !turnstileToken ? '確認中...' : 'サインイン' }}</Button.Content>
-        </Button.Root>
-      </form>
+        <button type="submit" class="btn btn-primary w-full" style="justify-content: center" :disabled="!canSubmit || loading">
+          {{ loading ? '処理中...' : turnstileEnabled && !turnstileToken ? '確認中...' : 'サインイン' }}
+        </button>
+      </Form>
 
       <div style="margin-top:16px; text-align:center; font-size:0.875rem; color:var(--color-text-muted)">
         <button type="button" class="btn btn-ghost" @click="navigateTo('/signup')">
