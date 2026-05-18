@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { Button, Form, Input } from '@vuetify/v0';
 import BrowseDirectory from './browse.directory.vue';
 import BrowseFile from './browse.file.vue';
 import BrowseFileTokens from './browse.file-tokens.vue';
@@ -107,6 +108,13 @@ const passphraseInput = ref('');
 const passphraseError = ref('');
 const passphraseLoading = ref(false);
 const turnstileToken = ref<string | null>(null);
+const passphraseTokenExpiresAt = ref<number | null>(null);
+let tokenExpiryTimer: ReturnType<typeof setTimeout> | null = null;
+
+const passphraseTokenExpiryStr = computed(() => {
+	if (!passphraseTokenExpiresAt.value) return '';
+	return new Date(passphraseTokenExpiresAt.value - 60_000).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+});
 
 const needsPassphrase = computed(() =>
 	!isDirectory.value && !authStore.user && !fileIsPublic.value && !autoToken.value && !metaLoading.value && !metaError.value,
@@ -157,7 +165,11 @@ async function fetchMeta(): Promise<void> {
 			} else {
 				// キャッシュ済みパスフレーズトークンを復元
 				const cached = loadCachedToken();
-				if (cached) autoToken.value = cached;
+				if (cached) {
+					autoToken.value = cached.token;
+					passphraseTokenExpiresAt.value = cached.expiresAt;
+					scheduleTokenExpiry(cached.expiresAt);
+				}
 			}
 		}
 		if (isEntryFile.value) {
@@ -170,7 +182,8 @@ async function fetchMeta(): Promise<void> {
 	}
 }
 
-async function submitPassphrase(): Promise<void> {
+async function submitPassphrase({ valid }: { valid: boolean }): Promise<void> {
+	if (!valid) return;
 	passphraseError.value = '';
 	passphraseLoading.value = true;
 	try {
@@ -193,9 +206,12 @@ async function submitPassphrase(): Promise<void> {
 			return;
 		}
 		autoToken.value = result.token ?? null;
+		passphraseTokenExpiresAt.value = result.expiresAt ?? null;
 		saveCachedToken(result.token ?? '', result.expiresAt ?? null);
+		scheduleTokenExpiry(result.expiresAt ?? null);
 		passphraseInput.value = '';
 		turnstileToken.value = null;
+		await fetchInnerMeta();
 	} catch (e) {
 		passphraseError.value = String(e);
 	} finally {
@@ -207,14 +223,36 @@ function autoTokenCacheKey(): string {
 	return `autoToken:${props.bucketName}/${props.filePath}`;
 }
 
-function loadCachedToken(): string | null {
+function clearExpiryTimer(): void {
+	if (tokenExpiryTimer !== null) {
+		clearTimeout(tokenExpiryTimer);
+		tokenExpiryTimer = null;
+	}
+}
+
+function expireToken(): void {
+	autoToken.value = null;
+	passphraseTokenExpiresAt.value = null;
+	tokenExpiryTimer = null;
+	try { sessionStorage.removeItem(autoTokenCacheKey()); } catch { /* */ }
+}
+
+function scheduleTokenExpiry(expiresAt: number | null): void {
+	clearExpiryTimer();
+	if (expiresAt === null) return;
+	const delay = expiresAt - Date.now() - 60_000;
+	if (delay <= 0) { expireToken(); return; }
+	tokenExpiryTimer = setTimeout(expireToken, delay);
+}
+
+function loadCachedToken(): { token: string; expiresAt: number | null } | null {
 	try {
 		const raw = sessionStorage.getItem(autoTokenCacheKey());
 		if (!raw) return null;
 		const cached = JSON.parse(raw) as { token: string; expiresAt: number | null };
 		// 60秒バッファを持たせて期限チェック
 		if (cached.expiresAt !== null && cached.expiresAt < Date.now() + 60_000) return null;
-		return cached.token;
+		return cached;
 	} catch { return null; }
 }
 
@@ -227,7 +265,7 @@ function saveCachedToken(token: string, expiresAt: number | null): void {
 async function issueAutoToken(): Promise<void> {
 	const cached = loadCachedToken();
 	if (cached) {
-		autoToken.value = cached;
+		autoToken.value = cached.token;
 		return;
 	}
 	autoToken.value = null;
@@ -244,8 +282,11 @@ onMounted(fetchMeta);
 watch(() => [props.bucketName, props.filePath], () => {
 	activeTab.value = 'info';
 	autoToken.value = null;
+	passphraseTokenExpiresAt.value = null;
+	clearExpiryTimer();
 	fetchMeta();
 });
+onUnmounted(clearExpiryTimer);
 watch(() => entryPath.value, () => {
 	innerMeta.value = null;
 	if (isEntryFile.value) fetchInnerMeta();
@@ -273,6 +314,9 @@ watch(() => entryPath.value, () => {
         :class="'badge badge-muted'"
       >
         {{ formatSize((isEntryFile ? innerMeta?.size : fileSize) ?? 0) }}
+      </span>
+      <span v-if="passphraseTokenExpiresAt" class="badge badge-info" :title="`${passphraseTokenExpiryStr} まで有効`">
+        パスフレーズ認証済み（{{ passphraseTokenExpiryStr }} まで）
       </span>
     </div>
 
@@ -317,29 +361,42 @@ watch(() => entryPath.value, () => {
 
       <!-- 非ログイン + 非公開 + トークンなし: パスフレーズフォーム -->
       <template v-else-if="needsPassphrase">
-        <div class="alert alert-muted mb-3">このファイルはプライベートです。パスフレーズを入力するとアクセスできます。</div>
-        <form @submit.prevent="submitPassphrase" style="max-width:400px">
-          <div class="form-group mb-2">
-            <input v-model="passphraseInput" type="password" placeholder="パスフレーズ" class="input w-full" required />
-          </div>
-          <TurnstileWidget
-            v-if="turnstileEnabled && turnstileSiteKey"
-            :site-key="turnstileSiteKey"
-            class="mb-2"
-            @update:token="turnstileToken = $event"
-          />
-          <button
-            type="submit"
-            class="btn btn-primary"
-            :disabled="passphraseLoading || (turnstileEnabled && !turnstileToken)"
-          >{{ passphraseLoading ? '認証中...' : 'アクセス' }}</button>
-          <div v-if="passphraseError" class="alert alert-error mt-2">{{ passphraseError }}</div>
-        </form>
+        <div class="card">
+          <p style="margin-bottom:16px; color:var(--color-text-muted)">このファイルはプライベートです。パスフレーズを入力するとアクセスできます。</p>
+          <Form @submit="submitPassphrase" style="display:flex; flex-direction:column; gap:14px; max-width:400px">
+            <div class="flex gap-2">
+              <div>
+              <label class="form-label">パスフレーズ</label>
+                <Input.Root v-model="passphraseInput" type="password" required validate-on="submit">
+                  <Input.Control placeholder="パスフレーズ" class="form-input" autocomplete="current-password" />
+                  <Input.Error v-slot="{ errors }">
+                    <span v-for="e in errors" :key="e" class="form-error">{{ e }}</span>
+                  </Input.Error>
+                </Input.Root>
+              </div>
+              <Button.Root
+                type="submit"
+                class="btn btn-primary"
+                style="justify-content:center; align-self:flex-end"
+                :disabled="passphraseLoading || (turnstileEnabled && !turnstileToken)"
+              >
+                <Button.Loading v-if="passphraseLoading">認証中...</Button.Loading>
+                <Button.Content>アクセス</Button.Content>
+              </Button.Root>
+            </div>
+            <div v-if="passphraseError" class="alert alert-error">{{ passphraseError }}</div>
+            <TurnstileWidget
+              v-if="turnstileEnabled && turnstileSiteKey"
+              :site-key="turnstileSiteKey"
+              @update:token="turnstileToken = $event"
+            />
+          </Form>
+        </div>
       </template>
 
       <!-- ログインなし or ディレクトリ or (非公開 + トークンあり): タブなし -->
       <template v-else>
-        <BrowseDirectory v-if="isDirectory || isTargz || isTar" :bucketName="bucketName" :filePath="filePath" :isTargz="isTargz" :isTar="isTar" :entryPath="entryPath ?? ''" />
+        <BrowseDirectory v-if="isDirectory || isTargz || isTar" :bucketName="bucketName" :filePath="filePath" :isTargz="isTargz" :isTar="isTar" :entryPath="entryPath ?? ''" :token="autoToken ?? undefined" />
         <BrowseFile v-else-if="!isDirectory" :bucketName="bucketName" :filePath="filePath" :token="autoToken ?? undefined" />
       </template>
     </template>
