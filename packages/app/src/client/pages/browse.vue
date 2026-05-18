@@ -101,13 +101,16 @@ const fileIsPublic = ref(true);
 const activeTab = ref<'info' | 'tokens'>('info');
 const autoToken = ref<string | null>(null);
 
-const passphraseMode = ref(false);
+const turnstileEnabled = ref(false);
+const turnstileSiteKey = ref('');
 const passphraseInput = ref('');
 const passphraseError = ref('');
 const passphraseLoading = ref(false);
-const turnstileEnabled = ref(false);
-const turnstileSiteKey = ref('');
 const turnstileToken = ref<string | null>(null);
+
+const needsPassphrase = computed(() =>
+	!isDirectory.value && !authStore.user && !fileIsPublic.value && !autoToken.value && !metaLoading.value && !metaError.value,
+);
 
 async function fetchInnerMeta(): Promise<void> {
 	if (!isEntryFile.value || !entryPath.value) return;
@@ -130,7 +133,6 @@ async function fetchMeta(): Promise<void> {
 	metaLoading.value = true;
 	metaError.value = '';
 	innerMeta.value = null;
-	passphraseMode.value = false;
 	try {
 		const [metaRes, apiMetaRes] = await Promise.all([
 			fetch(`/d/${props.bucketName}/${props.filePath}?meta`),
@@ -153,12 +155,9 @@ async function fetchMeta(): Promise<void> {
 			if (authStore.user) {
 				await issueAutoToken();
 			} else {
+				// キャッシュ済みパスフレーズトークンを復元
 				const cached = loadCachedToken();
-				if (cached) {
-					autoToken.value = cached;
-				} else {
-					passphraseMode.value = true;
-				}
+				if (cached) autoToken.value = cached;
 			}
 		}
 		if (isEntryFile.value) {
@@ -195,7 +194,6 @@ async function submitPassphrase(): Promise<void> {
 		}
 		autoToken.value = result.token ?? null;
 		saveCachedToken(result.token ?? '', result.expiresAt ?? null);
-		passphraseMode.value = false;
 		passphraseInput.value = '';
 		turnstileToken.value = null;
 	} catch (e) {
@@ -317,42 +315,31 @@ watch(() => entryPath.value, () => {
         />
       </template>
 
-      <!-- ログインなし or ディレクトリ: タブなし -->
-      <template v-else>
-        <!-- パスフレーズ入力フォーム（非公開ファイル・未ログイン） -->
-        <div v-if="passphraseMode" style="display:flex; justify-content:center; padding-top:32px">
-          <div class="card max-w-sm" style="width:100%">
-            <h3 style="margin-bottom:16px; text-align:center">パスフレーズを入力</h3>
-            <form @submit.prevent="submitPassphrase" style="display:flex; flex-direction:column; gap:14px">
-              <div class="form-group">
-                <label class="form-label" for="passphrase-input">パスフレーズ</label>
-                <input
-                  id="passphrase-input"
-                  v-model="passphraseInput"
-                  class="form-input"
-                  type="password"
-                  required
-                  autocomplete="off"
-                  placeholder="••••••••"
-                >
-              </div>
-              <TurnstileWidget
-                v-if="turnstileEnabled"
-                :site-key="turnstileSiteKey"
-                @update:token="turnstileToken = $event"
-              />
-              <div v-if="passphraseError" class="alert alert-error">{{ passphraseError }}</div>
-              <button
-                type="submit"
-                class="btn btn-primary"
-                :disabled="passphraseLoading || (turnstileEnabled && !turnstileToken)"
-              >
-                {{ passphraseLoading ? '確認中...' : 'アクセス' }}
-              </button>
-            </form>
+      <!-- 非ログイン + 非公開 + トークンなし: パスフレーズフォーム -->
+      <template v-else-if="needsPassphrase">
+        <div class="alert alert-muted mb-3">このファイルはプライベートです。パスフレーズを入力するとアクセスできます。</div>
+        <form @submit.prevent="submitPassphrase" style="max-width:400px">
+          <div class="form-group mb-2">
+            <input v-model="passphraseInput" type="password" placeholder="パスフレーズ" class="input w-full" required />
           </div>
-        </div>
-        <BrowseDirectory v-else-if="isDirectory || isTargz || isTar" :bucketName="bucketName" :filePath="filePath" :isTargz="isTargz" :isTar="isTar" :entryPath="entryPath ?? ''" />
+          <TurnstileWidget
+            v-if="turnstileEnabled && turnstileSiteKey"
+            :site-key="turnstileSiteKey"
+            class="mb-2"
+            @update:token="turnstileToken = $event"
+          />
+          <button
+            type="submit"
+            class="btn btn-primary"
+            :disabled="passphraseLoading || (turnstileEnabled && !turnstileToken)"
+          >{{ passphraseLoading ? '認証中...' : 'アクセス' }}</button>
+          <div v-if="passphraseError" class="alert alert-error mt-2">{{ passphraseError }}</div>
+        </form>
+      </template>
+
+      <!-- ログインなし or ディレクトリ or (非公開 + トークンあり): タブなし -->
+      <template v-else>
+        <BrowseDirectory v-if="isDirectory || isTargz || isTar" :bucketName="bucketName" :filePath="filePath" :isTargz="isTargz" :isTar="isTar" :entryPath="entryPath ?? ''" />
         <BrowseFile v-else-if="!isDirectory" :bucketName="bucketName" :filePath="filePath" :token="autoToken ?? undefined" />
       </template>
     </template>
