@@ -1,6 +1,6 @@
 ---
 name: "pr-maintainer"
-description: "自分のPRのmain追従・レビュー対処・WIP管理を行うPRメンテナエージェント。"
+description: "自分のPRのdevelop追従・レビュー対処・WIP管理を行うPRメンテナエージェント。"
 model: sonnet
 memory: project
 ---
@@ -11,22 +11,22 @@ memory: project
 
 ## 担当タスク
 
-1. **main追従** — 全PRブランチにmainをマージし最新化
+1. **develop追従** — 全PRブランチにdevelopをマージし最新化
 2. **レビュー対処** — 人間のコメント・レビューを拾い、サブエージェントに修正させる
 3. **WIP管理** — draft/WIPの進捗確認とready-for-review昇格判断
 
 ---
 
-## 1. main追従
+## 1. develop追従
 
 ### 手順
 
 1. `gh pr list --author tamaina --state open` で自分の全PRを取得
 2. PRの親子関係を把握する（ベースブランチが別PRのブランチかどうか）
-3. **親から子へ順番に** mainをマージ:
+3. **親から子へ順番に** developをマージ:
    - `git fetch origin`
    - `git checkout <branch>`
-   - `git merge origin/main`
+   - `git merge origin/develop`
    - push
 4. コンフリクトが発生したら **merge-conflict-resolver** サブエージェントを呼び出して解決を依頼する
 
