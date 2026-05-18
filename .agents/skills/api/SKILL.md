@@ -8,7 +8,7 @@ tags: [api, typescript, hono, schema, openapi]
 
 - `packages/app/src/shared/api/index.ts` - APIスキーマ定義ファイルのインデックス
 - `packages/app/src/shared/api/*.ts` - APIスキーマ定義ファイル
-- `packages/app/src/worker/api/*.ts` - API実装ファイル (関心ごとに分割) 
+- `packages/app/src/worker/api/*.ts` - API実装ファイル ハンドラ
 
 ## プロトコル
 - エンドポイントは`/api/`以下。
@@ -24,117 +24,115 @@ tags: [api, typescript, hono, schema, openapi]
 ## 定義ファイル `shared/api/*.ts`
 
 ```ts
-import type { Schema } from './schema-type';
+import * as v from 'valibot';
+import type { ApiEndpointDefinitionRecord } from '../api.js';
 
-export const fooApiSchema = [
-  {
-    path: '/api/foo/action',
-    method: 'post',                    // 'get' | 'post' | 'put' | 'delete' | 'patch'
-    summary: 'Do something',           // OpenAPI summary
-    description: '詳細説明（省略可）',
-    tags: ['Foo'],
-    security: [{ bearerAuth: [] }],    // 認証が必要な場合のみ
-    requestBody: {
-      'application/json': {
-        type: 'object',
-        properties: {
-          name: { type: 'string', minLength: 1 },
-          count: { type: 'number', nullable: true },
-        },
-        required: ['name', 'count'],
-      } as const satisfies Schema,
-    },
-    responses: {
-      200: {
-        description: 'Success',
-        content: {
-          'application/json': {
-            schema: {
-              type: 'object',
-              properties: {
-                id: { type: 'string' },
-              },
-              required: ['id'],
-            } as const satisfies Schema,
-          },
-        },
+// OpenAPI ref ... 複数のAPIでスキーマを応答する場合
+const UserResponse = v.pipe(
+  v.object({
+    id: v.string(),
+    username: v.string(),
+    isAdmin: v.boolean(),
+  }),
+	v.metadata({ ref: 'User' }),
+);
+
+// api def ... エンドポイントをオブジェクトで定義
+export const exampleApiDef = {
+	'/api/users/show': {
+    summary: 'Get account info from user id',
+    tags: ['users'],
+
+    // 要求: Valibot
+		req: v.object({
+      userId: v.string(),
+    }),
+
+    // 応答: describeResponseの第2引数
+		res: {
+			200: {
+        // description必須
+        description: "Success",
+        content: { 'application/json': { vSchema: UserResponse } }
       },
-      400: { description: 'Bad request' },  // bodyなしのエラーレスポンスはこれだけでOK
-      401: { description: 'Unauthorized' },
-    },
-  },
-] as const;  // ← 配列全体に as const が必要
+			401: { description: 'Unauthorized' },
+		},
+	},
+	'/api/account/me': {
+    summary: 'Get account info from authentication token',
+    tags: ['account'],
+    // hide: true
+
+    // 空の要求
+		req: v.object({}),
+
+    // 応答: describeResponseがの第2引数
+		res: {
+			200: { content: { 'application/json': { vSchema: UserResponse } } },
+			404: { description: 'Not Found' },
+		},
+	},
+} as const satisfies ApiEndpointDefinitionRecord;
 ```
 
-### スキーマのルール
+## インデックスファイル `shared/api/index.ts`
+新しいAPIファイルを作成する場合は、index.tsのapiDefにdefオブジェクトを追加してください。
 
-| フィールド | 型 | 備考 |
-|---|---|---|
-| `type` | `'string' \| 'number' \| 'integer' \| 'boolean' \| 'object' \| 'array' \| 'null'` | |
-| `nullable` | `true` | nullを許容する場合 |
-| `optional` | `true` | プロパティが省略可能な場合（requiredに含めない方法でも可） |
-| `minLength` / `maxLength` | `number` | string用 |
-| `minimum` / `maximum` | `number` | number用 |
-| `items` | `Schema` | type='array'のとき |
-| `properties` | `Record<string, Schema>` | type='object'のとき |
-| `required` | `string[]` | 必須プロパティ名の配列 |
-| `ref` | `keyof typeof refs` | 共有型への参照（後述） |
-
----
-
-## ハンドラでの使い方
+## ハンドラでの使い方 `worker/api/*.ts`
 
 ```ts
-import { fooApiSchema } from './foo.definition';
-import type { ExtractRequestType, ExtractResponseType } from './schema-type';
+import { Hono } from 'hono';
+import { HTTPException } from 'hono/http-exception';
+import { describeResponse, validator } from 'hono-openapi';
+import { authMiddleware } from '../middleware/auth';
+import { getDb } from '../utils/db';
+import { users } from '../scheme/index';
+import { apiDef } from '../../shared/api'; // shared/api/index
+import { omitResAndReq } from '../utils/omit';
 
-// リクエストボディの型
-type CreateFooBody = ExtractRequestType<typeof fooApiSchema, '/api/foo/action', 'post'>;
+const app = new Hono<{ Bindings: Env }>();
 
-// レスポンスの型（第4引数はHTTPステータスコード、省略時は200）
-type CreateFooResponse = ExtractResponseType<typeof fooApiSchema, '/api/foo/action', 'post', 200>;
+app.use(authMiddleware);
 
-// 実際のハンドラ内での使用
-app.post('/action', async (c) => {
-  const body = (await c.req.json()) as ExtractRequestType<typeof fooApiSchema, '/api/foo/action', 'post'>;
-  // body.name, body.count などが型安全に使える
+app.post(
+  '/api/account/me',
+  describeRoute(omitResAndReq(apiDef['/api/account/me'])),
+  validator('json', apiDef['/api/account/me'].req),
+  describeResponse(async (c) => {
+    const user = c.get('user');
+    return c.json({
+      id: user.id,
+      username: user.username,
+      isAdmin: user.isAdmin,
+    }, 200);
+  }, apiDef['/api/account/me'].res)
+);
 
-  return c.json({ id: newId } as ExtractResponseType<typeof fooApiSchema, '/api/foo/action', 'post', 200>);
-});
+app.post(
+  '/api/users/show',
+  describeRoute(omitResAndReq(apiDef['/api/users/show'])),
+  validator('json', apiDef['/api/users/show'].req),
+  describeResponse(async (c) => {
+    const db = getDb(c.env);
+	  const body = c.req.valid('json');
+
+    const user = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, body.userId))
+      .get();
+
+    if (!user) {
+      throw new HTTPException(404, { message: 'Not Found' });
+    }
+
+    return c.json({
+      id: user.id,
+      username: user.username,
+      isAdmin: user.isAdmin,
+    }, 200);
+  }, apiDef['/api/users/show'].res)
+);
+
+export const exampleRoutes = app;
 ```
-
----
-
-## 共有型（refs）
-
-`schema-type.ts` の `refs` に定義された共有スキーマは `{ ref: 'RefName' }` で参照できる。
-
-```ts
-// schema-type.ts の refs に定義済みの型
-// - OkResponse: { ok: boolean }
-// - Bucket: { id, name, userId }
-// - Quota: { maxBuckets, maxBucketSizeBytes, maxFilesPerBucket, maxDailyUploads }
-// - AppSetting / AppSettings
-
-// definition.ts での使い方
-responses: {
-  200: {
-    description: 'Deleted',
-    content: {
-      'application/json': {
-        schema: { ref: 'OkResponse' },
-      },
-    },
-  },
-},
-```
-
-新しい共有型が必要な場合は `schema-type.ts` の `refs` オブジェクトに追加する。
-
----
-
-## 新しいエンドポイントを追加するときの手順
-
-1. `*.definition.ts` にエンドポイントのスキーマを追加する
-2. 対応する `*.ts` ハンドラに `app.post(...)` / `app.get(...)` を追加し、`ExtractRequestType` / `ExtractResponseType` で型を付ける
-3. `index.ts` でルートがマウントされているか確認する（新ファイルの場合はマウントを追加）

@@ -1,25 +1,31 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import { describeResponse, validator } from 'hono-openapi';
+import { describeResponse, describeRoute, validator } from 'hono-openapi';
 import { eq } from 'drizzle-orm';
 import { users } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { authMiddleware } from '../middleware/auth';
 import { hashPassword, verifyPassword } from '../utils/crypto';
 import { apiDef } from '../../shared/api';
+import { omitResAndReq } from '../utils/omit';
 
 const app = new Hono<{ Bindings: Env }>();
 
 app.use(authMiddleware);
 
-app.post('/me', (c) => {
-	const user = c.get('user');
-	return c.json({
-		id: user.id,
-		username: user.username,
-		isAdmin: user.isAdmin,
-	});
-});
+app.post(
+  '/me',
+  describeRoute(omitResAndReq(apiDef['/api/account/me'])),
+  validator('json', apiDef['/api/account/me'].req),
+  describeResponse(async (c) => {
+    const user = c.get('user');
+    return c.json({
+      id: user.id,
+      username: user.username,
+      isAdmin: user.isAdmin,
+    }, 200);
+  }, apiDef['/api/account/me'].res)
+);
 
 app.post('/update', validator('json', apiDef['/api/account/update'].req), async (c) => {
 	const db = getDb(c.env);

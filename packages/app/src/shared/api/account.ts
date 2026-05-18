@@ -1,14 +1,19 @@
 import * as v from 'valibot';
+import type { ApiEndpointDefinitionRecord } from '../api.js';
 
 export const accountApiDef = {
 	'/api/account/me': {
+    summary: 'Get account info from authentication information',
+    tags: ['account'],
 		req: v.object({}),
 		res: {
-			200: { content: { 'application/json': { vSchema: v.object({ id: v.string(), username: v.string(), isAdmin: v.boolean() }) } } },
+			200: { description: 'Success', content: { 'application/json': { vSchema: v.object({ id: v.string(), username: v.string(), isAdmin: v.boolean() }) } } },
 			401: { description: 'Unauthorized' },
 		},
 	},
 	'/api/account/update': {
+    summary: 'Update account info',
+    tags: ['account'],
 		req: v.object({
 			username: v.optional(v.pipe(v.string(), v.minLength(1), v.maxLength(32))),
 			newPassword: v.optional(v.pipe(v.string(), v.minLength(8))),
@@ -22,4 +27,4 @@ export const accountApiDef = {
 			409: { description: 'Username already exists' },
 		},
 	},
-};
+} as const satisfies ApiEndpointDefinitionRecord;
