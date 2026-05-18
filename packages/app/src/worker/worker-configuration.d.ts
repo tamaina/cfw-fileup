@@ -16,6 +16,9 @@ declare namespace Cloudflare {
 		TURNSTILE_SECRET: "";
 		TURNSTILE_SITE_KEY: "";
 		SIGNUP_PASSPHRASE: string;
+		GOOGLE_CLIENT_ID: string;
+		GOOGLE_CLIENT_SECRET: string;
+		GOOGLE_REDIRECT_URI: string;
 	}
 }
 interface Env extends Cloudflare.Env {}

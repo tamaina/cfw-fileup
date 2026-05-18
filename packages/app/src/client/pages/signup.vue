@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue';
+import { ref, reactive, computed, onMounted } from 'vue';
 import { Button } from '@vuetify/v0';
 import { setToken, fetchCurrentUser } from '../store/auth';
 import { navigateTo } from '../navigate';
@@ -8,24 +8,35 @@ import TurnstileWidget from '../components/turnstile-widget.vue';
 const form = reactive({ username: '', password: '', passphrase: '' });
 const error = ref('');
 const loading = ref(false);
+const googleLoading = ref(false);
+const indieauthLoading = ref(false);
+const indieauthProfileUrl = ref('');
 const passphraseRequired = ref(false);
 const turnstileEnabled = ref(false);
 const turnstileSiteKey = ref('');
 const turnstileToken = ref<string | null>(null);
+const googleAuthEnabled = ref(false);
+const googleRequired = ref(false);
+const indieAuthEnabled = ref(false);
 
 async function fetchMeta(): Promise<void> {
 	try {
 		const res = await fetch('/api/meta');
-		const data = (await res.json()) as { passphraseRequired?: boolean; turnstileEnabled?: boolean; turnstileSiteKey?: string };
+		const data = (await res.json()) as { passphraseRequired?: boolean; turnstileEnabled?: boolean; turnstileSiteKey?: string; googleAuthEnabled?: boolean; googleRequired?: boolean; indieAuthEnabled?: boolean };
 		passphraseRequired.value = data.passphraseRequired ?? false;
 		turnstileEnabled.value = data.turnstileEnabled ?? false;
 		turnstileSiteKey.value = data.turnstileSiteKey ?? '';
+		googleAuthEnabled.value = data.googleAuthEnabled ?? false;
+		googleRequired.value = data.googleRequired ?? false;
+		indieAuthEnabled.value = data.indieAuthEnabled ?? true;
 	} catch (e) {
 		console.error('Failed to fetch meta:', e);
 	}
 }
 
-fetchMeta();
+onMounted(async () => {
+	await fetchMeta();
+});
 
 const canSubmit = computed(() => !turnstileEnabled.value || turnstileToken.value !== null);
 
@@ -65,6 +76,20 @@ async function submit(): Promise<void> {
 		loading.value = false;
 	}
 }
+
+function signupWithGoogle(): void {
+	location.href = '/api/auth/google';
+}
+
+function signupWithIndieAuth(): void {
+	const url = indieauthProfileUrl.value.trim();
+	if (!url) {
+		error.value = 'MisskeyのプロフィールURLを入力してください';
+		return;
+	}
+	indieauthLoading.value = true;
+	location.href = `/api/auth/indieauth/begin?profile_url=${encodeURIComponent(url)}`;
+}
 </script>
 
 <template>
@@ -72,7 +97,11 @@ async function submit(): Promise<void> {
     <div class="card max-w-sm" style="width:100%">
       <h2 style="margin-bottom:20px; text-align:center">アカウント作成</h2>
 
-      <form @submit.prevent="submit" style="display:flex; flex-direction:column; gap:14px">
+      <div v-if="googleRequired" class="alert alert-error" style="margin-bottom:12px">
+        このサービスはGoogleアカウントによる登録のみ受け付けています。
+      </div>
+
+      <form v-if="!googleRequired" @submit.prevent="submit" style="display:flex; flex-direction:column; gap:14px">
         <div class="form-group">
           <label class="form-label" for="username">ユーザー名</label>
           <input
@@ -118,11 +147,51 @@ async function submit(): Promise<void> {
 
         <div v-if="error" class="alert alert-error">{{ error }}</div>
 
-        <Button.Root type="button" class="btn btn-primary w-full" style="justify-content: center" :loading="loading" :disabled="!canSubmit" @click="submit">
+        <Button.Root type="submit" class="btn btn-primary w-full" style="justify-content: center" :loading="loading" :disabled="!canSubmit">
           <Button.Loading>処理中...</Button.Loading>
           <Button.Content>アカウント作成</Button.Content>
         </Button.Root>
       </form>
+
+      <div v-if="googleAuthEnabled || indieAuthEnabled" style="margin-top:16px; display:flex; flex-direction:column; align-items:center; gap:8px">
+        <div style="display:flex; align-items:center; width:100%; gap:8px">
+          <hr style="flex:1; border:none; border-top:1px solid var(--color-border)">
+          <span style="font-size:0.75rem; color:var(--color-text-subtle)">または</span>
+          <hr style="flex:1; border:none; border-top:1px solid var(--color-border)">
+        </div>
+        <Button.Root
+          v-if="googleAuthEnabled"
+          type="button"
+          class="btn btn-ghost w-full"
+          style="justify-content:center"
+          :loading="googleLoading"
+          @click="signupWithGoogle"
+        >
+          <Button.Loading>処理中...</Button.Loading>
+          <Button.Content>Googleでアカウント作成</Button.Content>
+        </Button.Root>
+        <template v-if="indieAuthEnabled">
+          <div style="display:flex; gap:8px; width:100%">
+            <input
+              v-model="indieauthProfileUrl"
+              class="form-input"
+              type="url"
+              placeholder="https://misskey.io/@username"
+              style="flex:1"
+              @keydown.enter.prevent="signupWithIndieAuth"
+            >
+            <Button.Root
+              type="button"
+              class="btn btn-ghost"
+              :loading="indieauthLoading"
+              @click="signupWithIndieAuth"
+            >
+              <Button.Loading>処理中...</Button.Loading>
+              <Button.Content>Misskeyでアカウント作成</Button.Content>
+            </Button.Root>
+          </div>
+        </template>
+      </div>
 
       <div style="margin-top:16px; text-align:center; font-size:0.875rem; color:var(--color-text-muted)">
         <button type="button" class="btn btn-ghost" @click="navigateTo('/signin')">

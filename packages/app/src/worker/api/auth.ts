@@ -37,6 +37,19 @@ app.post('/signup', async (c) => {
 	const userCount = await db.select({ count: count() }).from(users);
 	const isFirstUser = (userCount[0]?.count ?? 0) === 0;
 
+	// Check google_required (first user is always exempt)
+	if (!isFirstUser) {
+		const googleRequiredSetting = await db
+			.select()
+			.from(appSettings)
+			.where(eq(appSettings.key, 'google_required'))
+			.get();
+
+		if (googleRequiredSetting?.value === 'true') {
+			throw new HTTPException(403, { message: 'Only Google account registration is allowed' });
+		}
+	}
+
 	// Get or initialize require_signup_passphrase setting
 	let requireSignupPassphraseSetting = await db
 		.select()
@@ -126,6 +139,17 @@ app.post('/signin', async (c) => {
 		}
 	}
 
+	// Check google_required
+	const googleRequiredSettingForSignin = await db
+		.select()
+		.from(appSettings)
+		.where(eq(appSettings.key, 'google_required'))
+		.get();
+
+	if (googleRequiredSettingForSignin?.value === 'true') {
+		throw new HTTPException(403, { message: 'Only Google account sign-in is allowed' });
+	}
+
 	const user = await db.select().from(users).where(eq(users.username, body.username)).get();
 
 	if (!user) {
@@ -134,6 +158,10 @@ app.post('/signin', async (c) => {
 
 	if (user.isSuspended) {
 		throw new HTTPException(401, { message: 'Account is suspended' });
+	}
+
+	if (!user.passwordHash) {
+		throw new HTTPException(401, { message: 'This account uses Google sign-in' });
 	}
 
 	const passwordValid = await verifyPassword(body.password, user.passwordHash);
