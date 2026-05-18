@@ -1,5 +1,6 @@
 {
   "name": "cfw-fileup",
+  "version": "0.0.0",
   "type": "module",
   "packageManager": "pnpm@11.1.2",
   "scripts": {
