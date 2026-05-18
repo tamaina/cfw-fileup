@@ -60,6 +60,11 @@ const archiveDeleteDialog = ref(false);
 const selectedPaths = ref<Set<string>>(new Set());
 const bulkDeleteDialog = ref(false);
 
+// アーカイブダウンロード用の状態
+const archiveFormat = ref<'tar' | 'zip'>('tar');
+const archiveProgress = ref<{ current: number; total: number; file: string } | null>(null);
+const archiveError = ref('');
+
 /** 選択可能なファイル（ディレクトリは除く）の一覧 */
 const selectableFiles = computed(() => entries.value.filter(e => !e.isDir));
 
@@ -159,6 +164,65 @@ async function executeDeleteEntry(): Promise<void> {
 		}
 	}
 	await load();
+}
+
+/**
+ * Start archive download using a Web Worker.
+ * The token is passed from the main thread because Web Workers cannot access localStorage.
+ */
+function startArchiveDownload(): void {
+	archiveError.value = '';
+	archiveProgress.value = { current: 0, total: selectedPaths.value.size, file: '' };
+
+	// Web Workerを動的インポートで生成（Viteが?workerクエリでバンドル）
+	const worker = new Worker(
+		new URL('../workers/archive.worker.ts', import.meta.url),
+		{ type: 'module' },
+	);
+
+	// バケット名をベースにアーカイブファイル名を決定
+	const baseName = props.bucketName + (props.filePath ? '-' + props.filePath.replace(/\//g, '_').replace(/_$/, '') : '');
+
+	import('@/store/auth').then(({ authStore: store }) => {
+		worker.postMessage({
+			format: archiveFormat.value,
+			bucketName: props.bucketName,
+			filePaths: Array.from(selectedPaths.value),
+			token: store.token,
+			baseName,
+		});
+	});
+
+	worker.onmessage = (event) => {
+		const msg = event.data as { type: string; processedFiles?: number; totalFiles?: number; currentFile?: string; blob?: Blob; filename?: string; message?: string };
+		if (msg.type === 'progress') {
+			archiveProgress.value = {
+				current: msg.processedFiles ?? 0,
+				total: msg.totalFiles ?? selectedPaths.value.size,
+				file: msg.currentFile ?? '',
+			};
+		} else if (msg.type === 'done') {
+			archiveProgress.value = null;
+			const url = URL.createObjectURL(msg.blob!);
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = msg.filename!;
+			a.click();
+			// 少し後にURLを解放してメモリを返す
+			setTimeout(() => URL.revokeObjectURL(url), 10000);
+			worker.terminate();
+		} else if (msg.type === 'error') {
+			archiveProgress.value = null;
+			archiveError.value = msg.message ?? 'アーカイブ生成に失敗しました';
+			worker.terminate();
+		}
+	};
+
+	worker.onerror = (e) => {
+		archiveProgress.value = null;
+		archiveError.value = e.message ?? 'Worker エラー';
+		worker.terminate();
+	};
 }
 
 async function executeBulkDelete(): Promise<void> {
