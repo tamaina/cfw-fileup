@@ -5,6 +5,12 @@ import { VitePWA } from 'vite-plugin-pwa';
 import { resolve } from 'node:path';
 
 export default defineConfig({
+  server: {
+    watch: {
+      // .wrangler/state はMiniflareが頻繁に書き換えるため、HMRのトリガー対象から除外
+      ignored: ['**/.wrangler/**'],
+    },
+  },
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src/client'),
