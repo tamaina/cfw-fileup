@@ -95,22 +95,28 @@ async function handleFullArchive(request: Request): Promise<Response> {
 	const url = new URL(request.url);
 	const decompress = url.searchParams.has('decompress');
 
-	let originUrl = url;
+	let fetchTarget: Request;
 	if (decompress) {
-		originUrl = new URL(request.url);
+		const originUrl = new URL(request.url);
 		originUrl.searchParams.delete('decompress');
+		fetchTarget = new Request(originUrl, {
+			headers: request.headers,
+			credentials: request.credentials,
+			cache: request.cache,
+			redirect: request.redirect,
+		});
+	} else {
+		fetchTarget = request;
 	}
 
-	const response = await fetch(originUrl);
+	const response = await fetch(fetchTarget);
 	if (!response.body) return response;
 
 	const peek = await peekStream(response.body);
-	console.log(request.url, peek);
 	if (!peek) return response;
 	const { rebuilt, bgzf, gzip } = peek;
 
 	if (decompress && gzip) {
-		console.log('sw: decompress', originUrl);
 		const decompressed = bgzf
 			? rebuilt.pipeThrough(createBgzfDecompressor())
 			: rebuilt.pipeThrough(new DecompressionStream('gzip'));

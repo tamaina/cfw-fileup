@@ -240,7 +240,7 @@ watch(() => entryPath.value, () => {
 
         <!-- 詳細タブ: ファイル表示 -->
         <template v-if="activeTab === 'info'">
-          <BrowseDirectory v-if="isTargz || isTar" :bucketName="bucketName" :filePath="filePath" :isTargz="isTargz" :isTar="isTar" :entryPath="entryPath ?? ''" />
+          <BrowseDirectory v-if="isTargz || isTar" :bucketName="bucketName" :filePath="filePath" :isTargz="isTargz" :isTar="isTar" :entryPath="entryPath ?? ''" :token="autoToken ?? undefined" />
           <BrowseFile v-else :bucketName="bucketName" :filePath="filePath" :token="autoToken ?? undefined" />
         </template>
 

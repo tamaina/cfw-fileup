@@ -14,6 +14,7 @@ const props = defineProps<{
 	isTargz: boolean;
 	isTar: boolean;
 	entryPath?: string;
+	token?: string;
 }>();
 
 const isArchive = computed(() => props.isTargz || props.isTar);
@@ -29,8 +30,14 @@ interface DisplayEntry {
 	isPublic?: boolean;
 }
 
-const downloadUrl = computed(() => `/d/${props.bucketName}/${props.filePath}`);
-const decompressUrl = computed(() => `/d/${props.bucketName}/${props.filePath}?decompress`);
+const downloadUrl = computed(() => {
+	const base = `/d/${props.bucketName}/${props.filePath}`;
+	return props.token ? `${base}?token=${props.token}` : base;
+});
+const decompressUrl = computed(() => {
+	const base = `/d/${props.bucketName}/${props.filePath}?decompress`;
+	return props.token ? `${base}&token=${props.token}` : base;
+});
 
 const entries = ref<DisplayEntry[]>([]);
 const error = ref('');
@@ -173,7 +180,8 @@ async function load(): Promise<void> {
 	error.value = '';
 	try {
 		if (isArchive.value) {
-			const res = await fetch(`${downloadUrl.value}?list`, { headers: authHeaders() });
+			const listUrl = props.token ? `${downloadUrl.value}&list` : `${downloadUrl.value}?list`;
+			const res = await fetch(listUrl, { headers: authHeaders() });
 			if (!res.ok) { error.value = `取得失敗: ${res.status}`; return; }
 			const raw = await res.json() as RawArchiveEntry[];
 			archivePath.value = props.entryPath ?? '';
