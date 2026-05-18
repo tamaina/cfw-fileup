@@ -1,5 +1,5 @@
 import { isBgzf, createBgzfDecompressor } from 'bgzf';
-import { fileTypeFromStream } from 'file-type';
+import { filetypemime } from 'magic-bytes.js';
 
 const sw = self as unknown as ServiceWorkerGlobalScope;
 
@@ -10,6 +10,33 @@ type PeekResult = { rebuilt: ReadableStream<Uint8Array<ArrayBuffer>> } & (
 	| { gzip: false; bgzf: false }
 	| { gzip: true; bgzf: boolean }
 );
+
+async function readFirstBytes(stream: ReadableStream<Uint8Array>, maxBytes: number): Promise<Uint8Array> {
+	const reader = stream.getReader();
+	const chunks: Uint8Array[] = [];
+	let total = 0;
+	while (total < maxBytes) {
+		const { done, value } = await reader.read();
+		if (done || !value) break;
+		const needed = maxBytes - total;
+		if (value.byteLength <= needed) {
+			chunks.push(value);
+			total += value.byteLength;
+		} else {
+			chunks.push(value.slice(0, needed));
+			total = maxBytes;
+			break;
+		}
+	}
+	await reader.cancel();
+	const result = new Uint8Array(total);
+	let offset = 0;
+	for (const chunk of chunks) {
+		result.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+	return result;
+}
 
 async function peekStream(body: ReadableStream<Uint8Array<ArrayBuffer>>): Promise<PeekResult | null> {
 	const reader = body.getReader();
@@ -89,8 +116,8 @@ async function handleFullArchive(request: Request): Promise<Response> {
 			: rebuilt.pipeThrough(new DecompressionStream('gzip'));
 
 		const [forTypeDetect, forBody] = decompressed.tee();
-		const detected = await fileTypeFromStream(forTypeDetect);
-		const mimeType = detected?.mime;
+		const typeBytes = await readFirstBytes(forTypeDetect, 4100);
+		const mimeType = filetypemime(typeBytes)[0];
 
 		const newHeaders = new Headers(response.headers);
 		newHeaders.delete('Content-Length');
