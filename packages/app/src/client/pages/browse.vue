@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
-import { Button, Form, Input } from '@vuetify/v0';
+import { Form, Input } from '@vuetify/v0';
 import BrowseDirectory from './browse.directory.vue';
 import BrowseFile from './browse.file.vue';
 import BrowseFileTokens from './browse.file-tokens.vue';
@@ -365,8 +365,8 @@ watch(() => entryPath.value, () => {
           <p style="margin-bottom:16px; color:var(--color-text-muted)">このファイルはプライベートです。パスフレーズを入力するとアクセスできます。</p>
           <Form @submit="submitPassphrase" style="display:flex; flex-direction:column; gap:14px; max-width:400px">
             <div class="flex gap-2">
-              <div>
-              <label class="form-label">パスフレーズ</label>
+              <div style="flex:1; min-width:0">
+                <label class="form-label">パスフレーズ</label>
                 <Input.Root v-model="passphraseInput" type="password" required validate-on="submit">
                   <Input.Control placeholder="パスフレーズ" class="form-input" autocomplete="current-password" />
                   <Input.Error v-slot="{ errors }">
@@ -374,15 +374,12 @@ watch(() => entryPath.value, () => {
                   </Input.Error>
                 </Input.Root>
               </div>
-              <Button.Root
+              <button
                 type="submit"
                 class="btn btn-primary"
-                style="justify-content:center; align-self:flex-end"
+                style="align-self:flex-end"
                 :disabled="passphraseLoading || (turnstileEnabled && !turnstileToken)"
-              >
-                <Button.Loading v-if="passphraseLoading">認証中...</Button.Loading>
-                <Button.Content>アクセス</Button.Content>
-              </Button.Root>
+              >{{ passphraseLoading ? '認証中...' : 'アクセス' }}</button>
             </div>
             <div v-if="passphraseError" class="alert alert-error">{{ passphraseError }}</div>
             <TurnstileWidget
