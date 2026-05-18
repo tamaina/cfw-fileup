@@ -25,8 +25,8 @@ tags: [d1, migrations, drizzle]
 ```
 
 ### マイグレーション操作
-- マイグレーション生成: `pnpm --filter app db:generate` — `packages/app/src/worker/scheme/*.ts` を編集後に実行します。
-- ローカル適用: `npx wrangler d1 migrations apply cfw-fileup-db --local`
+- マイグレーション生成: `pnpm run --filter app db:generate` — `packages/app/src/worker/scheme/*.ts` を編集後に実行します。
+- ローカル適用: `pnpm run --filter app db:migrate:local`
 - 本番適用: `npx wrangler d1 migrations apply cfw-fileup-db --remote`
 
 ### 補助コマンド

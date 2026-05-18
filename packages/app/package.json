@@ -18,7 +18,7 @@
     "eslint": "eslint src/worker/",
     "eslint:fix": "eslint src/worker/ --fix",
     "db:generate": "drizzle-kit generate",
-    "db:migrate:local": "wrangler d1 migrations apply cfw-fileup-db --local",
+    "db:migrate:local": "wrangler d1 migrations apply cfw-fileup-db --local --auto-apply",
     "db:reset": "rm -rf .wrangler/state/v3/d1",
     "cf-typegen": "wrangler types ./src/worker/worker-configuration.d.ts",
     "test:e2e": "playwright test",
