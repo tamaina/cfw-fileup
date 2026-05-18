@@ -34,10 +34,11 @@ export const adminApiDef = {
 		req: v.object({ bucketId: v.string() }),
 		res: { ...OkResponse, ...AdminErrors, 400: { description: 'Bad request (missing bucketId)', content: { 'application/json': { vSchema: ErrorResponse } } }, 404: { description: 'Bucket not found', content: { 'application/json': { vSchema: ErrorResponse } } } },
 	},
-	'/api/admin/set-user-quota/:userId': {
+	'/api/admin/set-user-quota': {
 		summary: 'Set quota for a user',
 		tags: ['admin'],
 		req: v.object({
+			userId: v.string(),
 			maxBuckets: v.optional(v.nullable(v.number())),
 			maxBucketSizeBytes: v.optional(v.nullable(v.number())),
 			maxFilesPerBucket: v.optional(v.nullable(v.number())),
@@ -56,10 +57,10 @@ export const adminApiDef = {
 		}),
 		res: { ...OkResponse, ...AdminErrors },
 	},
-	'/api/admin/get-user-quota/:userId': {
+	'/api/admin/get-user-quota': {
 		summary: 'Get quota for a user',
 		tags: ['admin'],
-		req: v.object({}),
+		req: v.object({ userId: v.string() }),
 		res: { 200: { description: 'Success', content: { 'application/json': { vSchema: QuotaResponse } } }, ...AdminErrors, 404: { description: 'User not found', content: { 'application/json': { vSchema: ErrorResponse } } } },
 	},
 	'/api/admin/get-global-quota': {
@@ -68,10 +69,10 @@ export const adminApiDef = {
 		req: v.object({}),
 		res: { 200: { description: 'Success', content: { 'application/json': { vSchema: QuotaResponse } } }, ...AdminErrors },
 	},
-	'/api/admin/delete-user-quota/:userId': {
+	'/api/admin/delete-user-quota': {
 		summary: 'Delete user quota (reset to global)',
 		tags: ['admin'],
-		req: v.object({}),
+		req: v.object({ userId: v.string() }),
 		res: { ...OkResponse, ...AdminErrors, 404: { description: 'User not found', content: { 'application/json': { vSchema: ErrorResponse } } } },
 	},
 	'/api/admin/list-users': {

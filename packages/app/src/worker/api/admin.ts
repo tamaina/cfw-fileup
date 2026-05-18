@@ -112,13 +112,13 @@ app.post(
 );
 
 app.post(
-	'/set-user-quota/:userId',
-	describeRoute(omitResAndReq(apiDef['/api/admin/set-user-quota/:userId'])),
-	validator('json', apiDef['/api/admin/set-user-quota/:userId'].req),
-	describeResponse(async (c: JsonCtx<'/api/admin/set-user-quota/:userId', Env>) => {
+	'/set-user-quota',
+	describeRoute(omitResAndReq(apiDef['/api/admin/set-user-quota'])),
+	validator('json', apiDef['/api/admin/set-user-quota'].req),
+	describeResponse(async (c: JsonCtx<'/api/admin/set-user-quota', Env>) => {
 		const db = getDb(c.env);
 		const body = c.req.valid('json');
-		const userId = c.req.param('userId')!;
+		const userId = body.userId;
 
 		const user = await db.select().from(users).where(eq(users.id, userId)).get();
 		if (!user) {
@@ -149,7 +149,7 @@ app.post(
 			});
 
 		return c.json({ ok: true }, 200);
-	}, getResponseDefWithAuth('/api/admin/set-user-quota/:userId')),
+	}, getResponseDefWithAuth('/api/admin/set-user-quota')),
 );
 
 app.post(
@@ -184,15 +184,15 @@ app.post(
 );
 
 app.post(
-	'/get-user-quota/:userId',
-	describeRoute(omitResAndReq(apiDef['/api/admin/get-user-quota/:userId'])),
-	validator('json', apiDef['/api/admin/get-user-quota/:userId'].req),
-	describeResponse(async (c: JsonCtx<'/api/admin/get-user-quota/:userId', Env>) => {
-		const userId = c.req.param('userId')!;
-		const quota = await getQuotaForUser(c.env, userId);
+	'/get-user-quota',
+	describeRoute(omitResAndReq(apiDef['/api/admin/get-user-quota'])),
+	validator('json', apiDef['/api/admin/get-user-quota'].req),
+	describeResponse(async (c: JsonCtx<'/api/admin/get-user-quota', Env>) => {
+		const body = c.req.valid('json');
+		const quota = await getQuotaForUser(c.env, body.userId);
 
 		return c.json(quota, 200);
-	}, getResponseDefWithAuth('/api/admin/get-user-quota/:userId')),
+	}, getResponseDefWithAuth('/api/admin/get-user-quota')),
 );
 
 app.post(
@@ -207,22 +207,22 @@ app.post(
 );
 
 app.post(
-	'/delete-user-quota/:userId',
-	describeRoute(omitResAndReq(apiDef['/api/admin/delete-user-quota/:userId'])),
-	validator('json', apiDef['/api/admin/delete-user-quota/:userId'].req),
-	describeResponse(async (c: JsonCtx<'/api/admin/delete-user-quota/:userId', Env>) => {
+	'/delete-user-quota',
+	describeRoute(omitResAndReq(apiDef['/api/admin/delete-user-quota'])),
+	validator('json', apiDef['/api/admin/delete-user-quota'].req),
+	describeResponse(async (c: JsonCtx<'/api/admin/delete-user-quota', Env>) => {
 		const db = getDb(c.env);
-		const userId = c.req.param('userId')!;
+		const body = c.req.valid('json');
 
-		const user = await db.select().from(users).where(eq(users.id, userId)).get();
+		const user = await db.select().from(users).where(eq(users.id, body.userId)).get();
 		if (!user) {
 			throw new HTTPException(404, { message: 'User not found' });
 		}
 
-		await db.delete(userQuotas).where(eq(userQuotas.userId, userId));
+		await db.delete(userQuotas).where(eq(userQuotas.userId, body.userId));
 
 		return c.json({ ok: true }, 200);
-	}, getResponseDefWithAuth('/api/admin/delete-user-quota/:userId')),
+	}, getResponseDefWithAuth('/api/admin/delete-user-quota')),
 );
 
 app.post(

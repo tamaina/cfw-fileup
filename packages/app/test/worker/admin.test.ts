@@ -211,17 +211,17 @@ describe('Quota management', () => {
 	test('admin can set per-user quota', async () => {
 		const { adminToken, userId } = await setupAdminAndUser();
 
-		const res = await app.request(`/api/admin/set-user-quota/${userId}`, {
+		const res = await app.request('/api/admin/set-user-quota', {
 			method: 'POST',
 			headers: authHeaders(adminToken),
-			body: JSON.stringify({ maxBuckets: 3 }),
+			body: JSON.stringify({ userId, maxBuckets: 3 }),
 		}, env);
 		expect(res.status).toBe(200);
 
-		const quotaRes = await app.request(`/api/admin/get-user-quota/${userId}`, {
+		const quotaRes = await app.request('/api/admin/get-user-quota', {
 			method: 'POST',
 			headers: authHeaders(adminToken),
-			body: JSON.stringify({}),
+			body: JSON.stringify({ userId }),
 		}, env);
 		expect(quotaRes.status).toBe(200);
 		const quota = await quotaRes.json() as Record<string, unknown>;
@@ -254,16 +254,16 @@ describe('Quota management', () => {
 	test('admin can delete user quota', async () => {
 		const { adminToken, userId } = await setupAdminAndUser();
 
-		await app.request(`/api/admin/set-user-quota/${userId}`, {
+		await app.request('/api/admin/set-user-quota', {
 			method: 'POST',
 			headers: authHeaders(adminToken),
-			body: JSON.stringify({ maxBuckets: 2 }),
+			body: JSON.stringify({ userId, maxBuckets: 2 }),
 		}, env);
 
-		const res = await app.request(`/api/admin/delete-user-quota/${userId}`, {
+		const res = await app.request('/api/admin/delete-user-quota', {
 			method: 'POST',
 			headers: authHeaders(adminToken),
-			body: JSON.stringify({}),
+			body: JSON.stringify({ userId }),
 		}, env);
 		expect(res.status).toBe(200);
 	});
