@@ -100,6 +100,15 @@ code { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.9em; 
   font-size: 0.875rem;
 }
 .app-nav-username { font-weight: 500; color: var(--color-text); }
+.app-nav-user-menu,
+.action-menu {
+  min-width: 140px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 12px rgba(0,0,0,.12);
+  padding: 4px;
+}
 
 /* Responsive nav: two-row layout on small screens */
 @media (max-width: 640px) {
@@ -298,6 +307,7 @@ code { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.9em; 
   border-radius: 999px;
   font-size: 0.75rem;
   font-weight: 500;
+  text-wrap: nowrap;
 }
 .badge-success { background: #dcfce7; color: #15803d; }
 .badge-warning { background: #fef3c7; color: #b45309; }
@@ -315,6 +325,7 @@ code { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.9em; 
   width: 100%;
   border-collapse: collapse;
   font-size: 0.875rem;
+  text-wrap: nowrap;
 }
 .data-table th {
   text-align: left;
@@ -563,16 +574,20 @@ dialog.confirm-dialog::backdrop {
 .file-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 16px; }
 
 /* ===== Settings grid ===== */
-.settings-grid { display: flex; flex-direction: column; gap: 12px; max-width: 560px; }
+.settings-grid { display: flex; flex-direction: column; gap: 12px; max-width: 700px; }
 .setting-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
   padding: 12px 16px;
   background: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
+}
+.setting-row.setting-row--multiline {
+  gap: 8px;
+  align-items: flex-start;
+  flex-direction: column;
 }
 .setting-row-info { flex: 1; min-width: 0; }
 .setting-row-label { font-weight: 500; font-size: 0.875rem; }

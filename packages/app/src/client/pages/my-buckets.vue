@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
-import { Button } from '@vuetify/v0';
-import { authHeaders, authStore } from '../store/auth';
+import { ref, computed, onMounted } from 'vue';
+import { Button, Form, Popover } from '@vuetify/v0';
+import { authStore } from '../store/auth';
+import { apiPost } from '../utils/api';
 import NirA from '@/components/nira.vue';
 import ConfirmDialog from '@/components/confirm-dialog.vue';
+import { isValidNameFormat, NAME_FORMAT_ERROR } from '../../shared/name-validation';
 
 interface Bucket {
 	id: string;
@@ -18,6 +20,13 @@ const loading = ref(true);
 const newBucketName = ref('');
 const creating = ref(false);
 const createError = ref('');
+
+/** バケット名の文字種バリデーション（クライアントサイド） */
+const bucketNameFormatError = computed(() => {
+	if (!newBucketName.value) return '';
+	if (!isValidNameFormat(newBucketName.value)) return NAME_FORMAT_ERROR;
+	return '';
+});
 
 function formatBytes(bytes: number): string {
 	if (bytes === 0) return '0 B';
@@ -38,18 +47,13 @@ async function loadBuckets(): Promise<void> {
 	loading.value = true;
 	error.value = '';
 	try {
-		const res = await fetch('/api/buckets/list', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', ...authHeaders() },
-			body: JSON.stringify({}),
-		});
-		const data = (await res.json()) as { buckets?: Bucket[]; maxBucketSizeBytes?: number | null; error?: string };
-		if (!res.ok) {
-			error.value = data.error ?? 'バケット一覧の取得に失敗しました';
+		const result = await apiPost('/api/buckets/list');
+		if (!result.ok) {
+			error.value = result.data.error;
 			return;
 		}
-		buckets.value = data.buckets ?? [];
-		maxBucketSizeBytes.value = data.maxBucketSizeBytes ?? null;
+		buckets.value = result.data.buckets;
+		maxBucketSizeBytes.value = result.data.maxBucketSizeBytes;
 	} catch (e) {
 		error.value = String(e);
 	} finally {
@@ -57,19 +61,19 @@ async function loadBuckets(): Promise<void> {
 	}
 }
 
-async function createBucket(): Promise<void> {
+async function createBucket({ valid }: { valid: boolean }): Promise<void> {
+	if (!valid) return;
 	if (!newBucketName.value.trim()) return;
+	if (bucketNameFormatError.value) {
+		createError.value = bucketNameFormatError.value;
+		return;
+	}
 	creating.value = true;
 	createError.value = '';
 	try {
-		const res = await fetch('/api/buckets/create', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', ...authHeaders() },
-			body: JSON.stringify({ bucketName: newBucketName.value.trim() }),
-		});
-		const data = (await res.json()) as { bucketId?: string; error?: string };
-		if (!res.ok) {
-			createError.value = data.error ?? 'バケットの作成に失敗しました';
+		const result = await apiPost('/api/buckets/create', { bucketName: newBucketName.value.trim() });
+		if (!result.ok) {
+			createError.value = result.data.error;
 			return;
 		}
 		newBucketName.value = '';
@@ -92,14 +96,9 @@ async function executeDeletion(): Promise<void> {
 	deleteDialog.value = false;
 	deleteTarget.value = null;
 	try {
-		const res = await fetch('/api/buckets/delete', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', ...authHeaders() },
-			body: JSON.stringify({ bucketId }),
-		});
-		if (!res.ok) {
-			const data = (await res.json()) as { error?: string };
-			error.value = data.error ?? '削除に失敗しました';
+		const result = await apiPost('/api/buckets/delete', { bucketId });
+		if (!result.ok) {
+			error.value = result.data.error;
 			return;
 		}
 		await loadBuckets();
@@ -123,20 +122,23 @@ onMounted(loadBuckets);
       <!-- 作成フォーム -->
       <div class="card mb-4">
         <p class="card-title">新しいバケットを作成</p>
-        <form @submit.prevent="createBucket" class="form-row">
-          <input
-            v-model="newBucketName"
-            class="form-input"
-            type="text"
-            placeholder="バケット名"
-            maxlength="64"
-            style="max-width:280px"
-          >
-          <Button.Root type="submit" class="btn btn-primary" :loading="creating">
-            <Button.Loading>作成中...</Button.Loading>
-            <Button.Content>作成</Button.Content>
-          </Button.Root>
-        </form>
+        <Form @submit="createBucket" class="form-row">
+          <div style="display:flex; flex-direction:column; gap:4px">
+            <input
+              v-model="newBucketName"
+              class="form-input"
+              type="text"
+              placeholder="バケット名"
+              maxlength="64"
+              style="max-width:280px"
+            >
+          </div>
+          <button type="submit" class="btn btn-primary" :disabled="creating || !!bucketNameFormatError">
+            {{ creating ? '作成中...' : '作成' }}
+          </button>
+        </Form>
+        <div v-if="bucketNameFormatError" class="form-hint form-hint--error mt-1">{{ bucketNameFormatError }}</div>
+        <div v-else class="form-hint mt-1">英数字とアンダースコア [0-9a-zA-Z_] のみ使用できます</div>
         <div v-if="createError" class="alert alert-error mt-2">{{ createError }}</div>
       </div>
 
@@ -189,9 +191,16 @@ onMounted(loadBuckets);
                     <NirA :to="`/my/buckets/${b.name}/upload`" class="btn btn-secondary">
                       アップロード
                     </NirA>
-                    <Button.Root class="btn btn-ghost-danger" @click="requestDelete(b)">
-                      <Button.Content>削除</Button.Content>
-                    </Button.Root>
+                    <Popover.Root>
+                      <Popover.Activator class="btn btn-ghost btn-icon" aria-label="操作メニュー">
+                        …
+                      </Popover.Activator>
+                      <Popover.Content class="action-menu">
+                        <Button.Root class="btn btn-ghost-danger w-full" style="justify-content:flex-start" @click="requestDelete(b)">
+                          <Button.Content>削除</Button.Content>
+                        </Button.Root>
+                      </Popover.Content>
+                    </Popover.Root>
                   </div>
                 </td>
               </tr>

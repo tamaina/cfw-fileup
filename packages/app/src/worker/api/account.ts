@@ -1,84 +1,94 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
+import { describeResponse, describeRoute, validator } from 'hono-openapi';
 import { eq } from 'drizzle-orm';
-import { users } from '../scheme/index';
+import { users, usedUsernames } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { authMiddleware } from '../middleware/auth';
 import { hashPassword, verifyPassword } from '../utils/crypto';
-import type { Schema, SchemaType } from './schema-type';
-
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const updateAccountSchema = {
-	type: 'object',
-	properties: {
-		username: { type: 'string', minLength: 1, maxLength: 32, optional: true },
-		newPassword: { type: 'string', minLength: 8, optional: true },
-		currentPassword: { type: 'string' },
-	},
-	required: ['currentPassword'],
-} as const satisfies Schema;
+import { validateUsername } from '../utils/name-validation';
+import { apiDef, getResponseDefWithAuth } from '../../shared/api';
+import type { JsonCtx } from '../../shared/api';
+import { omitResAndReq } from '../utils/omit';
 
 const app = new Hono<{ Bindings: Env }>();
 
 app.use(authMiddleware);
 
-app.get('/me', (c) => {
-	const user = c.get('user');
-	return c.json({
-		id: user.id,
-		username: user.username,
-		isAdmin: user.isAdmin,
-	});
-});
+app.post(
+  '/me',
+  describeRoute(omitResAndReq(apiDef['/api/account/me'])),
+  validator('json', apiDef['/api/account/me'].req),
+  describeResponse(async (c) => {
+    const user = c.get('user');
+    return c.json({
+      id: user.id,
+      username: user.username,
+      isAdmin: user.isAdmin,
+    }, 200);
+  }, getResponseDefWithAuth('/api/account/me'))
+);
 
-app.post('/update', async (c) => {
-	const db = getDb(c.env);
-	const user = c.get('user');
-	const body = (await c.req.json()) as SchemaType<typeof updateAccountSchema>;
+app.post(
+	'/update',
+	describeRoute(omitResAndReq(apiDef['/api/account/update'])),
+	validator('json', apiDef['/api/account/update'].req),
+	describeResponse(async (c: JsonCtx<'/api/account/update', Env>) => {
+		const db = getDb(c.env);
+		const user = c.get('user');
+		const body = c.req.valid('json');
 
-	if (!body.currentPassword) {
-		throw new HTTPException(400, { message: 'currentPassword is required' });
-	}
-
-	const userRecord = await db.select().from(users).where(eq(users.id, user.id)).get();
-
-	if (!userRecord) {
-		throw new HTTPException(404, { message: 'User not found' });
-	}
-
-	const passwordValid = await verifyPassword(body.currentPassword, userRecord.passwordHash);
-	if (!passwordValid) {
-		throw new HTTPException(401, { message: 'Invalid password' });
-	}
-
-	if (body.username) {
-		if (body.username.length < 1 || body.username.length > 32) {
-			throw new HTTPException(400, { message: 'username must be 1-32 characters' });
+		if (!body.currentPassword) {
+			throw new HTTPException(400, { message: 'currentPassword is required' });
 		}
 
-		const existingUser = await db
-			.select()
-			.from(users)
-			.where(eq(users.username, body.username))
-			.get();
+		const userRecord = await db.select().from(users).where(eq(users.id, user.id)).get();
 
-		if (existingUser && existingUser.id !== user.id) {
-			throw new HTTPException(409, { message: 'Username already exists' });
+		if (!userRecord) {
+			throw new HTTPException(404, { message: 'User not found' });
 		}
 
-		await db.update(users).set({ username: body.username }).where(eq(users.id, user.id));
-	}
-
-	if (body.newPassword) {
-		if (body.newPassword.length < 8) {
-			throw new HTTPException(400, { message: 'password must be at least 8 characters' });
+		const passwordValid = await verifyPassword(body.currentPassword, userRecord.passwordHash);
+		if (!passwordValid) {
+			throw new HTTPException(401, { message: 'Invalid password' });
 		}
 
-		const passwordHash = await hashPassword(body.newPassword);
-		await db.update(users).set({ passwordHash }).where(eq(users.id, user.id));
-	}
+		if (body.username) {
+			const newUsername = body.username.trim();
 
-	return c.json({ ok: true });
-});
+			if (newUsername.length < 1 || newUsername.length > 32) {
+				throw new HTTPException(400, { message: 'username must be 1-32 characters' });
+			}
+
+			if (newUsername.toLowerCase() !== userRecord.username.toLowerCase()) {
+				// 文字種・禁止ワード・重複（大文字小文字を区別しない）チェック
+				const usernameError = await validateUsername(db, newUsername);
+				if (usernameError) {
+					const status = usernameError === 'Username already exists' ? 409 : 400;
+					throw new HTTPException(status, { message: usernameError });
+				}
+
+				await db.update(users).set({ username: newUsername }).where(eq(users.id, user.id));
+
+				// lowercaseで used_usernames に登録（削除後も同名再利用不可）
+				await db
+					.insert(usedUsernames)
+					.values({ username: newUsername.toLowerCase() })
+					.onConflictDoNothing();
+			}
+		}
+
+		if (body.newPassword) {
+			if (body.newPassword.length < 8) {
+				throw new HTTPException(400, { message: 'password must be at least 8 characters' });
+			}
+
+			const passwordHash = await hashPassword(body.newPassword);
+			await db.update(users).set({ passwordHash }).where(eq(users.id, user.id));
+		}
+
+		return c.json({ ok: true }, 200);
+	}, getResponseDefWithAuth('/api/account/update')),
+);
 
 export const accountRoutes = app;

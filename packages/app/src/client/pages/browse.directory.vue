@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
-import { Button } from '@vuetify/v0';
+import { Button, Form } from '@vuetify/v0';
 import NirA from '@/components/nira.vue';
 import { authStore, authHeaders } from '@/store/auth';
+import { apiPost } from '@/utils/api';
 import { setPendingUpload } from '@/store/pending-upload';
 import { mainRouter } from '@/router';
 import ConfirmDialog from '@/components/confirm-dialog.vue';
@@ -13,6 +14,7 @@ const props = defineProps<{
 	isTargz: boolean;
 	isTar: boolean;
 	entryPath?: string;
+	token?: string;
 }>();
 
 const isArchive = computed(() => props.isTargz || props.isTar);
@@ -28,8 +30,14 @@ interface DisplayEntry {
 	isPublic?: boolean;
 }
 
-const downloadUrl = computed(() => `/d/${props.bucketName}/${props.filePath}`);
-const decompressUrl = computed(() => `/d/${props.bucketName}/${props.filePath}?decompress`);
+const downloadUrl = computed(() => {
+	const base = `/d/${props.bucketName}/${props.filePath}`;
+	return props.token ? `${base}?token=${props.token}` : base;
+});
+const decompressUrl = computed(() => {
+	const base = `/d/${props.bucketName}/${props.filePath}?decompress`;
+	return props.token ? `${base}&token=${props.token}` : base;
+});
 
 const entries = ref<DisplayEntry[]>([]);
 const error = ref('');
@@ -58,29 +66,20 @@ const archiveDeleteDialog = ref(false);
 
 async function loadBucketId(): Promise<void> {
 	if (!authStore.user) return;
-	const res = await fetch('/api/buckets/list', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json', ...authHeaders() },
-		body: JSON.stringify({}),
-	});
-	if (!res.ok) return;
-	const data = await res.json() as { buckets: Array<{ id: string; name: string }> };
-	bucketId.value = data.buckets.find(b => b.name === props.bucketName)?.id ?? null;
+	const result = await apiPost('/api/buckets/list');
+	if (!result.ok) return;
+	bucketId.value = result.data.buckets.find(b => b.name === props.bucketName)?.id ?? null;
 }
 
-async function createDirectory(): Promise<void> {
+async function createDirectory({ valid }: { valid: boolean }): Promise<void> {
+	if (!valid) return;
 	const name = newDirName.value.trim();
 	if (!name || !bucketId.value) return;
 	mkdirError.value = '';
 	const path = `${props.filePath}${name}/`;
-	const res = await fetch('/api/directories/create', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json', ...authHeaders() },
-		body: JSON.stringify({ bucketId: bucketId.value, path }),
-	});
-	if (!res.ok) {
-		const err = await res.json() as { error?: string };
-		mkdirError.value = err.error ?? '作成失敗';
+	const dirResult = await apiPost('/api/directories/create', { bucketId: bucketId.value!, path });
+	if (!dirResult.ok) {
+		mkdirError.value = dirResult.data.error;
 		return;
 	}
 	newDirName.value = '';
@@ -100,14 +99,9 @@ async function executeDeleteEntry(): Promise<void> {
 	deleteError.value = '';
 
 	if (entry.isDir) {
-		const res = await fetch('/api/directories/delete', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', ...authHeaders() },
-			body: JSON.stringify({ bucketId: bucketId.value, path: entry.fullPath }),
-		});
-		if (!res.ok) {
-			const err = await res.json() as { error?: string };
-			deleteError.value = err.error ?? '削除失敗';
+		const delResult = await apiPost('/api/directories/delete', { bucketId: bucketId.value!, path: entry.fullPath });
+		if (!delResult.ok) {
+			deleteError.value = delResult.data.error;
 			return;
 		}
 	} else {
@@ -186,7 +180,8 @@ async function load(): Promise<void> {
 	error.value = '';
 	try {
 		if (isArchive.value) {
-			const res = await fetch(`${downloadUrl.value}?list`, { headers: authHeaders() });
+			const listUrl = props.token ? `${downloadUrl.value}&list` : `${downloadUrl.value}?list`;
+			const res = await fetch(listUrl, { headers: authHeaders() });
 			if (!res.ok) { error.value = `取得失敗: ${res.status}`; return; }
 			const raw = await res.json() as RawArchiveEntry[];
 			archivePath.value = props.entryPath ?? '';
@@ -319,7 +314,7 @@ watch(() => props.entryPath, (newEntryPath) => {
       <Button.Root class="btn btn-primary" @click="goUpload">
         <Button.Content>アップロード</Button.Content>
       </Button.Root>
-      <form class="flex gap-2 items-center" @submit.prevent="createDirectory">
+      <Form class="flex gap-2 items-center" @submit="createDirectory">
         <input
           v-model="newDirName"
           class="form-input form-input-mono"
@@ -327,10 +322,10 @@ watch(() => props.entryPath, (newEntryPath) => {
           placeholder="新しいフォルダ名"
           style="width:180px"
         >
-        <Button.Root type="submit" class="btn btn-secondary" :disabled="!newDirName.trim() || !bucketId">
-          <Button.Content>フォルダ作成</Button.Content>
-        </Button.Root>
-      </form>
+        <button type="submit" class="btn btn-secondary" :disabled="!newDirName.trim() || !bucketId">
+          フォルダ作成
+        </button>
+      </Form>
       <span v-if="mkdirError" class="text-danger" style="font-size:0.8rem">{{ mkdirError }}</span>
     </div>
 
@@ -373,7 +368,7 @@ watch(() => props.entryPath, (newEntryPath) => {
                 </td>
               </tr>
               <tr v-for="entry in entries" :key="entry.key">
-                <td>
+                <td style="width: 50%; min-width: 10em; max-width: 0px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                   <button v-if="isArchive && entry.isDir" style="background:none; border:none; cursor:pointer; padding:0; font-weight:500; font-size:inherit; color:inherit" @click="navigateArchiveDir(entry.fullPath)">
                     <span style="margin-right:4px">📁</span>{{ entry.name }}
                   </button>
@@ -382,18 +377,18 @@ watch(() => props.entryPath, (newEntryPath) => {
                     <span v-if="entry.isDir" style="margin-right:4px">📁</span>{{ entry.name }}
                   </NirA>
                 </td>
-                <td class="col-right col-muted">
+                <td class="col-right col-muted" style="white-space: nowrap;">
                   {{ entry.size != null ? formatSize(entry.size) : '' }}
                 </td>
-                <td>
+                <td style="white-space: nowrap;">
                   <span v-if="entry.label" class="badge badge-muted">{{ entry.label }}</span>
                 </td>
-                <td v-if="!isArchive && authStore.user">
+                <td v-if="!isArchive && authStore.user" style="white-space: nowrap;">
                   <span v-if="!entry.isDir && entry.isPublic != null" :class="entry.isPublic ? 'badge badge-success' : 'badge badge-muted'">
                     {{ entry.isPublic ? '公開' : '非公開' }}
                   </span>
                 </td>
-                <td v-if="!isArchive && authStore.user && bucketId" class="col-actions">
+                <td v-if="!isArchive && authStore.user && bucketId" class="col-actions" style="white-space: nowrap;">
                   <Button.Root class="btn btn-ghost-danger" @click="requestDeleteEntry(entry)">
                     <Button.Content>削除</Button.Content>
                   </Button.Root>

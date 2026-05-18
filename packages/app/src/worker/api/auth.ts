@@ -1,156 +1,179 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
+import { describeResponse, describeRoute, validator } from 'hono-openapi';
 import { eq, count } from 'drizzle-orm';
-import { users, tokens, appSettings } from '../scheme/index';
+import { users, tokens, appSettings, usedUsernames } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { hashPassword, verifyPassword, generateToken } from '../utils/crypto';
 import { genEaidx } from '../../shared/eaid-x';
 import { verifyTurnstile } from '../utils/turnstile';
-import { authApiSchema } from './auth.definition';
-import type { ExtractRequestType, ExtractResponseType } from './schema-type';
+import { validateUsername } from '../utils/name-validation';
+import { apiDef, type JsonCtx } from '../../shared/api';
+import { omitResAndReq } from '../utils/omit';
 
 const app = new Hono<{ Bindings: Env }>();
 
-app.post('/signup', async (c) => {
-	const db = getDb(c.env);
-	const body = (await c.req.json()) as ExtractRequestType<typeof authApiSchema, '/api/signup', 'post'>;
+app.post(
+	'/signup',
+	describeRoute(omitResAndReq(apiDef['/api/signup'])),
+	validator('json', apiDef['/api/signup'].req),
+	describeResponse(async (c: JsonCtx<'/api/signup', Env>) => {
+		const db = getDb(c.env);
+		const body = c.req.valid('json');
+		const username = (body.username ?? '').trim();
 
-	if (!body.username || !body.password) {
-		throw new HTTPException(400, { message: 'username and password are required' });
-	}
-
-	if ((c.env.TURNSTILE_SECRET as string) !== '') {
-		const token = body.turnstileToken;
-		if (!token || !await verifyTurnstile(token, c.env.TURNSTILE_SECRET)) {
-			throw new HTTPException(400, { message: 'Turnstile verification failed' });
+		if (!username || !body.password) {
+			throw new HTTPException(400, { message: 'username and password are required' });
 		}
-	}
 
-	if (body.username.length < 1 || body.username.length > 32) {
-		throw new HTTPException(400, { message: 'username must be 1-32 characters' });
-	}
+		if ((c.env.TURNSTILE_SECRET as string) !== '') {
+			const token = body.turnstileToken;
+			if (!token || !await verifyTurnstile(token, c.env.TURNSTILE_SECRET)) {
+				throw new HTTPException(400, { message: 'Turnstile verification failed' });
+			}
+		}
 
-	if (body.password.length < 8) {
-		throw new HTTPException(400, { message: 'password must be at least 8 characters' });
-	}
+		if (username.length < 1 || username.length > 32) {
+			throw new HTTPException(400, { message: 'username must be 1-32 characters' });
+		}
 
-	const userCount = await db.select({ count: count() }).from(users);
-	const isFirstUser = (userCount[0]?.count ?? 0) === 0;
+		// 使用可能な文字・禁止ワード・重複（大文字小文字を区別しない）チェック
+		const usernameError = await validateUsername(db, username);
+		if (usernameError) {
+			// 重複エラーのみ409、それ以外は400
+			const status = usernameError === 'Username already exists' ? 409 : 400;
+			throw new HTTPException(status, { message: usernameError });
+		}
 
-	// Get or initialize require_signup_passphrase setting
-	let requireSignupPassphraseSetting = await db
-		.select()
-		.from(appSettings)
-		.where(eq(appSettings.key, 'require_signup_passphrase'))
-		.get();
+		if (body.password.length < 8) {
+			throw new HTTPException(400, { message: 'password must be at least 8 characters' });
+		}
 
-	if (!requireSignupPassphraseSetting) {
-		const defaultValue = c.env.SIGNUP_PASSPHRASE ? 'true' : 'false';
-		await db.insert(appSettings).values({
-			key: 'require_signup_passphrase',
-			value: defaultValue,
+		const userCount = await db.select({ count: count() }).from(users);
+		const isFirstUser = (userCount[0]?.count ?? 0) === 0;
+
+		// Get or initialize require_signup_passphrase setting
+		let requireSignupPassphraseSetting = await db
+			.select()
+			.from(appSettings)
+			.where(eq(appSettings.key, 'require_signup_passphrase'))
+			.get();
+
+		if (!requireSignupPassphraseSetting) {
+			const defaultValue = c.env.SIGNUP_PASSPHRASE ? 'true' : 'false';
+			await db.insert(appSettings).values({
+				key: 'require_signup_passphrase',
+				value: defaultValue,
+			});
+			requireSignupPassphraseSetting = { key: 'require_signup_passphrase', value: defaultValue };
+		}
+
+		// Check passphrase requirement (first user is always exempt)
+		const requireSignupPassphrase = requireSignupPassphraseSetting.value === 'true';
+		const signupPassphrase = c.env.SIGNUP_PASSPHRASE;
+
+		if (requireSignupPassphrase && !isFirstUser) {
+			if (!signupPassphrase || !body.passphrase || body.passphrase !== signupPassphrase) {
+				throw new HTTPException(403, { message: 'Invalid passphrase' });
+			}
+		}
+
+		const registrationEnabled = await db
+			.select()
+			.from(appSettings)
+			.where(eq(appSettings.key, 'registration_enabled'))
+			.get();
+
+		if (!isFirstUser && registrationEnabled?.value === 'false') {
+			throw new HTTPException(403, { message: 'Registration is closed' });
+		}
+
+		const userId = genEaidx(Date.now());
+		const passwordHash = await hashPassword(body.password);
+
+		await db.insert(users).values({
+			id: userId,
+			username,
+			passwordHash,
+			isAdmin: isFirstUser,
+			isSuspended: false,
 		});
-		requireSignupPassphraseSetting = { key: 'require_signup_passphrase', value: defaultValue };
-	}
 
-	// Check passphrase requirement (first user is always exempt)
-	const requireSignupPassphrase = requireSignupPassphraseSetting.value === 'true';
-	const signupPassphrase = c.env.SIGNUP_PASSPHRASE;
-
-	if (requireSignupPassphrase && !isFirstUser) {
-		if (!signupPassphrase || !body.passphrase || body.passphrase !== signupPassphrase) {
-			throw new HTTPException(403, { message: 'Invalid passphrase' });
-		}
-	}
-
-	const existingUser = await db.select().from(users).where(eq(users.username, body.username)).get();
-	if (existingUser) {
-		throw new HTTPException(409, { message: 'Username already exists' });
-	}
-
-	const registrationEnabled = await db
-		.select()
-		.from(appSettings)
-		.where(eq(appSettings.key, 'registration_enabled'))
-		.get();
-
-	if (!isFirstUser && registrationEnabled?.value === 'false') {
-		throw new HTTPException(403, { message: 'Registration is closed' });
-	}
-
-	const userId = genEaidx(Date.now());
-	const passwordHash = await hashPassword(body.password);
-
-	await db.insert(users).values({
-		id: userId,
-		username: body.username,
-		passwordHash,
-		isAdmin: isFirstUser,
-		isSuspended: false,
-	});
-
-	const tokenId = genEaidx(Date.now());
-	const tokenValue = generateToken();
-
-	await db.insert(tokens).values({
-		id: tokenId,
-		userId,
-		token: tokenValue,
-	});
-
-	if (isFirstUser) {
+		// lowercaseで used_usernames に登録（削除後も同名再利用不可）
 		await db
-			.insert(appSettings)
-			.values({
-				key: 'registration_enabled',
-				value: 'true',
-			})
+			.insert(usedUsernames)
+			.values({ username: username.toLowerCase() })
 			.onConflictDoNothing();
-	}
 
-	return c.json({ userId, token: tokenValue } as ExtractResponseType<typeof authApiSchema, '/api/signup', 'post', 201>);
-});
+		const tokenId = genEaidx(Date.now());
+		const tokenValue = generateToken();
 
-app.post('/signin', async (c) => {
-	const db = getDb(c.env);
-	const body = (await c.req.json()) as ExtractRequestType<typeof authApiSchema, '/api/signin', 'post'>;
+		await db.insert(tokens).values({
+			id: tokenId,
+			userId,
+			token: tokenValue,
+		});
 
-	if (!body.username || !body.password) {
-		throw new HTTPException(400, { message: 'username and password are required' });
-	}
-
-	if ((c.env.TURNSTILE_SECRET as string) !== '') {
-		const token = body.turnstileToken;
-		if (!token || !await verifyTurnstile(token, c.env.TURNSTILE_SECRET)) {
-			throw new HTTPException(400, { message: 'Turnstile verification failed' });
+		if (isFirstUser) {
+			await db
+				.insert(appSettings)
+				.values({
+					key: 'registration_enabled',
+					value: 'true',
+				})
+				.onConflictDoNothing();
 		}
-	}
 
-	const user = await db.select().from(users).where(eq(users.username, body.username)).get();
+		return c.json({ userId, token: tokenValue }, 200);
+	}, apiDef['/api/signup'].res),
+);
 
-	if (!user) {
-		throw new HTTPException(401, { message: 'Invalid credentials' });
-	}
+app.post(
+	'/signin',
+	describeRoute(omitResAndReq(apiDef['/api/signin'])),
+	validator('json', apiDef['/api/signin'].req),
+	describeResponse(async (c: JsonCtx<'/api/signin', Env>) => {
+		const db = getDb(c.env);
+		const body = c.req.valid('json');
+		const username = (body.username ?? '').trim();
 
-	if (user.isSuspended) {
-		throw new HTTPException(401, { message: 'Account is suspended' });
-	}
+		if (!username || !body.password) {
+			throw new HTTPException(400, { message: 'username and password are required' });
+		}
 
-	const passwordValid = await verifyPassword(body.password, user.passwordHash);
-	if (!passwordValid) {
-		throw new HTTPException(401, { message: 'Invalid credentials' });
-	}
+		if ((c.env.TURNSTILE_SECRET as string) !== '') {
+			const token = body.turnstileToken;
+			if (!token || !await verifyTurnstile(token, c.env.TURNSTILE_SECRET)) {
+				throw new HTTPException(400, { message: 'Turnstile verification failed' });
+			}
+		}
 
-	const tokenId = genEaidx(Date.now());
-	const tokenValue = generateToken();
+		const user = await db.select().from(users).where(eq(users.username, username)).get();
 
-	await db.insert(tokens).values({
-		id: tokenId,
-		userId: user.id,
-		token: tokenValue,
-	});
+		if (!user) {
+			throw new HTTPException(401, { message: 'Invalid credentials' });
+		}
 
-	return c.json({ token: tokenValue } as ExtractResponseType<typeof authApiSchema, '/api/signin', 'post', 200>);
-});
+		if (user.isSuspended) {
+			throw new HTTPException(401, { message: 'Account is suspended' });
+		}
+
+		const passwordValid = await verifyPassword(body.password, user.passwordHash);
+		if (!passwordValid) {
+			throw new HTTPException(401, { message: 'Invalid credentials' });
+		}
+
+		const tokenId = genEaidx(Date.now());
+		const tokenValue = generateToken();
+
+		await db.insert(tokens).values({
+			id: tokenId,
+			userId: user.id,
+			token: tokenValue,
+		});
+
+		return c.json({ token: tokenValue }, 200);
+	}, apiDef['/api/signin'].res),
+);
 
 export const authRoutes = app;

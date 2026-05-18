@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { Button } from '@vuetify/v0';
+import { Button, Popover } from '@vuetify/v0';
 import ConfirmDialog from '@/components/confirm-dialog.vue';
-import { authHeaders } from '@/store/auth';
+import { apiPost } from '@/utils/api';
 
 const props = defineProps<{
 	bucketName: string;
@@ -47,18 +47,12 @@ async function loadTokens(): Promise<void> {
 	loading.value = true;
 	listError.value = '';
 	try {
-		const res = await fetch('/api/file-tokens/list', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', ...authHeaders() },
-			body: JSON.stringify({ bucketName: props.bucketName, filePath: props.filePath }),
-		});
-		if (!res.ok) {
-			const err = await res.json().catch(() => ({})) as { error?: string };
-			listError.value = err.error ?? `取得失敗: ${res.status}`;
+		const result = await apiPost('/api/file-tokens/list', { bucketName: props.bucketName, filePath: props.filePath });
+		if (!result.ok) {
+			listError.value = result.data.error;
 			return;
 		}
-		const data = await res.json() as { tokens: FileToken[] };
-		tokens.value = data.tokens.sort((a, b) => b.createdAt - a.createdAt);
+		tokens.value = result.data.tokens.sort((a, b) => b.createdAt - a.createdAt);
 	} catch (e) {
 		listError.value = String(e);
 	} finally {
@@ -89,22 +83,16 @@ async function createToken(): Promise<void> {
 	createdToken.value = null;
 	copied.value = false;
 	try {
-		const res = await fetch('/api/file-tokens/create', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', ...authHeaders() },
-			body: JSON.stringify({
-				bucketName: props.bucketName,
-				filePath: props.filePath,
-				expiresIn,
-			}),
+		const result = await apiPost('/api/file-tokens/create', {
+			bucketName: props.bucketName,
+			filePath: props.filePath,
+			expiresIn,
 		});
-		if (!res.ok) {
-			const err = await res.json().catch(() => ({})) as { error?: string };
-			createError.value = err.error ?? `発行失敗: ${res.status}`;
+		if (!result.ok) {
+			createError.value = result.data.error;
 			return;
 		}
-		const data = await res.json() as { id: string; token: string; expiresAt: number | null };
-		createdToken.value = data;
+		createdToken.value = result.data;
 		await loadTokens();
 	} catch (e) {
 		createError.value = String(e);
@@ -133,14 +121,9 @@ function openDeleteDialog(id: string): void {
 async function executeDelete(): Promise<void> {
 	deleteError.value = '';
 	try {
-		const res = await fetch('/api/file-tokens/delete', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', ...authHeaders() },
-			body: JSON.stringify({ tokenId: deletingId.value }),
-		});
-		if (!res.ok) {
-			const err = await res.json().catch(() => ({})) as { error?: string };
-			deleteError.value = err.error ?? `削除失敗: ${res.status}`;
+		const result = await apiPost('/api/file-tokens/delete', { tokenId: deletingId.value });
+		if (!result.ok) {
+			deleteError.value = result.data.error;
 			return;
 		}
 		tokens.value = tokens.value.filter((t) => t.id !== deletingId.value);
@@ -171,19 +154,14 @@ async function saveVisibility(): Promise<void> {
 	visibilitySaving.value = true;
 	visibilityError.value = '';
 	try {
-		const res = await fetch('/api/files/update', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', ...authHeaders() },
-			body: JSON.stringify({
-				bucketName: props.bucketName,
-				filePath: props.filePath,
-				isPublic: editIsPublic.value,
-				passphrase: editPassphrase.value || undefined,
-			}),
+		const result = await apiPost('/api/files/update', {
+			bucketName: props.bucketName,
+			filePath: props.filePath,
+			isPublic: editIsPublic.value,
+			passphrase: editPassphrase.value || undefined,
 		});
-		if (!res.ok) {
-			const err = await res.json().catch(() => ({})) as { error?: string };
-			visibilityError.value = err.error ?? '保存失敗';
+		if (!result.ok) {
+			visibilityError.value = result.data.error;
 			return;
 		}
 		emit('update:fileIsPublic', editIsPublic.value);
@@ -326,9 +304,16 @@ onMounted(loadTokens);
               </span>
             </td>
             <td>
-              <Button.Root class="btn btn-danger" @click="openDeleteDialog(t.id)">
-                <Button.Content>削除</Button.Content>
-              </Button.Root>
+              <Popover.Root>
+                <Popover.Activator class="btn btn-ghost btn-icon" aria-label="操作メニュー">
+                  …
+                </Popover.Activator>
+                <Popover.Content class="action-menu">
+                  <Button.Root class="btn btn-ghost-danger w-full" style="justify-content:flex-start" @click="openDeleteDialog(t.id)">
+                    <Button.Content>削除</Button.Content>
+                  </Button.Root>
+                </Popover.Content>
+              </Popover.Root>
             </td>
           </tr>
         </tbody>

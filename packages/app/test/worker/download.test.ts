@@ -16,7 +16,7 @@ async function setupPublicFile() {
 	const bucketRes = await app.request('/api/buckets/create', {
 		method: 'POST',
 		headers: authHeaders(token),
-		body: JSON.stringify({ bucketName: 'test-bucket' }),
+		body: JSON.stringify({ bucketName: 'test_bucket' }),
 	}, env);
 	const { bucketId } = await bucketRes.json() as { bucketId: string };
 
@@ -42,21 +42,21 @@ describe('GET /d/:bucketName/*', () => {
 	test('downloads a public file', async () => {
 		await setupPublicFile();
 
-		const res = await app.request('/d/test-bucket/hello.txt', {}, env);
+		const res = await app.request('/d/test_bucket/hello.txt', {}, env);
 		expect(res.status).toBe(200);
 		const text = await res.text();
 		expect(text).toBe('Hello World');
 	});
 
 	test('nonexistent bucket returns 404', async () => {
-		const res = await app.request('/d/no-such-bucket/file.txt', {}, env);
+		const res = await app.request('/d/no_such_bucket/file.txt', {}, env);
 		expect(res.status).toBe(404);
 	});
 
 	test('nonexistent file in existing bucket returns 404', async () => {
 		await setupPublicFile();
 
-		const res = await app.request('/d/test-bucket/no-such-file.txt', {}, env);
+		const res = await app.request('/d/test_bucket/no-such-file.txt', {}, env);
 		expect(res.status).toBe(404);
 	});
 
@@ -67,7 +67,7 @@ describe('GET /d/:bucketName/*', () => {
 		const bucketRes = await app.request('/api/buckets/create', {
 			method: 'POST',
 			headers: authHeaders(token),
-			body: JSON.stringify({ bucketName: 'secret-bucket' }),
+			body: JSON.stringify({ bucketName: 'secret_bucket' }),
 		}, env);
 		const { bucketId } = await bucketRes.json() as { bucketId: string };
 
@@ -85,7 +85,7 @@ describe('GET /d/:bucketName/*', () => {
 			body: JSON.stringify({ fileId, isPublic: false, passphrase: 'mypassword' }),
 		}, env);
 
-		const res = await app.request('/d/secret-bucket/secret.txt', {}, env);
+		const res = await app.request('/d/secret_bucket/secret.txt', {}, env);
 		expect(res.status).toBe(403);
 	});
 
@@ -96,7 +96,7 @@ describe('GET /d/:bucketName/*', () => {
 		const bucketRes = await app.request('/api/buckets/create', {
 			method: 'POST',
 			headers: authHeaders(token),
-			body: JSON.stringify({ bucketName: 'secret-bucket' }),
+			body: JSON.stringify({ bucketName: 'secret_bucket' }),
 		}, env);
 		const { bucketId } = await bucketRes.json() as { bucketId: string };
 
@@ -114,7 +114,7 @@ describe('GET /d/:bucketName/*', () => {
 			body: JSON.stringify({ fileId, isPublic: false, passphrase: 'mypassword' }),
 		}, env);
 
-		const res = await app.request('/d/secret-bucket/secret.txt?passphrase=mypassword', {}, env);
+		const res = await app.request('/d/secret_bucket/secret.txt?passphrase=mypassword', {}, env);
 		expect(res.status).toBe(200);
 		expect(await res.text()).toBe('Secret Content');
 	});
@@ -126,7 +126,7 @@ describe('GET /d/:bucketName/*', () => {
 		const bucketRes = await app.request('/api/buckets/create', {
 			method: 'POST',
 			headers: authHeaders(token),
-			body: JSON.stringify({ bucketName: 'secret-bucket' }),
+			body: JSON.stringify({ bucketName: 'secret_bucket' }),
 		}, env);
 		const { bucketId } = await bucketRes.json() as { bucketId: string };
 
@@ -144,7 +144,7 @@ describe('GET /d/:bucketName/*', () => {
 			body: JSON.stringify({ fileId, isPublic: false, passphrase: 'mypassword' }),
 		}, env);
 
-		const res = await app.request('/d/secret-bucket/secret.txt?passphrase=wrongpassword', {}, env);
+		const res = await app.request('/d/secret_bucket/secret.txt?passphrase=wrongpassword', {}, env);
 		expect(res.status).toBe(403);
 	});
 });
@@ -157,7 +157,7 @@ describe('GET /d/:bucketName/:filePath?list (tar.gz index)', () => {
 		const bucketRes = await app.request('/api/buckets/create', {
 			method: 'POST',
 			headers: authHeaders(token),
-			body: JSON.stringify({ bucketName: 'archive-bucket' }),
+			body: JSON.stringify({ bucketName: 'archive_bucket' }),
 		}, env);
 		const { bucketId } = await bucketRes.json() as { bucketId: string };
 
@@ -208,7 +208,7 @@ describe('GET /d/:bucketName/:filePath?list (tar.gz index)', () => {
 		}, env);
 
 		// List all files
-		const listRes = await app.request('/d/archive-bucket/archive.tar.gz?list', {}, env);
+		const listRes = await app.request('/d/archive_bucket/archive.tar.gz?list', {}, env);
 		expect(listRes.status).toBe(200);
 		const entries = await listRes.json() as { path: string }[];
 		expect(entries).toHaveLength(2);
@@ -222,7 +222,7 @@ describe('GET /d/:bucketName/:filePath?list (tar.gz index)', () => {
 		const bucketRes = await app.request('/api/buckets/create', {
 			method: 'POST',
 			headers: authHeaders(token),
-			body: JSON.stringify({ bucketName: 'archive-bucket' }),
+			body: JSON.stringify({ bucketName: 'archive_bucket' }),
 		}, env);
 		const { bucketId } = await bucketRes.json() as { bucketId: string };
 
@@ -252,7 +252,7 @@ describe('GET /d/:bucketName/:filePath?list (tar.gz index)', () => {
 			body: JSON.stringify({ fileId, isPublic: true }),
 		}, env);
 
-		const listRes = await app.request('/d/archive-bucket/archive.tar.gz?list=dir/file1.txt', {}, env);
+		const listRes = await app.request('/d/archive_bucket/archive.tar.gz?list=dir/file1.txt', {}, env);
 		expect(listRes.status).toBe(200);
 		const entries = await listRes.json() as { path: string }[];
 		expect(entries).toHaveLength(1);
@@ -268,7 +268,7 @@ describe('GET /d/:bucketName/:filePath?file= (tar individual file)', () => {
 		const bucketRes = await app.request('/api/buckets/create', {
 			method: 'POST',
 			headers: authHeaders(token),
-			body: JSON.stringify({ bucketName: 'tar-bucket' }),
+			body: JSON.stringify({ bucketName: 'tar_bucket' }),
 		}, env);
 		const { bucketId } = await bucketRes.json() as { bucketId: string };
 
@@ -300,7 +300,7 @@ describe('GET /d/:bucketName/:filePath?file= (tar individual file)', () => {
 			body: JSON.stringify({ fileId, isPublic: true }),
 		}, env);
 
-		const res = await app.request('/d/tar-bucket/archive.tar?file=hello.txt', {}, env);
+		const res = await app.request('/d/tar_bucket/archive.tar?file=hello.txt', {}, env);
 		expect(res.status).toBe(200);
 		const body = await res.arrayBuffer();
 		expect(new Uint8Array(body)).toEqual(fileContent);
@@ -313,7 +313,7 @@ describe('GET /d/:bucketName/:filePath?file= (tar individual file)', () => {
 		const bucketRes = await app.request('/api/buckets/create', {
 			method: 'POST',
 			headers: authHeaders(token),
-			body: JSON.stringify({ bucketName: 'tar-bucket' }),
+			body: JSON.stringify({ bucketName: 'tar_bucket' }),
 		}, env);
 		const { bucketId } = await bucketRes.json() as { bucketId: string };
 
@@ -341,7 +341,7 @@ describe('GET /d/:bucketName/:filePath?file= (tar individual file)', () => {
 			body: JSON.stringify({ fileId, isPublic: true }),
 		}, env);
 
-		const res = await app.request('/d/tar-bucket/archive.tar?file=nonexistent.txt', {}, env);
+		const res = await app.request('/d/tar_bucket/archive.tar?file=nonexistent.txt', {}, env);
 		expect(res.status).toBe(404);
 	});
 });
@@ -350,12 +350,12 @@ describe('DELETE /d/:bucketName/*', () => {
 	test('owner can delete file via DELETE endpoint', async () => {
 		await setupPublicFile();
 
-		const { data } = await signup('admin');
+		const { data } = await signup('firstuser');
 		const token = String(data.token);
 		void token;
 
 		// The download.ts DELETE checks Authorization header
-		const res = await app.request('/d/test-bucket/hello.txt', {
+		const res = await app.request('/d/test_bucket/hello.txt', {
 			method: 'DELETE',
 			headers: authHeaders(String(token)),
 		}, env);
@@ -366,7 +366,7 @@ describe('DELETE /d/:bucketName/*', () => {
 	test('DELETE without Authorization returns 401', async () => {
 		await setupPublicFile();
 
-		const res = await app.request('/d/test-bucket/hello.txt', {
+		const res = await app.request('/d/test_bucket/hello.txt', {
 			method: 'DELETE',
 		}, env);
 		expect(res.status).toBe(401);

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { Button } from '@vuetify/v0';
-import { authStore, authHeaders } from '../store/auth';
+import { Button, Form } from '@vuetify/v0';
+import { authStore } from '../store/auth';
+import { apiPost } from '../utils/api';
 import NirA from '@/components/nira.vue';
 import ConfirmDialog from '@/components/confirm-dialog.vue';
 
@@ -29,13 +30,13 @@ async function fetchQuota(): Promise<void> {
 	loading.value = true;
 	error.value = '';
 	try {
-		const [userRes, globalRes] = await Promise.all([
-			fetch(`/api/admin/get-user-quota/${props.userId}`, { headers: authHeaders() }),
-			fetch('/api/admin/get-global-quota', { headers: authHeaders() }),
+		const [userResult, globalResult] = await Promise.all([
+			apiPost('/api/admin/get-user-quota', { userId: props.userId }),
+			apiPost('/api/admin/get-global-quota'),
 		]);
-		if (!userRes.ok) throw new Error('クォータの取得に失敗しました');
-		const userData = await userRes.json() as Record<string, number | null>;
-		const globalData = globalRes.ok ? await globalRes.json() as Record<string, number | null> : {};
+		if (!userResult.ok) throw new Error('クォータの取得に失敗しました');
+		const userData = userResult.data;
+		const globalData = globalResult.ok ? globalResult.data : { maxBuckets: null, maxBucketSizeBytes: null, maxFilesPerBucket: null, maxDailyUploads: null };
 
 		hasUserQuota.value =
 			userData.maxBuckets !== (globalData.maxBuckets ?? null) ||
@@ -56,7 +57,8 @@ async function fetchQuota(): Promise<void> {
 	}
 }
 
-async function saveQuota(): Promise<void> {
+async function saveQuota({ valid }: { valid: boolean }): Promise<void> {
+	if (!valid) return;
 	saving.value = true;
 	error.value = '';
 	success.value = '';
@@ -67,12 +69,8 @@ async function saveQuota(): Promise<void> {
 			maxFilesPerBucket: quota.value.maxFilesPerBucket !== '' ? Number(quota.value.maxFilesPerBucket) : null,
 			maxDailyUploads: quota.value.maxDailyUploads !== '' ? Number(quota.value.maxDailyUploads) : null,
 		};
-		const res = await fetch(`/api/admin/set-user-quota/${props.userId}`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', ...authHeaders() },
-			body: JSON.stringify(body),
-		});
-		if (!res.ok) throw new Error('保存に失敗しました');
+		const result = await apiPost('/api/admin/set-user-quota', { userId: props.userId, ...body });
+		if (!result.ok) throw new Error('保存に失敗しました');
 		hasUserQuota.value = true;
 		success.value = 'ユーザークォータを保存しました';
 	} catch (e) {
@@ -88,11 +86,8 @@ async function executeReset(): Promise<void> {
 	error.value = '';
 	success.value = '';
 	try {
-		const res = await fetch(`/api/admin/delete-user-quota/${props.userId}`, {
-			method: 'POST',
-			headers: authHeaders(),
-		});
-		if (!res.ok) throw new Error('リセットに失敗しました');
+		const result = await apiPost('/api/admin/delete-user-quota', { userId: props.userId });
+		if (!result.ok) throw new Error('リセットに失敗しました');
 		hasUserQuota.value = false;
 		success.value = 'クォータをリセットしました（グローバルデフォルト適用中）';
 		await fetchQuota();
@@ -130,7 +125,7 @@ async function executeReset(): Promise<void> {
       <div v-if="loading" class="page-loading">
         <span class="spinner" />読み込み中...
       </div>
-      <form v-else @submit.prevent="saveQuota" style="display:flex; flex-direction:column; gap:12px; max-width:400px">
+      <Form v-else @submit="saveQuota" style="display:flex; flex-direction:column; gap:12px; max-width:400px">
         <p class="text-muted" style="font-size:0.875rem; margin:0">空欄は無制限（またはグローバルデフォルト準拠）。</p>
         <div class="form-group">
           <label class="form-label">バケット数上限</label>
@@ -149,10 +144,9 @@ async function executeReset(): Promise<void> {
           <input v-model="quota.maxDailyUploads" class="form-input" type="number" min="0" placeholder="無制限">
         </div>
         <div class="flex gap-2">
-          <Button.Root type="submit" class="btn btn-primary" :loading="saving">
-            <Button.Loading>保存中...</Button.Loading>
-            <Button.Content>保存する</Button.Content>
-          </Button.Root>
+          <button type="submit" class="btn btn-primary" :disabled="saving">
+            {{ saving ? '保存中...' : '保存する' }}
+          </button>
           <Button.Root
             v-if="hasUserQuota"
             type="button"
@@ -164,7 +158,7 @@ async function executeReset(): Promise<void> {
             <Button.Content>リセット（グローバルに戻す）</Button.Content>
           </Button.Root>
         </div>
-      </form>
+      </Form>
     </template>
 
     <ConfirmDialog

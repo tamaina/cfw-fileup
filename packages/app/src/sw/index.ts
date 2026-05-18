@@ -1,5 +1,4 @@
 import { isBgzf, createBgzfDecompressor } from 'bgzf';
-import { fileTypeFromStream } from 'file-type';
 
 const sw = self as unknown as ServiceWorkerGlobalScope;
 
@@ -68,43 +67,36 @@ async function handleFullArchive(request: Request): Promise<Response> {
 	const url = new URL(request.url);
 	const decompress = url.searchParams.has('decompress');
 
-	let originUrl = url;
+	let fetchTarget: Request;
 	if (decompress) {
-		originUrl = new URL(request.url);
+		const originUrl = new URL(request.url);
 		originUrl.searchParams.delete('decompress');
+		fetchTarget = new Request(originUrl, { headers: request.headers });
+	} else {
+		fetchTarget = request;
 	}
 
-	const response = await fetch(originUrl);
+	const response = await fetch(fetchTarget);
 	if (!response.body) return response;
 
 	const peek = await peekStream(response.body);
-	console.log(request.url, peek);
 	if (!peek) return response;
 	const { rebuilt, bgzf, gzip } = peek;
 
 	if (decompress && gzip) {
-		console.log('sw: decompress', originUrl);
 		const decompressed = bgzf
 			? rebuilt.pipeThrough(createBgzfDecompressor())
 			: rebuilt.pipeThrough(new DecompressionStream('gzip'));
 
-		const [forTypeDetect, forBody] = decompressed.tee();
-		const detected = await fileTypeFromStream(forTypeDetect);
-		const mimeType = detected?.mime;
-
 		const newHeaders = new Headers(response.headers);
 		newHeaders.delete('Content-Length');
 		newHeaders.delete('Content-Encoding');
-		if (mimeType) {
-			newHeaders.set('Content-Type', mimeType);
-		} else {
-			newHeaders.delete('Content-Type');
-		}
+		newHeaders.delete('Content-Type');
 
 		const rawFilename = url.pathname.split('/').pop() ?? '';
 		const originalFilename = rawFilename.endsWith('.gz') ? rawFilename.slice(0, -3) : rawFilename;
 		newHeaders.set('Content-Disposition', `attachment; filename="${originalFilename}"`);
-		return new Response(forBody, { status: response.status, headers: newHeaders });
+		return new Response(decompressed, { status: response.status, headers: newHeaders });
 	}
 
 	// !decompress && bgzf: re-compress BGZF to standard single-stream gzip (issue #16)

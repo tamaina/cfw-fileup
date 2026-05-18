@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue';
 import { Button } from '@vuetify/v0';
 import NirA from '@/components/nira.vue';
 import { authStore, authHeaders } from '@/store/auth';
+import { apiPost } from '@/utils/api';
 import ConfirmDialog from '@/components/confirm-dialog.vue';
 
 interface UploadEntry {
@@ -46,14 +47,9 @@ async function load(): Promise<void> {
 	loading.value = true;
 	error.value = '';
 	try {
-		const res = await fetch('/api/files/uploadings', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', ...authHeaders() },
-			body: JSON.stringify({}),
-		});
-		if (!res.ok) { error.value = `取得失敗: ${res.status}`; return; }
-		const data = await res.json() as { files: UploadEntry[] };
-		entries.value = data.files;
+		const result = await apiPost('/api/files/uploadings');
+		if (!result.ok) { error.value = result.data.error; return; }
+		entries.value = result.data.files;
 	} catch (e) {
 		error.value = String(e);
 	} finally {
