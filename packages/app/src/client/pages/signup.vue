@@ -49,17 +49,12 @@ async function submit(): Promise<void> {
 	error.value = '';
 	loading.value = true;
 	try {
-		const body: Record<string, string> = {
+		const result = await apiPost('/api/signup', {
 			username: form.username.trim(),
 			password: form.password,
-		};
-		if (form.passphrase) {
-			body.passphrase = form.passphrase;
-		}
-		if (turnstileEnabled.value && turnstileToken.value) {
-			body.turnstileToken = turnstileToken.value;
-		}
-		const result = await apiPost('/api/signup', body);
+			passphrase: form.passphrase || undefined,
+			turnstileToken: turnstileEnabled.value && turnstileToken.value ? turnstileToken.value : undefined,
+		});
 		if (!result.ok) {
 			error.value = result.data.error;
 			return;

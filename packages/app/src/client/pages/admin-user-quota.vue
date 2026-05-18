@@ -31,12 +31,12 @@ async function fetchQuota(): Promise<void> {
 	error.value = '';
 	try {
 		const [userResult, globalResult] = await Promise.all([
-			apiPost('/api/admin/get-user-quota/:userId', {}, `/api/admin/get-user-quota/${props.userId}`),
+			apiPost('/api/admin/get-user-quota', { userId: props.userId }),
 			apiPost('/api/admin/get-global-quota'),
 		]);
 		if (!userResult.ok) throw new Error('クォータの取得に失敗しました');
 		const userData = userResult.data;
-		const globalData = globalResult.ok ? globalResult.data : {};
+		const globalData = globalResult.ok ? globalResult.data : { maxBuckets: null, maxBucketSizeBytes: null, maxFilesPerBucket: null, maxDailyUploads: null };
 
 		hasUserQuota.value =
 			userData.maxBuckets !== (globalData.maxBuckets ?? null) ||
@@ -68,7 +68,7 @@ async function saveQuota(): Promise<void> {
 			maxFilesPerBucket: quota.value.maxFilesPerBucket !== '' ? Number(quota.value.maxFilesPerBucket) : null,
 			maxDailyUploads: quota.value.maxDailyUploads !== '' ? Number(quota.value.maxDailyUploads) : null,
 		};
-		const result = await apiPost('/api/admin/set-user-quota/:userId', body, `/api/admin/set-user-quota/${props.userId}`);
+		const result = await apiPost('/api/admin/set-user-quota', { userId: props.userId, ...body });
 		if (!result.ok) throw new Error('保存に失敗しました');
 		hasUserQuota.value = true;
 		success.value = 'ユーザークォータを保存しました';
@@ -85,7 +85,7 @@ async function executeReset(): Promise<void> {
 	error.value = '';
 	success.value = '';
 	try {
-		const result = await apiPost('/api/admin/delete-user-quota/:userId', {}, `/api/admin/delete-user-quota/${props.userId}`);
+		const result = await apiPost('/api/admin/delete-user-quota', { userId: props.userId });
 		if (!result.ok) throw new Error('リセットに失敗しました');
 		hasUserQuota.value = false;
 		success.value = 'クォータをリセットしました（グローバルデフォルト適用中）';

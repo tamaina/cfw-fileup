@@ -33,14 +33,11 @@ async function submit(): Promise<void> {
 	error.value = '';
 	loading.value = true;
 	try {
-		const body: Record<string, string> = {
+		const result = await apiPost('/api/signin', {
 			username: form.username,
 			password: form.password,
-		};
-		if (turnstileEnabled.value && turnstileToken.value) {
-			body.turnstileToken = turnstileToken.value;
-		}
-		const result = await apiPost('/api/signin', body);
+			turnstileToken: turnstileEnabled.value && turnstileToken.value ? turnstileToken.value : undefined,
+		});
 		if (!result.ok) {
 			error.value = result.data.error;
 			return;

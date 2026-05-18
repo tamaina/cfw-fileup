@@ -4,7 +4,7 @@ import { Button } from '@vuetify/v0';
 import { authStore } from '../store/auth';
 import { apiPost } from '../utils/api';
 import NirA from '@/components/nira.vue';
-import { KNOWN_SETTINGS } from '../../shared/app-settings';
+import { KNOWN_SETTINGS, type SettingDef } from '../../shared/app-settings';
 
 const values = ref<Record<string, string>>({});
 const loading = ref(true);
@@ -76,7 +76,7 @@ function onCheckboxChange(key: string, checked: boolean): void {
 
       <div v-else class="settings-grid">
         <div
-          v-for="setting in KNOWN_SETTINGS"
+          v-for="setting in (KNOWN_SETTINGS as readonly SettingDef[])"
           :key="setting.key"
           class="setting-row"
           :class="{ 'setting-row--multiline': setting.type === 'textarea' }"
