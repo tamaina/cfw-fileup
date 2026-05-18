@@ -7,21 +7,14 @@ import { getDb } from '../utils/db';
 import { getQuotaForUser, getGlobalQuota } from '../utils/rate-limit';
 import { authMiddleware, adminMiddleware } from '../middleware/auth';
 import { KNOWN_SETTINGS, KNOWN_SETTING_KEYS } from '../../shared/app-settings';
-import {
-	SuspendUserBody,
-	DeleteFileAdminBody,
-	DeleteBucketAdminBody,
-	QuotaBody,
-	UpdateSettingBody,
-	ToggleRegistrationBody,
-} from '../../shared/api/admin';
+import { apiDef } from '../../shared/api';
 
 const app = new Hono<{ Bindings: Env }>();
 
 app.use(authMiddleware);
 app.use(adminMiddleware);
 
-app.post('/suspend-user', validator('json', SuspendUserBody), async (c) => {
+app.post('/suspend-user', validator('json', apiDef['/api/admin/suspend-user'].req), async (c) => {
 	const db = getDb(c.env);
 	const body = c.req.valid('json');
 
@@ -42,7 +35,7 @@ app.post('/suspend-user', validator('json', SuspendUserBody), async (c) => {
 	return c.json({ ok: true });
 });
 
-app.post('/delete-file', validator('json', DeleteFileAdminBody), async (c) => {
+app.post('/delete-file', validator('json', apiDef['/api/admin/delete-file'].req), async (c) => {
 	const db = getDb(c.env);
 	const body = c.req.valid('json');
 
@@ -74,7 +67,7 @@ app.post('/delete-file', validator('json', DeleteFileAdminBody), async (c) => {
 	return c.json({ ok: true });
 });
 
-app.post('/delete-bucket', validator('json', DeleteBucketAdminBody), async (c) => {
+app.post('/delete-bucket', validator('json', apiDef['/api/admin/delete-bucket'].req), async (c) => {
 	const db = getDb(c.env);
 	const body = c.req.valid('json');
 
@@ -103,7 +96,7 @@ app.post('/delete-bucket', validator('json', DeleteBucketAdminBody), async (c) =
 	return c.json({ ok: true });
 });
 
-app.post('/set-user-quota/:userId', validator('json', QuotaBody), async (c) => {
+app.post('/set-user-quota/:userId', validator('json', apiDef['/api/admin/set-user-quota/:userId'].req), async (c) => {
 	const db = getDb(c.env);
 	const body = c.req.valid('json');
 
@@ -140,7 +133,7 @@ app.post('/set-user-quota/:userId', validator('json', QuotaBody), async (c) => {
 	return c.json({ ok: true });
 });
 
-app.post('/set-global-quota', validator('json', QuotaBody), async (c) => {
+app.post('/set-global-quota', validator('json', apiDef['/api/admin/set-global-quota'].req), async (c) => {
 	const db = getDb(c.env);
 	const body = c.req.valid('json');
 
@@ -204,7 +197,7 @@ app.post('/list-users', async (c) => {
 	return c.json(allUsers);
 });
 
-app.post('/toggle-registration', validator('json', ToggleRegistrationBody), async (c) => {
+app.post('/toggle-registration', validator('json', apiDef['/api/admin/toggle-registration'].req), async (c) => {
 	const db = getDb(c.env);
 	const body = c.req.valid('json');
 
@@ -224,7 +217,7 @@ app.post('/toggle-registration', validator('json', ToggleRegistrationBody), asyn
 	return c.json({ ok: true });
 });
 
-app.post('/update-setting', validator('json', UpdateSettingBody), async (c) => {
+app.post('/update-setting', validator('json', apiDef['/api/admin/update-setting'].req), async (c) => {
 	const db = getDb(c.env);
 	const body = c.req.valid('json');
 

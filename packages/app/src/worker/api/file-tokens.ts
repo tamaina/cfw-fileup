@@ -7,13 +7,13 @@ import { getDb } from '../utils/db';
 import { generateToken } from '../utils/crypto';
 import { genEaidx, parseEaidx } from '../../shared/eaid-x';
 import { authMiddleware } from '../middleware/auth';
-import { CreateFileTokenBody, ListFileTokensBody, DeleteFileTokenBody } from '../../shared/api/file-tokens';
+import { apiDef } from '../../shared/api';
 
 const app = new Hono<{ Bindings: Env }>();
 
 app.use(authMiddleware);
 
-app.post('/create', validator('json', CreateFileTokenBody), async (c) => {
+app.post('/create', validator('json', apiDef['/api/file-tokens/create'].req), async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
 	const body = c.req.valid('json');
@@ -44,7 +44,7 @@ app.post('/create', validator('json', CreateFileTokenBody), async (c) => {
 	return c.json({ id, token, expiresAt });
 });
 
-app.post('/list', validator('json', ListFileTokensBody), async (c) => {
+app.post('/list', validator('json', apiDef['/api/file-tokens/list'].req), async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
 	const body = c.req.valid('json');
@@ -74,7 +74,7 @@ app.post('/list', validator('json', ListFileTokensBody), async (c) => {
 	});
 });
 
-app.post('/delete', validator('json', DeleteFileTokenBody), async (c) => {
+app.post('/delete', validator('json', apiDef['/api/file-tokens/delete'].req), async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
 	const body = c.req.valid('json');

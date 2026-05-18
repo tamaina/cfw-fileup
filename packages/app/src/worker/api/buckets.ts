@@ -8,13 +8,13 @@ import { getQuotaForUser } from '../utils/rate-limit';
 import { authMiddleware } from '../middleware/auth';
 import { genEaidx } from '../../shared/eaid-x';
 import { validateBucketName } from '../utils/name-validation';
-import { CreateBucketBody, DeleteBucketBody } from '../../shared/api/buckets';
+import { apiDef } from '../../shared/api';
 
 const app = new Hono<{ Bindings: Env }>();
 
 app.use(authMiddleware);
 
-app.post('/create', validator('json', CreateBucketBody), async (c) => {
+app.post('/create', validator('json', apiDef['/api/buckets/create'].req), async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
 	const body = c.req.valid('json');
@@ -59,7 +59,7 @@ app.post('/create', validator('json', CreateBucketBody), async (c) => {
 	return c.json({ bucketId });
 });
 
-app.post('/delete', validator('json', DeleteBucketBody), async (c) => {
+app.post('/delete', validator('json', apiDef['/api/buckets/delete'].req), async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
 	const body = c.req.valid('json');

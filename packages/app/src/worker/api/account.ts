@@ -6,7 +6,7 @@ import { users } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { authMiddleware } from '../middleware/auth';
 import { hashPassword, verifyPassword } from '../utils/crypto';
-import { UpdateAccountBody } from '../../shared/api/account';
+import { apiDef } from '../../shared/api';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -21,7 +21,7 @@ app.post('/me', (c) => {
 	});
 });
 
-app.post('/update', validator('json', UpdateAccountBody), async (c) => {
+app.post('/update', validator('json', apiDef['/api/account/update'].req), async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
 	const body = c.req.valid('json');

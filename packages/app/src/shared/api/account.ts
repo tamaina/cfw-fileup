@@ -5,9 +5,21 @@
 
 import * as v from 'valibot';
 
-export const UpdateAccountBody = v.object({
-	username: v.optional(v.pipe(v.string(), v.minLength(1), v.maxLength(32))),
-	newPassword: v.optional(v.pipe(v.string(), v.minLength(8))),
-	currentPassword: v.string(),
-});
-export type UpdateAccountBody = v.InferOutput<typeof UpdateAccountBody>;
+export const accountApiDef = {
+	'/api/account/me': {
+		req: v.object({}),
+		res: v.object({
+			id: v.string(),
+			username: v.string(),
+			isAdmin: v.boolean(),
+		}),
+	},
+	'/api/account/update': {
+		req: v.object({
+			username: v.optional(v.pipe(v.string(), v.minLength(1), v.maxLength(32))),
+			newPassword: v.optional(v.pipe(v.string(), v.minLength(8))),
+			currentPassword: v.string(),
+		}),
+		res: v.object({ ok: v.literal(true) }),
+	},
+};

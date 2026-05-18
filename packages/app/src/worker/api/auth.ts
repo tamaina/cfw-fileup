@@ -8,11 +8,11 @@ import { hashPassword, verifyPassword, generateToken } from '../utils/crypto';
 import { genEaidx } from '../../shared/eaid-x';
 import { verifyTurnstile } from '../utils/turnstile';
 import { validateUsername } from '../utils/name-validation';
-import { SignupBody, SigninBody } from '../../shared/api/auth';
+import { apiDef } from '../../shared/api';
 
 const app = new Hono<{ Bindings: Env }>();
 
-app.post('/signup', validator('json', SignupBody), async (c) => {
+app.post('/signup', validator('json', apiDef['/api/signup'].req), async (c) => {
 	const db = getDb(c.env);
 	const body = c.req.valid('json');
 	const username = (body.username ?? '').trim();
@@ -122,7 +122,7 @@ app.post('/signup', validator('json', SignupBody), async (c) => {
 	return c.json({ userId, token: tokenValue });
 });
 
-app.post('/signin', validator('json', SigninBody), async (c) => {
+app.post('/signin', validator('json', apiDef['/api/signin'].req), async (c) => {
 	const db = getDb(c.env);
 	const body = c.req.valid('json');
 	const username = (body.username ?? '').trim();

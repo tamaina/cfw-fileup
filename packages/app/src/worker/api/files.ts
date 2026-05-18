@@ -7,21 +7,13 @@ import { getDb } from '../utils/db';
 import { getQuotaForUser } from '../utils/rate-limit';
 import { authMiddleware } from '../middleware/auth';
 import { genEaidx } from '../../shared/eaid-x';
-import {
-	CreateOpenBody,
-	TargzIndexBody,
-	TarIndexBody,
-	CreateCloseBody,
-	CreateStatusBody,
-	DeleteFileBody,
-	UpdateFileBody,
-} from '../../shared/api/files';
+import { apiDef } from '../../shared/api';
 
 const app = new Hono<{ Bindings: Env }>();
 
 app.use(authMiddleware);
 
-app.post('/create/open', validator('json', CreateOpenBody), async (c) => {
+app.post('/create/open', validator('json', apiDef['/api/files/create/open'].req), async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
 	const body = c.req.valid('json');
@@ -100,7 +92,7 @@ app.post('/create/open', validator('json', CreateOpenBody), async (c) => {
 	return c.json({ fileId, uploadExpiry, partSize });
 });
 
-app.post('/create/targz-index', validator('json', TargzIndexBody), async (c) => {
+app.post('/create/targz-index', validator('json', apiDef['/api/files/create/targz-index'].req), async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
 	const body = c.req.valid('json');
@@ -153,7 +145,7 @@ app.post('/create/targz-index', validator('json', TargzIndexBody), async (c) => 
 	return c.json({ ok: true });
 });
 
-app.post('/create/tar-index', validator('json', TarIndexBody), async (c) => {
+app.post('/create/tar-index', validator('json', apiDef['/api/files/create/tar-index'].req), async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
 	const body = c.req.valid('json');
@@ -189,7 +181,7 @@ app.post('/create/tar-index', validator('json', TarIndexBody), async (c) => {
 	return c.json({ ok: true });
 });
 
-app.post('/create/close', validator('json', CreateCloseBody), async (c) => {
+app.post('/create/close', validator('json', apiDef['/api/files/create/close'].req), async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
 	const body = c.req.valid('json');
@@ -280,7 +272,7 @@ app.post('/create/close', validator('json', CreateCloseBody), async (c) => {
 	return c.json({ ok: true });
 });
 
-app.post('/create/status', validator('json', CreateStatusBody), async (c) => {
+app.post('/create/status', validator('json', apiDef['/api/files/create/status'].req), async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
 	const body = c.req.valid('json');
@@ -309,7 +301,7 @@ app.post('/create/status', validator('json', CreateStatusBody), async (c) => {
 	return c.json({ partCount, offset: partCount * partSize, partSize });
 });
 
-app.post('/update', validator('json', UpdateFileBody), async (c) => {
+app.post('/update', validator('json', apiDef['/api/files/update'].req), async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
 	const body = c.req.valid('json');
@@ -366,7 +358,7 @@ app.post('/uploadings', async (c) => {
 	return c.json({ files: userFiles });
 });
 
-app.post('/delete', validator('json', DeleteFileBody), async (c) => {
+app.post('/delete', validator('json', apiDef['/api/files/delete'].req), async (c) => {
 	const db = getDb(c.env);
 	const user = c.get('user');
 	const body = c.req.valid('json');
