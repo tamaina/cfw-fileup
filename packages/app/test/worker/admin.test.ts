@@ -254,15 +254,16 @@ describe('Quota management', () => {
 	test('admin can delete user quota', async () => {
 		const { adminToken, userId } = await setupAdminAndUser();
 
-		await app.request('/api/admin/set-user-quota', {
+		await app.request(`/api/admin/set-user-quota/${userId}`, {
 			method: 'POST',
 			headers: authHeaders(adminToken),
-			body: JSON.stringify({ userId, maxBuckets: 2 }),
+			body: JSON.stringify({ maxBuckets: 2 }),
 		}, env);
 
 		const res = await app.request(`/api/admin/delete-user-quota/${userId}`, {
 			method: 'POST',
 			headers: authHeaders(adminToken),
+			body: JSON.stringify({}),
 		}, env);
 		expect(res.status).toBe(200);
 	});

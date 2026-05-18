@@ -2,10 +2,11 @@ import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { describeResponse, describeRoute, validator } from 'hono-openapi';
 import { eq } from 'drizzle-orm';
-import { users } from '../scheme/index';
+import { users, usedUsernames } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { authMiddleware } from '../middleware/auth';
 import { hashPassword, verifyPassword } from '../utils/crypto';
+import { validateUsername } from '../utils/name-validation';
 import { apiDef, getResponseDefWithAuth } from '../../shared/api';
 import type { JsonCtx } from '../../shared/api';
 import { omitResAndReq } from '../utils/omit';
@@ -53,21 +54,28 @@ app.post(
 		}
 
 		if (body.username) {
-			if (body.username.length < 1 || body.username.length > 32) {
+			const newUsername = body.username.trim();
+
+			if (newUsername.length < 1 || newUsername.length > 32) {
 				throw new HTTPException(400, { message: 'username must be 1-32 characters' });
 			}
 
-			const existingUser = await db
-				.select()
-				.from(users)
-				.where(eq(users.username, body.username))
-				.get();
+			if (newUsername.toLowerCase() !== userRecord.username.toLowerCase()) {
+				// 文字種・禁止ワード・重複（大文字小文字を区別しない）チェック
+				const usernameError = await validateUsername(db, newUsername);
+				if (usernameError) {
+					const status = usernameError === 'Username already exists' ? 409 : 400;
+					throw new HTTPException(status, { message: usernameError });
+				}
 
-			if (existingUser && existingUser.id !== user.id) {
-				throw new HTTPException(409, { message: 'Username already exists' });
+				await db.update(users).set({ username: newUsername }).where(eq(users.id, user.id));
+
+				// lowercaseで used_usernames に登録（削除後も同名再利用不可）
+				await db
+					.insert(usedUsernames)
+					.values({ username: newUsername.toLowerCase() })
+					.onConflictDoNothing();
 			}
-
-			await db.update(users).set({ username: body.username }).where(eq(users.id, user.id));
 		}
 
 		if (body.newPassword) {
