@@ -461,9 +461,18 @@ watch(() => props.entryPath, (newEntryPath) => {
       </form>
       <span v-if="mkdirError" class="text-danger" style="font-size:0.8rem">{{ mkdirError }}</span>
 
-      <!-- 一括削除ボタン -->
+      <!-- 一括操作（選択中のとき） -->
       <template v-if="selectedPaths.size > 0">
         <span class="badge badge-info">{{ selectedPaths.size }} 件選択中</span>
+        <!-- アーカイブダウンロード -->
+        <select v-model="archiveFormat" class="form-input" style="width:auto;padding:4px 8px">
+          <option value="tar">tar</option>
+          <option value="zip">zip</option>
+        </select>
+        <Button.Root class="btn btn-secondary" :disabled="archiveProgress !== null" @click="startArchiveDownload">
+          <Button.Content>{{ archiveProgress ? `処理中 ${archiveProgress.current}/${archiveProgress.total}` : 'アーカイブとしてダウンロード' }}</Button.Content>
+        </Button.Root>
+        <span v-if="archiveError" class="text-danger" style="font-size:0.8rem">{{ archiveError }}</span>
         <Button.Root class="btn btn-ghost-danger" @click="bulkDeleteDialog = true">
           <Button.Content>まとめて削除</Button.Content>
         </Button.Root>
