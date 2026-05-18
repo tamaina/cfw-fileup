@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { Button } from '@vuetify/v0';
+import { Button, Popover } from '@vuetify/v0';
 import { authStore, authHeaders } from '../store/auth';
 import NirA from '@/components/nira.vue';
 import ConfirmDialog from '@/components/confirm-dialog.vue';
@@ -106,13 +106,18 @@ async function executeSuspend(): Promise<void> {
               <td class="col-actions">
                 <div class="flex gap-2 items-center">
                   <NirA :to="`/admin/users/${u.id}`" class="btn btn-secondary">クォータ設定</NirA>
-                  <Button.Root
-                    v-if="!u.isSuspended && u.id !== authStore.user?.id"
-                    class="btn btn-ghost-danger"
-                    @click="requestSuspend(u)"
-                  >
-                    <Button.Content>停止</Button.Content>
-                  </Button.Root>
+                  <Popover.Root v-if="!u.isSuspended && u.id !== authStore.user?.id">
+                    <Popover.Activator>
+                      <Button.Root class="btn btn-ghost btn-icon" aria-label="操作メニュー">
+                        <Button.Content>…</Button.Content>
+                      </Button.Root>
+                    </Popover.Activator>
+                    <Popover.Content class="action-menu">
+                      <Button.Root class="btn btn-ghost-danger w-full" style="justify-content:flex-start" @click="requestSuspend(u)">
+                        <Button.Content>停止</Button.Content>
+                      </Button.Root>
+                    </Popover.Content>
+                  </Popover.Root>
                 </div>
               </td>
             </tr>

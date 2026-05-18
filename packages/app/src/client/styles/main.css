@@ -100,7 +100,8 @@ code { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.9em; 
   font-size: 0.875rem;
 }
 .app-nav-username { font-weight: 500; color: var(--color-text); }
-.app-nav-user-menu {
+.app-nav-user-menu,
+.action-menu {
   position: absolute;
   right: 0;
   top: 100%;

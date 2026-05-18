@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { Button } from '@vuetify/v0';
+import { Button, Popover } from '@vuetify/v0';
 import ConfirmDialog from '@/components/confirm-dialog.vue';
 import { authHeaders } from '@/store/auth';
 
@@ -326,9 +326,18 @@ onMounted(loadTokens);
               </span>
             </td>
             <td>
-              <Button.Root class="btn btn-danger" @click="openDeleteDialog(t.id)">
-                <Button.Content>削除</Button.Content>
-              </Button.Root>
+              <Popover.Root>
+                <Popover.Activator>
+                  <Button.Root class="btn btn-ghost btn-icon" aria-label="操作メニュー">
+                    <Button.Content>…</Button.Content>
+                  </Button.Root>
+                </Popover.Activator>
+                <Popover.Content class="action-menu">
+                  <Button.Root class="btn btn-ghost-danger w-full" style="justify-content:flex-start" @click="openDeleteDialog(t.id)">
+                    <Button.Content>削除</Button.Content>
+                  </Button.Root>
+                </Popover.Content>
+              </Popover.Root>
             </td>
           </tr>
         </tbody>
