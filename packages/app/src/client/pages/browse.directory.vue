@@ -359,7 +359,7 @@ watch(() => props.entryPath, (newEntryPath) => {
                 </td>
               </tr>
               <tr v-for="entry in entries" :key="entry.key">
-                <td>
+                <td style="width: 50%; min-width: 10em; max-width: 0px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                   <button v-if="isArchive && entry.isDir" style="background:none; border:none; cursor:pointer; padding:0; font-weight:500; font-size:inherit; color:inherit" @click="navigateArchiveDir(entry.fullPath)">
                     <span style="margin-right:4px">📁</span>{{ entry.name }}
                   </button>
@@ -368,18 +368,18 @@ watch(() => props.entryPath, (newEntryPath) => {
                     <span v-if="entry.isDir" style="margin-right:4px">📁</span>{{ entry.name }}
                   </NirA>
                 </td>
-                <td class="col-right col-muted">
+                <td class="col-right col-muted" style="white-space: nowrap;">
                   {{ entry.size != null ? formatSize(entry.size) : '' }}
                 </td>
-                <td>
+                <td style="white-space: nowrap;">
                   <span v-if="entry.label" class="badge badge-muted">{{ entry.label }}</span>
                 </td>
-                <td v-if="!isArchive && authStore.user">
+                <td v-if="!isArchive && authStore.user" style="white-space: nowrap;">
                   <span v-if="!entry.isDir && entry.isPublic != null" :class="entry.isPublic ? 'badge badge-success' : 'badge badge-muted'">
                     {{ entry.isPublic ? '公開' : '非公開' }}
                   </span>
                 </td>
-                <td v-if="!isArchive && authStore.user && bucketId" class="col-actions">
+                <td v-if="!isArchive && authStore.user && bucketId" class="col-actions" style="white-space: nowrap;">
                   <Button.Root class="btn btn-ghost-danger" @click="requestDeleteEntry(entry)">
                     <Button.Content>削除</Button.Content>
                   </Button.Root>
