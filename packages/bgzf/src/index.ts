@@ -184,7 +184,8 @@ function writeOctal(buf: Uint8Array, offset: number, value: number, len: number)
 	writeString(buf, offset, value.toString(8).padStart(len - 1, '0'), len);
 }
 
-function createTarHeader(name: string, size: number, mtime: number, type: '0' | '5' = '0'): Uint8Array {
+/** @public Create a 512-byte ustar tar header block for a single file entry. */
+export function createTarHeader(name: string, size: number, mtime: number, type: '0' | '5' = '0'): Uint8Array {
 	const header = new Uint8Array(512);
 	writeString(header, 0, name, 100);
 	writeString(header, 100, type === '5' ? '0000755\0' : '0000644\0', 8);
