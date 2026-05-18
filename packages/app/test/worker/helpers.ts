@@ -101,6 +101,13 @@ export async function setupDb(): Promise<void> {
 		env.DB.prepare(`CREATE TABLE IF NOT EXISTS used_bucket_names (
 			bucket_name text PRIMARY KEY NOT NULL
 		)`),
+		env.DB.prepare(`CREATE TABLE IF NOT EXISTS file_access_tokens (
+			id text PRIMARY KEY NOT NULL,
+			file_id text NOT NULL,
+			token text NOT NULL UNIQUE,
+			expires_at integer,
+			FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE
+		)`),
 	]);
 }
 
@@ -110,6 +117,7 @@ export async function clearDb(): Promise<void> {
 		env.DB.prepare('DELETE FROM upload_parts'),
 		env.DB.prepare('DELETE FROM targz_files'),
 		env.DB.prepare('DELETE FROM tar_files'),
+		env.DB.prepare('DELETE FROM file_access_tokens'),
 		env.DB.prepare('DELETE FROM files'),
 		env.DB.prepare('DELETE FROM tokens'),
 		env.DB.prepare('DELETE FROM user_quotas'),
