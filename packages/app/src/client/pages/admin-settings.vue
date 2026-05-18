@@ -79,27 +79,57 @@ function onCheckboxChange(key: string, checked: boolean): void {
           v-for="setting in KNOWN_SETTINGS"
           :key="setting.key"
           class="setting-row"
+          :class="{ 'setting-row--multiline': setting.type === 'textarea' }"
         >
-          <div class="setting-row-info">
-            <label :for="`setting-${setting.key}`" class="setting-row-label" style="cursor:pointer">
-              {{ setting.label }}
-            </label>
-            <div class="setting-row-key">{{ setting.key }}</div>
-          </div>
-
-          <div class="setting-row-control">
-            <template v-if="setting.type === 'boolean'">
-              <input
-                :id="`setting-${setting.key}`"
-                type="checkbox"
-                :checked="values[setting.key] === 'true'"
+          <template v-if="setting.type === 'textarea'">
+            <div style="display:flex; justify-content:space-between; align-items:center; width:100%">
+              <div class="setting-row-info">
+                <label :for="`setting-${setting.key}`" class="setting-row-label" style="cursor:pointer">
+                  {{ setting.label }}
+                </label>
+                <div class="setting-row-key">{{ setting.key }}</div>
+              </div>
+              <Button.Root
+                type="button"
+                class="btn btn-primary"
                 :disabled="saving[setting.key]"
-                style="width:18px; height:18px; cursor:pointer; accent-color:var(--color-primary)"
-                @change="onCheckboxChange(setting.key, ($event.target as HTMLInputElement).checked)"
+                :loading="saving[setting.key]"
+                @click="saveSetting(setting.key)"
               >
-            </template>
+                <Button.Loading>保存中</Button.Loading>
+                <Button.Content>保存</Button.Content>
+              </Button.Root>
+            </div>
+            <textarea
+              :id="`setting-${setting.key}`"
+              v-model="values[setting.key]"
+              class="form-input"
+              rows="4"
+              style="width:100%; resize:vertical; font-family:monospace;"
+            />
+          </template>
 
-            <template v-else>
+          <template v-else>
+            <div class="setting-row-info">
+              <label :for="`setting-${setting.key}`" class="setting-row-label" style="cursor:pointer">
+                {{ setting.label }}
+              </label>
+              <div class="setting-row-key">{{ setting.key }}</div>
+            </div>
+
+            <div class="setting-row-control">
+              <template v-if="setting.type === 'boolean'">
+                <input
+                  :id="`setting-${setting.key}`"
+                  type="checkbox"
+                  :checked="values[setting.key] === 'true'"
+                  :disabled="saving[setting.key]"
+                  style="width:18px; height:18px; cursor:pointer; accent-color:var(--color-primary)"
+                  @change="onCheckboxChange(setting.key, ($event.target as HTMLInputElement).checked)"
+                >
+              </template>
+
+              <template v-else>
               <div class="flex gap-2">
                 <input
                   :id="`setting-${setting.key}`"
@@ -119,8 +149,9 @@ function onCheckboxChange(key: string, checked: boolean): void {
                   <Button.Content>保存</Button.Content>
                 </Button.Root>
               </div>
-            </template>
-          </div>
+              </template>
+            </div>
+          </template>
         </div>
       </div>
     </template>

@@ -1,6 +1,6 @@
 export interface SettingDef {
 	readonly key: string;
-	readonly type: 'boolean' | 'text';
+	readonly type: 'boolean' | 'text' | 'textarea';
 	readonly defaultValue: string;
 	readonly label: string;
 	readonly description?: string;
@@ -30,14 +30,14 @@ export const KNOWN_SETTINGS = [
 	},
 	{
 		key: 'forbidden_usernames',
-		type: 'text',
+		type: 'textarea',
 		defaultValue: DEFAULT_FORBIDDEN_USERNAMES,
 		label: '禁止ユーザー名',
 		description: 'カンマ区切りで禁止するユーザー名を指定します（大文字小文字を区別しない）',
 	},
 	{
 		key: 'forbidden_bucket_names',
-		type: 'text',
+		type: 'textarea',
 		defaultValue: DEFAULT_FORBIDDEN_BUCKET_NAMES,
 		label: '禁止バケット名',
 		description: 'カンマ区切りで禁止するバケット名を指定します（大文字小文字を区別しない）',
