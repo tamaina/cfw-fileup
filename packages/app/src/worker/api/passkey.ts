@@ -16,11 +16,7 @@ import { generateToken } from '../utils/crypto';
 import { isValidNameFormat } from '../../shared/name-validation';
 import { apiDef, getResponseDefWithAuth, type JsonCtx } from '../../shared/api';
 import { omitResAndReq } from '../utils/omit';
-import type {
-	AuthenticatorTransportFuture,
-	AuthenticationResponseJSON,
-	RegistrationResponseJSON,
-} from '@simplewebauthn/server';
+import type { AuthenticatorTransportFuture } from '@simplewebauthn/server';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -138,7 +134,7 @@ app.post(
 		const user = c.get('user');
 		const { rpID, origin } = getRpInfo(c.req.url);
 		const body = c.req.valid('json');
-		const credential = (body.credential as unknown) as RegistrationResponseJSON;
+		const credential = body.credential;
 
 		const now = Date.now();
 		const challengeRecord = await db
@@ -236,7 +232,7 @@ app.post(
 		const db = getDb(c.env);
 		const { rpID, origin } = getRpInfo(c.req.url);
 		const body = c.req.valid('json');
-		const credential = (body.credential as unknown) as AuthenticationResponseJSON;
+		const credential = body.credential;
 
 		const now = Date.now();
 		const challengeRecord = await db
@@ -512,7 +508,7 @@ app.post(
 		const db = getDb(c.env);
 		const { rpID, origin } = getRpInfo(c.req.url);
 		const body = c.req.valid('json');
-		const credential = (body.credential as unknown) as RegistrationResponseJSON;
+		const credential = body.credential;
 
 		const now = Date.now();
 		const challengeRecord = await db
