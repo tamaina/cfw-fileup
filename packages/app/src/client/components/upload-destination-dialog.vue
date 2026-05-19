@@ -141,11 +141,11 @@ watch(() => props.open, async (val) => {
           <p :class="$style.stepLabel">バケットを選択してください</p>
           <div v-if="loadingBuckets" :class="$style.loadingText">読み込み中...</div>
           <div v-else-if="bucketError" class="alert alert-error">{{ bucketError }}</div>
-          <div v-else :class="$style.list">
+          <div v-else :class="$style.bucketList">
             <label
               v-for="b in buckets"
               :key="b.id"
-              :class="[$style.listItem, selectedBucketId === b.id && $style.listItemSelected]"
+              :class="[$style.bucketItem, selectedBucketId === b.id && $style.bucketItemSelected]"
             >
               <input
                 type="radio"
@@ -173,15 +173,12 @@ watch(() => props.open, async (val) => {
         <!-- Step 2: ディレクトリ選択 -->
         <template v-else>
           <p :class="$style.stepLabel">ディレクトリを選択してください</p>
-          <p :class="$style.currentPath">
-            <span :class="$style.bucketPart">{{ selectedBucketName }}/</span><span>{{ currentPath }}</span>
-          </p>
           <div v-if="loadingDir" :class="$style.loadingText">読み込み中...</div>
           <div v-else-if="dirError" class="alert alert-error">{{ dirError }}</div>
-          <div v-else :class="$style.list">
+          <div v-else :class="$style.directoryList">
             <button
               v-if="currentPath !== ''"
-              :class="[$style.listItem, $style.upItem]"
+              :class="[$style.directoryItem, $style.upItem]"
               @click="goUp"
             >
               ← 上へ
@@ -189,7 +186,7 @@ watch(() => props.open, async (val) => {
             <button
               v-for="entry in dirEntries"
               :key="entry.name"
-              :class="$style.listItem"
+              :class="$style.directoryItem"
               @click="enterDir(entry.name)"
             >
               📁 {{ entry.name }}
@@ -229,6 +226,10 @@ watch(() => props.open, async (val) => {
             </div>
             <p v-if="mkdirError" :class="$style.mkdirError">{{ mkdirError }}</p>
           </div>
+
+          <p :class="$style.currentPath">
+            <span :class="$style.bucketPart">{{ selectedBucketName }}/</span><span>{{ currentPath }}</span>
+          </p>
 
           <div :class="$style.actions">
             <button class="btn btn-secondary" @click="step = 'bucket'">← バケット選択へ</button>
@@ -288,7 +289,7 @@ watch(() => props.open, async (val) => {
   font-size: 0.875rem;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius);
   padding: 8px 10px;
   margin: 0;
   word-break: break-all;
@@ -303,7 +304,7 @@ watch(() => props.open, async (val) => {
   color: var(--color-text-muted);
 }
 
-.list {
+.bucketList {
   max-height: 300px;
   overflow-y: auto;
   display: flex;
@@ -311,15 +312,15 @@ watch(() => props.open, async (val) => {
   gap: 6px;
 }
 
-.listItem {
+.bucketItem {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
+  padding: 9px 12px;
   cursor: pointer;
   font-size: 0.875rem;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius);
   background: var(--color-surface);
   text-align: left;
   width: 100%;
@@ -330,9 +331,39 @@ watch(() => props.open, async (val) => {
   }
 }
 
-.listItemSelected {
+.bucketItemSelected {
   background: var(--color-primary-surface, rgba(var(--color-primary-rgb, 0, 100, 200), 0.08));
   border-color: var(--color-primary);
+}
+
+.directoryList {
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+
+.directoryItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  border: none;
+  background: transparent;
+  text-align: left;
+  width: 100%;
+  color: var(--color-text);
+
+  &:not(:last-child) {
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  &:hover {
+    background: var(--color-surface-hover, rgba(0, 0, 0, 0.04));
+  }
 }
 
 .upItem {
@@ -345,9 +376,7 @@ watch(() => props.open, async (val) => {
   font-size: 0.875rem;
   color: var(--color-text-muted);
   text-align: center;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
+  padding: 12px;
 }
 
 .radio {
@@ -368,7 +397,7 @@ watch(() => props.open, async (val) => {
   flex-wrap: wrap;
 
   :global(.form-input) {
-    border-radius: var(--radius-md);
+    border-radius: var(--radius);
   }
 }
 
