@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { Button } from '@vuetify/v0';
-import { authStore, authHeaders } from '../store/auth';
+import { authStore } from '../store/auth';
+import { apiPost } from '../utils/api';
 import NirA from '@/components/nira.vue';
-import { KNOWN_SETTINGS } from '../../shared/app-settings';
+import { KNOWN_SETTINGS, type SettingDef } from '../../shared/app-settings';
 
 const values = ref<Record<string, string>>({});
 const loading = ref(true);
@@ -17,11 +18,10 @@ async function fetchSettings(): Promise<void> {
 	loading.value = true;
 	error.value = '';
 	try {
-		const res = await fetch('/api/admin/get-settings', { headers: authHeaders() });
-		if (!res.ok) throw new Error('設定の取得に失敗しました');
-		const data = await res.json() as { key: string; value: string }[];
+		const result = await apiPost('/api/admin/get-settings');
+		if (!result.ok) throw new Error('設定の取得に失敗しました');
 		const map: Record<string, string> = {};
-		for (const s of data) map[s.key] = s.value;
+		for (const s of result.data) map[s.key] = s.value;
 		for (const s of KNOWN_SETTINGS) {
 			map[s.key] ??= s.defaultValue;
 		}
@@ -38,12 +38,8 @@ async function saveSetting(key: string): Promise<void> {
 	error.value = '';
 	success.value = '';
 	try {
-		const res = await fetch('/api/admin/update-setting', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', ...authHeaders() },
-			body: JSON.stringify({ key, value: values.value[key] }),
-		});
-		if (!res.ok) throw new Error('保存に失敗しました');
+		const result = await apiPost('/api/admin/update-setting', { key, value: values.value[key] });
+		if (!result.ok) throw new Error('保存に失敗しました');
 		success.value = `"${key}" を保存しました`;
 	} catch (e) {
 		error.value = String(e);
@@ -80,37 +76,65 @@ function onCheckboxChange(key: string, checked: boolean): void {
 
       <div v-else class="settings-grid">
         <div
-          v-for="setting in KNOWN_SETTINGS"
+          v-for="setting in (KNOWN_SETTINGS as readonly SettingDef[])"
           :key="setting.key"
           class="setting-row"
+          :class="{ 'setting-row--multiline': setting.type === 'textarea' }"
         >
-          <div class="setting-row-info">
-            <label :for="`setting-${setting.key}`" class="setting-row-label" style="cursor:pointer">
-              {{ setting.label }}
-            </label>
-            <div class="setting-row-key">{{ setting.key }}</div>
-          </div>
-
-          <div class="setting-row-control">
-            <template v-if="setting.type === 'boolean'">
-              <input
-                :id="`setting-${setting.key}`"
-                type="checkbox"
-                :checked="values[setting.key] === 'true'"
+          <template v-if="setting.type === 'textarea'">
+            <div :class="$style.textareaHeader">
+              <div class="setting-row-info">
+                <label :for="`setting-${setting.key}`" :class="[$style.cursorPointer, 'setting-row-label']">
+                  {{ setting.label }}
+                </label>
+                <div class="setting-row-key">{{ setting.key }}</div>
+              </div>
+              <Button.Root
+                type="button"
+                class="btn btn-primary"
                 :disabled="saving[setting.key]"
-                style="width:18px; height:18px; cursor:pointer; accent-color:var(--color-primary)"
-                @change="onCheckboxChange(setting.key, ($event.target as HTMLInputElement).checked)"
+                :loading="saving[setting.key]"
+                @click="saveSetting(setting.key)"
               >
-            </template>
+                <Button.Loading>保存中</Button.Loading>
+                <Button.Content>保存</Button.Content>
+              </Button.Root>
+            </div>
+            <textarea
+              :id="`setting-${setting.key}`"
+              v-model="values[setting.key]"
+              :class="[$style.textarea, 'form-input']"
+              rows="4"
+            />
+          </template>
 
-            <template v-else>
+          <template v-else>
+            <div class="setting-row-info">
+              <label :for="`setting-${setting.key}`" :class="[$style.cursorPointer, 'setting-row-label']">
+                {{ setting.label }}
+              </label>
+              <div class="setting-row-key">{{ setting.key }}</div>
+            </div>
+
+            <div class="setting-row-control">
+              <template v-if="setting.type === 'boolean'">
+                <input
+                  :id="`setting-${setting.key}`"
+                  type="checkbox"
+                  :checked="values[setting.key] === 'true'"
+                  :disabled="saving[setting.key]"
+                  :class="$style.checkbox"
+                  @change="onCheckboxChange(setting.key, ($event.target as HTMLInputElement).checked)"
+                >
+              </template>
+
+              <template v-else>
               <div class="flex gap-2">
                 <input
                   :id="`setting-${setting.key}`"
                   v-model="values[setting.key]"
-                  class="form-input"
+                  :class="[$style.textInput, 'form-input']"
                   type="text"
-                  style="width:160px"
                 >
                 <Button.Root
                   type="button"
@@ -123,10 +147,41 @@ function onCheckboxChange(key: string, checked: boolean): void {
                   <Button.Content>保存</Button.Content>
                 </Button.Root>
               </div>
-            </template>
-          </div>
+              </template>
+            </div>
+          </template>
         </div>
       </div>
     </template>
   </div>
 </template>
+
+<style module lang="scss">
+.textareaHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.cursorPointer {
+  cursor: pointer;
+}
+
+.textarea {
+  width: 100%;
+  resize: vertical;
+  font-family: monospace;
+}
+
+.checkbox {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--color-primary);
+}
+
+.textInput {
+  width: 160px;
+}
+</style>

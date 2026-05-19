@@ -16,7 +16,7 @@ async function setupFileForUpload() {
 	const bucketRes = await app.request('/api/buckets/create', {
 		method: 'POST',
 		headers: authHeaders(token),
-		body: JSON.stringify({ bucketName: 'test-bucket' }),
+		body: JSON.stringify({ bucketName: 'test_bucket' }),
 	}, env);
 	const { bucketId } = await bucketRes.json() as { bucketId: string };
 
