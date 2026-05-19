@@ -188,7 +188,7 @@ onMounted(loadBuckets);
                 </td>
                 <td class="col-actions">
                   <div class="flex gap-2 items-center">
-                    <NirA to="/upload" class="btn btn-secondary" @click="setPendingUpload([], b.name, '')">
+                    <NirA to="/uploader" class="btn btn-secondary" @click="setPendingUpload([], b.name, '')">
                       アップロード
                     </NirA>
                     <Popover.Root>
