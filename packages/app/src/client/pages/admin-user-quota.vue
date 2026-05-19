@@ -112,9 +112,9 @@ async function executeReset(): Promise<void> {
     </div>
 
     <template v-else>
-      <div class="flex gap-2 items-center mb-4">
-        <span class="text-muted" style="font-size:0.875rem">ユーザーID:</span>
-        <code class="font-mono" style="font-size:0.875rem; background:var(--color-bg); padding:2px 8px; border-radius:4px; border:1px solid var(--color-border)">{{ userId }}</code>
+      <div :class="[$style.userIdRow, 'flex', 'gap-2', 'items-center', 'mb-4']">
+        <span :class="['text-muted', $style.smallText]">ユーザーID:</span>
+        <code :class="[$style.userId, 'font-mono']">{{ userId }}</code>
         <span v-if="!hasUserQuota && !loading" class="badge badge-muted">グローバルデフォルト適用中</span>
         <span v-if="hasUserQuota && !loading" class="badge badge-admin">個別クォータ設定あり</span>
       </div>
@@ -125,8 +125,8 @@ async function executeReset(): Promise<void> {
       <div v-if="loading" class="page-loading">
         <span class="spinner" />読み込み中...
       </div>
-      <Form v-else @submit="saveQuota" style="display:flex; flex-direction:column; gap:12px; max-width:400px">
-        <p class="text-muted" style="font-size:0.875rem; margin:0">空欄は無制限（またはグローバルデフォルト準拠）。</p>
+      <Form v-else :class="$style.form" @submit="saveQuota">
+        <p :class="['text-muted', $style.formHint]">空欄は無制限（またはグローバルデフォルト準拠）。</p>
         <div class="form-group">
           <label class="form-label">バケット数上限</label>
           <input v-model="quota.maxBuckets" class="form-input" type="number" min="0" placeholder="無制限">
@@ -172,3 +172,33 @@ async function executeReset(): Promise<void> {
     />
   </div>
 </template>
+
+<style module lang="scss">
+.smallText {
+  font-size: 0.875rem;
+}
+
+.userId {
+  font-size: 0.875rem;
+  background: var(--color-bg);
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 400px;
+}
+
+.formHint {
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+.userIdRow {
+  flex-wrap: wrap;
+}
+</style>

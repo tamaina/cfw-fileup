@@ -296,7 +296,7 @@ watch(() => entryPath.value, () => {
 <template>
   <div>
     <div class="flex items-center gap-2 flex-wrap mb-3">
-      <nav class="breadcrumbs" style="margin-bottom:0">
+      <nav class="breadcrumbs" :class="$style.breadcrumbsNoMargin">
         <template v-for="(seg, i) in breadcrumbs" :key="i">
           <span v-if="i > 0" class="breadcrumbs-sep">/</span>
           <NirA v-if="seg.link" :to="seg.link">{{ seg.name }}</NirA>
@@ -331,7 +331,7 @@ watch(() => entryPath.value, () => {
           <a :href="innerDownloadUrl" download class="btn btn-primary">ダウンロード</a>
           <a v-if="isInnerText" :href="innerDownloadUrl" target="_blank" class="btn btn-secondary">ブラウザで開く</a>
         </div>
-        <div v-if="isInnerImage" style="margin-top:16px">
+        <div v-if="isInnerImage" :class="$style.innerImagePreview">
           <img :src="innerDownloadUrl" :alt="entryPath ?? ''" class="file-preview-image">
         </div>
       </template>
@@ -362,10 +362,10 @@ watch(() => entryPath.value, () => {
       <!-- 非ログイン + 非公開 + トークンなし: パスフレーズフォーム -->
       <template v-else-if="needsPassphrase">
         <div class="card">
-          <p style="margin-bottom:16px; color:var(--color-text-muted)">このファイルはプライベートです。パスフレーズを入力するとアクセスできます。</p>
-          <Form @submit="submitPassphrase" style="display:flex; flex-direction:column; gap:14px; max-width:400px">
+          <p :class="[$style.passphraseDesc, 'text-muted']">このファイルはプライベートです。パスフレーズを入力するとアクセスできます。</p>
+          <Form :class="$style.passphraseForm" @submit="submitPassphrase">
             <div class="flex gap-2">
-              <div style="flex:1; min-width:0">
+              <div :class="$style.passphraseInputWrapper">
                 <label class="form-label">パスフレーズ</label>
                 <Input.Root v-model="passphraseInput" type="password" required validate-on="submit">
                   <Input.Control placeholder="パスフレーズ" class="form-input" autocomplete="current-password" />
@@ -376,8 +376,7 @@ watch(() => entryPath.value, () => {
               </div>
               <button
                 type="submit"
-                class="btn btn-primary"
-                style="align-self:flex-end"
+                :class="[$style.passphraseSubmit, 'btn', 'btn-primary']"
                 :disabled="passphraseLoading || (turnstileEnabled && !turnstileToken)"
               >{{ passphraseLoading ? '認証中...' : 'アクセス' }}</button>
             </div>
@@ -399,3 +398,33 @@ watch(() => entryPath.value, () => {
     </template>
   </div>
 </template>
+
+<style module lang="scss">
+.breadcrumbsNoMargin {
+  margin-bottom: 0;
+}
+
+.innerImagePreview {
+  margin-top: 16px;
+}
+
+.passphraseDesc {
+  margin-bottom: 16px;
+}
+
+.passphraseForm {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 400px;
+}
+
+.passphraseInputWrapper {
+  flex: 1;
+  min-width: 0;
+}
+
+.passphraseSubmit {
+  align-self: flex-end;
+}
+</style>

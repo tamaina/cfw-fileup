@@ -73,11 +73,11 @@ async function submit({ valid }: { valid: boolean }): Promise<void> {
 </script>
 
 <template>
-  <div style="display:flex; justify-content:center; padding-top:48px">
-    <div class="card max-w-sm" style="width:100%">
-      <h2 style="margin-bottom:20px; text-align:center">アカウント作成</h2>
+  <div :class="$style.root">
+    <div :class="[$style.card, 'card', 'max-w-sm']">
+      <h2 :class="$style.heading">アカウント作成</h2>
 
-      <Form @submit="submit" style="display:flex; flex-direction:column; gap:14px">
+      <Form :class="$style.form" @submit="submit">
         <div class="form-group">
           <label class="form-label" for="username">ユーザー名</label>
           <input
@@ -125,12 +125,12 @@ async function submit({ valid }: { valid: boolean }): Promise<void> {
 
         <div v-if="error" class="alert alert-error">{{ error }}</div>
 
-        <button type="submit" class="btn btn-primary w-full" style="justify-content: center" :disabled="!canSubmit || loading">
+        <button type="submit" :class="[$style.submitBtn, 'btn', 'btn-primary', 'w-full']" :disabled="!canSubmit || loading">
           {{ loading ? '処理中...' : turnstileEnabled && !turnstileToken ? '確認中...' : 'アカウント作成' }}
         </button>
       </Form>
 
-      <div style="margin-top:16px; text-align:center; font-size:0.875rem; color:var(--color-text-muted)">
+      <div :class="$style.footer">
         <button type="button" class="btn btn-ghost" @click="navigateTo('/signin')">
           サインインページへ
         </button>
@@ -138,3 +138,37 @@ async function submit({ valid }: { valid: boolean }): Promise<void> {
     </div>
   </div>
 </template>
+
+<style module lang="scss">
+.root {
+  display: flex;
+  justify-content: center;
+  padding-top: 48px;
+}
+
+.card {
+  width: 100%;
+}
+
+.heading {
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.submitBtn {
+  justify-content: center;
+}
+
+.footer {
+  margin-top: 16px;
+  text-align: center;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+</style>

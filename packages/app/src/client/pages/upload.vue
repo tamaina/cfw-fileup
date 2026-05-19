@@ -600,7 +600,7 @@ onMounted(async () => {
       <!-- バケット選択 -->
       <div class="upload-section">
         <p class="upload-section-title">バケット</p>
-        <div class="form-group" style="max-width:280px">
+        <div :class="[$style.bucketSelectWrapper, 'form-group']">
           <select v-model="selectedBucketName" class="form-input">
             <option v-for="b in buckets" :key="b.id" :value="b.name">{{ b.name }}</option>
           </select>
@@ -612,12 +612,12 @@ onMounted(async () => {
         <p class="upload-section-title">ファイル選択</p>
 
         <div class="flex items-center gap-2 flex-wrap">
-          <label class="btn btn-secondary" style="cursor:pointer">
+          <label :class="[$style.fileLabel, 'btn', 'btn-secondary']">
             ファイルを選択
             <input
               type="file"
               multiple
-              style="display:none"
+              :class="$style.hiddenInput"
               @change="e => { selectedFiles = Array.from((e.target as HTMLInputElement).files ?? []); selectedDir = null; selectedDirName = ''; }"
             >
           </label>
@@ -633,10 +633,10 @@ onMounted(async () => {
           </template>
         </div>
 
-        <div class="form-group mt-3" style="max-width:400px">
+        <div :class="[$style.prefixGroup, 'form-group', 'mt-3']">
           <label class="form-label">アップロード先パス (任意)</label>
           <div class="form-row">
-            <span class="form-hint font-mono" style="white-space:nowrap; padding:8px 4px 8px 0">{{ selectedBucketName }}/</span>
+            <span :class="[$style.prefixBucketName, 'form-hint', 'font-mono']">{{ selectedBucketName }}/</span>
             <input
               v-model="uploadPrefix"
               class="form-input form-input-mono"
@@ -647,23 +647,23 @@ onMounted(async () => {
         </div>
 
         <div v-if="selectedDir || (selectedFiles && selectedFiles.length > 0)" class="mt-3">
-          <p class="form-label" style="margin-bottom:8px">アップロード形式</p>
-          <div style="display:flex; flex-direction:column; gap:6px">
+          <p class="form-label" :class="$style.archiveModeLabel">アップロード形式</p>
+          <div :class="$style.archiveModeList">
             <label class="checkbox-label">
-              <input v-model="archiveMode" type="radio" value="individual" style="accent-color:var(--color-primary)">
+              <input v-model="archiveMode" type="radio" value="individual" :class="$style.radioInput">
               個別ファイルとしてアップロード
             </label>
             <label v-if="!selectedDir" class="checkbox-label">
-              <input v-model="archiveMode" type="radio" value="gz" style="accent-color:var(--color-primary)">
-              gzip 圧縮してアップロード <span class="badge badge-muted" style="margin-left:4px">.gz</span>
+              <input v-model="archiveMode" type="radio" value="gz" :class="$style.radioInput">
+              gzip 圧縮してアップロード <span class="badge badge-muted" :class="$style.badgeMargin">.gz</span>
             </label>
             <label v-if="selectedDir" class="checkbox-label">
-              <input v-model="archiveMode" type="radio" value="tar" style="accent-color:var(--color-primary)">
-              tar にまとめてアップロード <span class="badge badge-muted" style="margin-left:4px">無圧縮</span>
+              <input v-model="archiveMode" type="radio" value="tar" :class="$style.radioInput">
+              tar にまとめてアップロード <span class="badge badge-muted" :class="$style.badgeMargin">無圧縮</span>
             </label>
             <label v-if="selectedDir" class="checkbox-label">
-              <input v-model="archiveMode" type="radio" value="targz" style="accent-color:var(--color-primary)">
-              tar.gz にまとめてアップロード <span class="badge badge-info" style="margin-left:4px">BGZF・ランダムアクセス対応</span>
+              <input v-model="archiveMode" type="radio" value="targz" :class="$style.radioInput">
+              tar.gz にまとめてアップロード <span class="badge badge-info" :class="$style.badgeMargin">BGZF・ランダムアクセス対応</span>
             </label>
           </div>
         </div>
@@ -672,12 +672,12 @@ onMounted(async () => {
       <!-- オプション -->
       <div class="upload-section">
         <p class="upload-section-title">オプション</p>
-        <div style="display:flex; flex-direction:column; gap:10px">
+        <div :class="$style.optionsList">
           <label class="checkbox-label">
-            <input v-model="isPublic" type="checkbox" style="accent-color:var(--color-primary)">
+            <input v-model="isPublic" type="checkbox" :class="$style.radioInput">
             公開ファイル
           </label>
-          <div class="form-group" style="max-width:320px">
+          <div :class="[$style.passphraseGroup, 'form-group']">
             <label class="form-label" for="upload-passphrase">合言葉 (任意)</label>
             <input
               id="upload-passphrase"
@@ -705,7 +705,7 @@ onMounted(async () => {
       <div v-if="uploadProgress" class="upload-progress-box mt-4">
         <p class="upload-progress-filename">
           <template v-if="uploadProgress.totalFiles > 0">
-            <span class="badge badge-info" style="margin-right:6px">{{ uploadProgress.fileIndex }}/{{ uploadProgress.totalFiles }}</span>
+            <span class="badge badge-info" :class="$style.progressBadge">{{ uploadProgress.fileIndex }}/{{ uploadProgress.totalFiles }}</span>
           </template>
           {{ uploadProgress.filename || 'アーカイブ作成中...' }}
         </p>
@@ -731,8 +731,68 @@ onMounted(async () => {
       <div v-if="uploadError" class="alert alert-error mt-3">{{ uploadError }}</div>
       <div v-if="uploadDone" class="alert alert-success mt-3">
         アップロード完了！
-        <NirA :to="`/v/${selectedBucketName}/`" style="margin-left:8px; font-weight:600">ファイル一覧を見る →</NirA>
+        <NirA :to="`/v/${selectedBucketName}/`" :class="$style.doneLink">ファイル一覧を見る →</NirA>
       </div>
     </template>
   </div>
 </template>
+
+<style module lang="scss">
+.bucketSelectWrapper {
+  max-width: 280px;
+}
+
+.fileLabel {
+  cursor: pointer;
+}
+
+.hiddenInput {
+  display: none;
+}
+
+.prefixGroup {
+  max-width: 400px;
+}
+
+.prefixBucketName {
+  white-space: nowrap;
+  padding: 8px 4px 8px 0;
+}
+
+.archiveModeLabel {
+  margin-bottom: 8px;
+}
+
+.archiveModeList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.radioInput {
+  accent-color: var(--color-primary);
+}
+
+.badgeMargin {
+  margin-left: 4px;
+}
+
+.optionsList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.passphraseGroup {
+  max-width: 320px;
+}
+
+.progressBadge {
+  margin-right: 6px;
+}
+
+.doneLink {
+  margin-left: 8px;
+  font-weight: 600;
+}
+</style>
