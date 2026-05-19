@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
+import { describeResponse, describeRoute, validator } from 'hono-openapi';
 import { eq, and, lt } from 'drizzle-orm';
 import {
 	generateRegistrationOptions,
@@ -13,6 +14,8 @@ import { authMiddleware } from '../middleware/auth';
 import { genEaidx, parseEaidx } from '../../shared/eaid-x';
 import { generateToken } from '../utils/crypto';
 import { isValidNameFormat } from '../../shared/name-validation';
+import { apiDef, getResponseDefWithAuth, type JsonCtx } from '../../shared/api';
+import { omitResAndReq } from '../utils/omit';
 import type {
 	AuthenticatorTransportFuture,
 	AuthenticationResponseJSON,
@@ -25,7 +28,6 @@ const app = new Hono<{ Bindings: Env }>();
 function uint8ArrayToBase64(arr: Uint8Array): string {
 	let binary = '';
 	for (let i = 0; i < arr.length; i++) {
-		// arr[i] is always defined since i < arr.length
 		// eslint-disable-next-line @typescript-eslint/no-non-null-assertion
 		binary += String.fromCharCode(arr[i]!);
 	}
@@ -50,9 +52,7 @@ const BACKUP_CODE_LENGTH = 10; // characters
 /** Derive rpID and origin from the incoming request URL */
 function getRpInfo(reqUrl: string): { rpID: string; origin: string } {
 	const url = new URL(reqUrl);
-	const rpID = url.hostname;
-	const origin = url.origin;
-	return { rpID, origin };
+	return { rpID: url.hostname, origin: url.origin };
 }
 
 /** Clean up expired challenges (best-effort, non-blocking) */
@@ -78,527 +78,505 @@ async function hashBackupCode(code: string): Promise<string> {
 
 // ─── Register begin (requires auth) ────────────────────────────────────────
 
-app.post('/register/begin', authMiddleware, async (c) => {
-	const db = getDb(c.env);
-	const user = c.get('user');
-	const { rpID } = getRpInfo(c.req.url);
+app.post(
+	'/register/begin',
+	authMiddleware,
+	describeRoute(omitResAndReq(apiDef['/api/passkey/register/begin'])),
+	validator('json', apiDef['/api/passkey/register/begin'].req),
+	describeResponse(async (c: JsonCtx<'/api/passkey/register/begin', Env>) => {
+		const db = getDb(c.env);
+		const user = c.get('user');
+		const { rpID } = getRpInfo(c.req.url);
 
-	const existingPasskeys = await db
-		.select({ credentialId: passkeys.credentialId, transports: passkeys.transports })
-		.from(passkeys)
-		.where(eq(passkeys.userId, user.id));
+		const existingPasskeys = await db
+			.select({ credentialId: passkeys.credentialId, transports: passkeys.transports })
+			.from(passkeys)
+			.where(eq(passkeys.userId, user.id));
 
-	const options = await generateRegistrationOptions({
-		rpName: 'CFW FileUp',
-		rpID,
-		userName: user.username,
-		userDisplayName: user.username,
-		attestationType: 'none',
-		excludeCredentials: existingPasskeys.map((pk) => ({
-			id: pk.credentialId,
-			transports: pk.transports
-				? (JSON.parse(pk.transports) as AuthenticatorTransportFuture[])
-				: undefined,
-		})),
-		authenticatorSelection: {
-			residentKey: 'preferred',
-			userVerification: 'preferred',
-		},
-	});
+		const options = await generateRegistrationOptions({
+			rpName: 'CFW FileUp',
+			rpID,
+			userName: user.username,
+			userDisplayName: user.username,
+			attestationType: 'none',
+			excludeCredentials: existingPasskeys.map((pk) => ({
+				id: pk.credentialId,
+				transports: pk.transports
+					? (JSON.parse(pk.transports) as AuthenticatorTransportFuture[])
+					: undefined,
+			})),
+			authenticatorSelection: {
+				residentKey: 'preferred',
+				userVerification: 'preferred',
+			},
+		});
 
-	const challengeId = genEaidx(Date.now());
-	await db.insert(passkeysChallenges).values({
-		id: challengeId,
-		challenge: options.challenge,
-		userId: user.id,
-		type: 'register',
-		expiresAt: Date.now() + CHALLENGE_TTL_MS,
-	});
+		const challengeId = genEaidx(Date.now());
+		await db.insert(passkeysChallenges).values({
+			id: challengeId,
+			challenge: options.challenge,
+			userId: user.id,
+			type: 'register',
+			expiresAt: Date.now() + CHALLENGE_TTL_MS,
+		});
 
-	cleanupExpiredChallenges(db);
+		cleanupExpiredChallenges(db);
 
-	return c.json({ challengeId, options });
-});
+		return c.json({ challengeId, options }, 200);
+	}, getResponseDefWithAuth('/api/passkey/register/begin')),
+);
 
 // ─── Register finish (requires auth) ───────────────────────────────────────
 
-app.post('/register/finish', authMiddleware, async (c) => {
-	const db = getDb(c.env);
-	const user = c.get('user');
-	const { rpID, origin } = getRpInfo(c.req.url);
+app.post(
+	'/register/finish',
+	authMiddleware,
+	describeRoute(omitResAndReq(apiDef['/api/passkey/register/finish'])),
+	validator('json', apiDef['/api/passkey/register/finish'].req),
+	describeResponse(async (c: JsonCtx<'/api/passkey/register/finish', Env>) => {
+		const db = getDb(c.env);
+		const user = c.get('user');
+		const { rpID, origin } = getRpInfo(c.req.url);
+		const body = c.req.valid('json');
+		const credential = (body.credential as unknown) as RegistrationResponseJSON;
 
-	const body = (await c.req.json()) as {
-		challengeId?: string;
-		credential?: RegistrationResponseJSON;
-		name?: string;
-	};
+		const now = Date.now();
+		const challengeRecord = await db
+			.select()
+			.from(passkeysChallenges)
+			.where(
+				and(
+					eq(passkeysChallenges.id, body.challengeId),
+					eq(passkeysChallenges.userId, user.id),
+					eq(passkeysChallenges.type, 'register'),
+				),
+			)
+			.get();
 
-	if (!body.challengeId || !body.credential) {
-		throw new HTTPException(400, { message: 'challengeId and credential are required' });
-	}
+		if (!challengeRecord || challengeRecord.expiresAt < now) {
+			throw new HTTPException(400, { message: 'Invalid or expired challenge' });
+		}
 
-	const now = Date.now();
-	const challengeRecord = await db
-		.select()
-		.from(passkeysChallenges)
-		.where(
-			and(
-				eq(passkeysChallenges.id, body.challengeId),
-				eq(passkeysChallenges.userId, user.id),
-				eq(passkeysChallenges.type, 'register'),
-			),
-		)
-		.get();
+		await db.delete(passkeysChallenges).where(eq(passkeysChallenges.id, body.challengeId));
 
-	if (!challengeRecord || challengeRecord.expiresAt < now) {
-		throw new HTTPException(400, { message: 'Invalid or expired challenge' });
-	}
+		let verification;
+		try {
+			verification = await verifyRegistrationResponse({
+				response: credential,
+				expectedChallenge: challengeRecord.challenge,
+				expectedOrigin: origin,
+				expectedRPID: rpID,
+			});
+		} catch (e) {
+			throw new HTTPException(400, { message: `Verification failed: ${String(e)}` });
+		}
 
-	await db.delete(passkeysChallenges).where(eq(passkeysChallenges.id, body.challengeId));
+		if (!verification.verified) {
+			throw new HTTPException(400, { message: 'Verification failed' });
+		}
 
-	let verification;
-	try {
-		verification = await verifyRegistrationResponse({
-			response: body.credential,
-			expectedChallenge: challengeRecord.challenge,
-			expectedOrigin: origin,
-			expectedRPID: rpID,
+		const { credential: cred } = verification.registrationInfo;
+
+		const passkeyId = genEaidx(Date.now());
+		await db.insert(passkeys).values({
+			id: passkeyId,
+			userId: user.id,
+			credentialId: cred.id,
+			publicKey: uint8ArrayToBase64(cred.publicKey),
+			counter: cred.counter,
+			transports: credential.response.transports
+				? JSON.stringify(credential.response.transports)
+				: null,
+			name: body.name?.trim() ?? null,
+			createdAt: parseEaidx(passkeyId).date.getTime(),
 		});
-	} catch (e) {
-		throw new HTTPException(400, { message: `Verification failed: ${String(e)}` });
-	}
 
-	if (!verification.verified) {
-		throw new HTTPException(400, { message: 'Verification failed' });
-	}
+		return c.json({ ok: true as const }, 200);
+	}, getResponseDefWithAuth('/api/passkey/register/finish')),
+);
 
-	const { credential } = verification.registrationInfo;
+// ─── Authenticate begin ─────────────────────────────────────────────────────
 
-	const passkeyId = genEaidx(Date.now());
-	await db.insert(passkeys).values({
-		id: passkeyId,
-		userId: user.id,
-		credentialId: credential.id,
-		publicKey: uint8ArrayToBase64(credential.publicKey),
-		counter: credential.counter,
-		transports: body.credential.response.transports
-			? JSON.stringify(body.credential.response.transports)
-			: null,
-		name: body.name?.trim() ?? null,
-		createdAt: parseEaidx(passkeyId).date.getTime(),
-	});
+app.post(
+	'/authenticate/begin',
+	describeRoute(omitResAndReq(apiDef['/api/passkey/authenticate/begin'])),
+	validator('json', apiDef['/api/passkey/authenticate/begin'].req),
+	describeResponse(async (c: JsonCtx<'/api/passkey/authenticate/begin', Env>) => {
+		const db = getDb(c.env);
+		const { rpID } = getRpInfo(c.req.url);
 
-	return c.json({ ok: true });
-});
-
-// ─── Authenticate begin (no auth required) ─────────────────────────────────
-
-app.post('/authenticate/begin', async (c) => {
-	const db = getDb(c.env);
-	const { rpID } = getRpInfo(c.req.url);
-
-	const options = await generateAuthenticationOptions({
-		rpID,
-		userVerification: 'preferred',
-		allowCredentials: [],
-	});
-
-	const challengeId = genEaidx(Date.now());
-	await db.insert(passkeysChallenges).values({
-		id: challengeId,
-		challenge: options.challenge,
-		userId: null,
-		type: 'authenticate',
-		expiresAt: Date.now() + CHALLENGE_TTL_MS,
-	});
-
-	cleanupExpiredChallenges(db);
-
-	return c.json({ challengeId, options });
-});
-
-// ─── Authenticate finish (no auth required) ────────────────────────────────
-
-app.post('/authenticate/finish', async (c) => {
-	const db = getDb(c.env);
-	const { rpID, origin } = getRpInfo(c.req.url);
-
-	const body = (await c.req.json()) as { challengeId?: string; credential?: AuthenticationResponseJSON };
-
-	if (!body.challengeId || !body.credential) {
-		throw new HTTPException(400, { message: 'challengeId and credential are required' });
-	}
-
-	const now = Date.now();
-	const challengeRecord = await db
-		.select()
-		.from(passkeysChallenges)
-		.where(
-			and(
-				eq(passkeysChallenges.id, body.challengeId),
-				eq(passkeysChallenges.type, 'authenticate'),
-			),
-		)
-		.get();
-
-	if (!challengeRecord || challengeRecord.expiresAt < now) {
-		throw new HTTPException(400, { message: 'Invalid or expired challenge' });
-	}
-
-	await db.delete(passkeysChallenges).where(eq(passkeysChallenges.id, body.challengeId));
-
-	const passkeyRecord = await db
-		.select()
-		.from(passkeys)
-		.where(eq(passkeys.credentialId, body.credential.id))
-		.get();
-
-	if (!passkeyRecord) {
-		throw new HTTPException(401, { message: 'Passkey not found' });
-	}
-
-	let verification;
-	try {
-		verification = await verifyAuthenticationResponse({
-			response: body.credential,
-			expectedChallenge: challengeRecord.challenge,
-			expectedOrigin: origin,
-			expectedRPID: rpID,
-			credential: {
-				id: passkeyRecord.credentialId,
-				publicKey: base64ToUint8Array(passkeyRecord.publicKey),
-				counter: passkeyRecord.counter,
-				transports: passkeyRecord.transports
-					? (JSON.parse(passkeyRecord.transports) as AuthenticatorTransportFuture[])
-					: undefined,
-			},
+		const options = await generateAuthenticationOptions({
+			rpID,
+			userVerification: 'preferred',
+			allowCredentials: [],
 		});
-	} catch (e) {
-		throw new HTTPException(401, { message: `Authentication failed: ${String(e)}` });
-	}
 
-	if (!verification.verified) {
-		throw new HTTPException(401, { message: 'Authentication failed' });
-	}
+		const challengeId = genEaidx(Date.now());
+		await db.insert(passkeysChallenges).values({
+			id: challengeId,
+			challenge: options.challenge,
+			userId: null,
+			type: 'authenticate',
+			expiresAt: Date.now() + CHALLENGE_TTL_MS,
+		});
 
-	await db
-		.update(passkeys)
-		.set({ counter: verification.authenticationInfo.newCounter })
-		.where(eq(passkeys.id, passkeyRecord.id));
+		cleanupExpiredChallenges(db);
 
-	const user = await db.select().from(users).where(eq(users.id, passkeyRecord.userId)).get();
-	if (!user) {
-		throw new HTTPException(401, { message: 'User not found' });
-	}
+		return c.json({ challengeId, options }, 200);
+	}, apiDef['/api/passkey/authenticate/begin'].res),
+);
 
-	if (user.isSuspended) {
-		throw new HTTPException(401, { message: 'Account is suspended' });
-	}
+// ─── Authenticate finish ────────────────────────────────────────────────────
 
-	const tokenId = genEaidx(Date.now());
-	const tokenValue = generateToken();
-	await db.insert(tokens).values({
-		id: tokenId,
-		userId: user.id,
-		token: tokenValue,
-	});
+app.post(
+	'/authenticate/finish',
+	describeRoute(omitResAndReq(apiDef['/api/passkey/authenticate/finish'])),
+	validator('json', apiDef['/api/passkey/authenticate/finish'].req),
+	describeResponse(async (c: JsonCtx<'/api/passkey/authenticate/finish', Env>) => {
+		const db = getDb(c.env);
+		const { rpID, origin } = getRpInfo(c.req.url);
+		const body = c.req.valid('json');
+		const credential = (body.credential as unknown) as AuthenticationResponseJSON;
 
-	return c.json({ token: tokenValue });
-});
+		const now = Date.now();
+		const challengeRecord = await db
+			.select()
+			.from(passkeysChallenges)
+			.where(
+				and(
+					eq(passkeysChallenges.id, body.challengeId),
+					eq(passkeysChallenges.type, 'authenticate'),
+				),
+			)
+			.get();
+
+		if (!challengeRecord || challengeRecord.expiresAt < now) {
+			throw new HTTPException(400, { message: 'Invalid or expired challenge' });
+		}
+
+		await db.delete(passkeysChallenges).where(eq(passkeysChallenges.id, body.challengeId));
+
+		const passkeyRecord = await db
+			.select()
+			.from(passkeys)
+			.where(eq(passkeys.credentialId, credential.id))
+			.get();
+
+		if (!passkeyRecord) {
+			throw new HTTPException(401, { message: 'Passkey not found' });
+		}
+
+		let verification;
+		try {
+			verification = await verifyAuthenticationResponse({
+				response: credential,
+				expectedChallenge: challengeRecord.challenge,
+				expectedOrigin: origin,
+				expectedRPID: rpID,
+				credential: {
+					id: passkeyRecord.credentialId,
+					publicKey: base64ToUint8Array(passkeyRecord.publicKey),
+					counter: passkeyRecord.counter,
+					transports: passkeyRecord.transports
+						? (JSON.parse(passkeyRecord.transports) as AuthenticatorTransportFuture[])
+						: undefined,
+				},
+			});
+		} catch (e) {
+			throw new HTTPException(401, { message: `Authentication failed: ${String(e)}` });
+		}
+
+		if (!verification.verified) {
+			throw new HTTPException(401, { message: 'Authentication failed' });
+		}
+
+		await db
+			.update(passkeys)
+			.set({ counter: verification.authenticationInfo.newCounter })
+			.where(eq(passkeys.id, passkeyRecord.id));
+
+		const user = await db.select().from(users).where(eq(users.id, passkeyRecord.userId)).get();
+		if (!user) {
+			throw new HTTPException(401, { message: 'User not found' });
+		}
+		if (user.isSuspended) {
+			throw new HTTPException(401, { message: 'Account is suspended' });
+		}
+
+		const tokenId = genEaidx(Date.now());
+		const tokenValue = generateToken();
+		await db.insert(tokens).values({ id: tokenId, userId: user.id, token: tokenValue });
+
+		return c.json({ token: tokenValue }, 200);
+	}, apiDef['/api/passkey/authenticate/finish'].res),
+);
 
 // ─── List passkeys (requires auth) ─────────────────────────────────────────
 
-app.get('/list', authMiddleware, async (c) => {
-	const db = getDb(c.env);
-	const user = c.get('user');
+app.get(
+	'/list',
+	authMiddleware,
+	describeRoute(omitResAndReq(apiDef['/api/passkey/list'])),
+	describeResponse(async (c: JsonCtx<'/api/passkey/list', Env>) => {
+		const db = getDb(c.env);
+		const user = c.get('user');
 
-	const userPasskeys = await db
-		.select({
-			id: passkeys.id,
-			name: passkeys.name,
-			createdAt: passkeys.createdAt,
-		})
-		.from(passkeys)
-		.where(eq(passkeys.userId, user.id));
+		const userPasskeys = await db
+			.select({ id: passkeys.id, name: passkeys.name, createdAt: passkeys.createdAt })
+			.from(passkeys)
+			.where(eq(passkeys.userId, user.id));
 
-	return c.json(userPasskeys);
-});
+		return c.json(userPasskeys, 200);
+	}, getResponseDefWithAuth('/api/passkey/list')),
+);
 
 // ─── Delete passkey (requires auth) ────────────────────────────────────────
 
-app.delete('/:passkeyId', authMiddleware, async (c) => {
-	const db = getDb(c.env);
-	const user = c.get('user');
-	const { passkeyId } = c.req.param();
+app.post(
+	'/delete',
+	authMiddleware,
+	describeRoute(omitResAndReq(apiDef['/api/passkey/delete'])),
+	validator('json', apiDef['/api/passkey/delete'].req),
+	describeResponse(async (c: JsonCtx<'/api/passkey/delete', Env>) => {
+		const db = getDb(c.env);
+		const user = c.get('user');
+		const { passkeyId } = c.req.valid('json');
 
-	const passkeyRecord = await db
-		.select()
-		.from(passkeys)
-		.where(and(eq(passkeys.id, passkeyId), eq(passkeys.userId, user.id)))
-		.get();
+		const passkeyRecord = await db
+			.select()
+			.from(passkeys)
+			.where(and(eq(passkeys.id, passkeyId), eq(passkeys.userId, user.id)))
+			.get();
 
-	if (!passkeyRecord) {
-		throw new HTTPException(404, { message: 'Passkey not found' });
-	}
+		if (!passkeyRecord) {
+			throw new HTTPException(404, { message: 'Passkey not found' });
+		}
 
-	await db.delete(passkeys).where(eq(passkeys.id, passkeyId));
+		await db.delete(passkeys).where(eq(passkeys.id, passkeyId));
 
-	return c.json({ ok: true });
-});
+		return c.json({ ok: true as const }, 200);
+	}, getResponseDefWithAuth('/api/passkey/delete')),
+);
 
 // ─── Generate backup codes (requires auth) ──────────────────────────────────
 
-app.post('/backup-codes/generate', authMiddleware, async (c) => {
-	const db = getDb(c.env);
-	const user = c.get('user');
+app.post(
+	'/backup-codes/generate',
+	authMiddleware,
+	describeRoute(omitResAndReq(apiDef['/api/passkey/backup-codes/generate'])),
+	validator('json', apiDef['/api/passkey/backup-codes/generate'].req),
+	describeResponse(async (c: JsonCtx<'/api/passkey/backup-codes/generate', Env>) => {
+		const db = getDb(c.env);
+		const user = c.get('user');
 
-	// Delete existing unused backup codes and generate new ones
-	await db.delete(backupCodes).where(eq(backupCodes.userId, user.id));
+		await db.delete(backupCodes).where(eq(backupCodes.userId, user.id));
 
-	const codes: string[] = [];
-	for (let i = 0; i < BACKUP_CODE_COUNT; i++) {
-		const code = generateBackupCode();
-		codes.push(code);
-		const codeHash = await hashBackupCode(code);
-		const codeId = genEaidx(Date.now() + i);
-		await db.insert(backupCodes).values({
-			id: codeId,
-			userId: user.id,
-			codeHash,
-			usedAt: null,
-			createdAt: Date.now(),
-		});
-	}
+		const codes: string[] = [];
+		for (let i = 0; i < BACKUP_CODE_COUNT; i++) {
+			const code = generateBackupCode();
+			codes.push(code);
+			const codeHash = await hashBackupCode(code);
+			const codeId = genEaidx(Date.now() + i);
+			await db.insert(backupCodes).values({
+				id: codeId,
+				userId: user.id,
+				codeHash,
+				usedAt: null,
+				createdAt: Date.now(),
+			});
+		}
 
-	return c.json({ codes });
-});
+		return c.json({ codes }, 200);
+	}, getResponseDefWithAuth('/api/passkey/backup-codes/generate')),
+);
 
 // ─── Get backup code status (requires auth) ────────────────────────────────
 
-app.get('/backup-codes/status', authMiddleware, async (c) => {
-	const db = getDb(c.env);
-	const user = c.get('user');
+app.get(
+	'/backup-codes/status',
+	authMiddleware,
+	describeRoute(omitResAndReq(apiDef['/api/passkey/backup-codes/status'])),
+	describeResponse(async (c: JsonCtx<'/api/passkey/backup-codes/status', Env>) => {
+		const db = getDb(c.env);
+		const user = c.get('user');
 
-	const userCodes = await db
-		.select({ id: backupCodes.id, usedAt: backupCodes.usedAt, createdAt: backupCodes.createdAt })
-		.from(backupCodes)
-		.where(eq(backupCodes.userId, user.id));
+		const userCodes = await db
+			.select({ id: backupCodes.id, usedAt: backupCodes.usedAt })
+			.from(backupCodes)
+			.where(eq(backupCodes.userId, user.id));
 
-	return c.json({
-		count: userCodes.length,
-		remaining: userCodes.filter((c) => c.usedAt === null).length,
-	});
-});
+		return c.json({
+			count: userCodes.length,
+			remaining: userCodes.filter((code) => code.usedAt === null).length,
+		}, 200);
+	}, getResponseDefWithAuth('/api/passkey/backup-codes/status')),
+);
 
-// ─── Login with backup code (no auth required) ─────────────────────────────
+// ─── Login with backup code ─────────────────────────────────────────────────
 
-app.post('/backup-codes/use', async (c) => {
-	const db = getDb(c.env);
+app.post(
+	'/backup-codes/use',
+	describeRoute(omitResAndReq(apiDef['/api/passkey/backup-codes/use'])),
+	validator('json', apiDef['/api/passkey/backup-codes/use'].req),
+	describeResponse(async (c: JsonCtx<'/api/passkey/backup-codes/use', Env>) => {
+		const db = getDb(c.env);
+		const { username, code } = c.req.valid('json');
 
-	const body = (await c.req.json()) as { username?: string; code?: string };
-	if (!body.username || !body.code) {
-		throw new HTTPException(400, { message: 'username and code are required' });
-	}
+		const user = await db.select().from(users).where(eq(users.username, username)).get();
+		if (!user) {
+			throw new HTTPException(401, { message: 'Invalid username or code' });
+		}
+		if (user.isSuspended) {
+			throw new HTTPException(401, { message: 'Account is suspended' });
+		}
 
-	const user = await db
-		.select()
-		.from(users)
-		.where(eq(users.username, body.username))
-		.get();
+		const codeHash = await hashBackupCode(code.toUpperCase().replace(/\s/g, ''));
 
-	if (!user) {
-		throw new HTTPException(401, { message: 'Invalid username or code' });
-	}
+		const codeRecord = await db
+			.select()
+			.from(backupCodes)
+			.where(and(eq(backupCodes.userId, user.id), eq(backupCodes.codeHash, codeHash)))
+			.get();
 
-	if (user.isSuspended) {
-		throw new HTTPException(401, { message: 'Account is suspended' });
-	}
+		if (!codeRecord || codeRecord.usedAt !== null) {
+			throw new HTTPException(401, { message: 'Invalid username or code' });
+		}
 
-	const codeHash = await hashBackupCode(body.code.toUpperCase().replace(/\s/g, ''));
+		await db.update(backupCodes).set({ usedAt: Date.now() }).where(eq(backupCodes.id, codeRecord.id));
 
-	const codeRecord = await db
-		.select()
-		.from(backupCodes)
-		.where(
-			and(
-				eq(backupCodes.userId, user.id),
-				eq(backupCodes.codeHash, codeHash),
-			),
-		)
-		.get();
+		const tokenId = genEaidx(Date.now());
+		const tokenValue = generateToken();
+		await db.insert(tokens).values({ id: tokenId, userId: user.id, token: tokenValue });
 
-	if (!codeRecord || codeRecord.usedAt !== null) {
-		throw new HTTPException(401, { message: 'Invalid username or code' });
-	}
+		return c.json({ token: tokenValue }, 200);
+	}, apiDef['/api/passkey/backup-codes/use'].res),
+);
 
-	// Mark code as used
-	await db
-		.update(backupCodes)
-		.set({ usedAt: Date.now() })
-		.where(eq(backupCodes.id, codeRecord.id));
+// ─── Passkey signup begin ───────────────────────────────────────────────────
 
-	const tokenId = genEaidx(Date.now());
-	const tokenValue = generateToken();
-	await db.insert(tokens).values({
-		id: tokenId,
-		userId: user.id,
-		token: tokenValue,
-	});
+app.post(
+	'/signup/begin',
+	describeRoute(omitResAndReq(apiDef['/api/passkey/signup/begin'])),
+	validator('json', apiDef['/api/passkey/signup/begin'].req),
+	describeResponse(async (c: JsonCtx<'/api/passkey/signup/begin', Env>) => {
+		const db = getDb(c.env);
+		const { rpID } = getRpInfo(c.req.url);
+		const { username } = c.req.valid('json');
+		const trimmed = username.trim();
 
-	return c.json({ token: tokenValue });
-});
+		if (!isValidNameFormat(trimmed)) {
+			throw new HTTPException(400, { message: 'Invalid username format' });
+		}
 
-// ─── Passkey signup begin (no auth required) ────────────────────────────────
+		const existing = await db.select({ id: users.id }).from(users).where(eq(users.username, trimmed)).get();
+		if (existing) {
+			throw new HTTPException(409, { message: 'Username already taken' });
+		}
 
-app.post('/signup/begin', async (c) => {
-	const db = getDb(c.env);
-	const { rpID } = getRpInfo(c.req.url);
-
-	const body = (await c.req.json()) as { username?: string };
-	if (!body.username) {
-		throw new HTTPException(400, { message: 'username is required' });
-	}
-
-	const username = body.username.trim();
-	if (!isValidNameFormat(username)) {
-		throw new HTTPException(400, { message: 'Invalid username format' });
-	}
-
-	// Check username availability
-	const existing = await db.select({ id: users.id }).from(users).where(eq(users.username, username)).get();
-	if (existing) {
-		throw new HTTPException(409, { message: 'Username already taken' });
-	}
-
-	// Generate registration options with a synthetic user ID (not stored yet)
-	const tempUserId = genEaidx(Date.now());
-	const options = await generateRegistrationOptions({
-		rpName: 'CFW FileUp',
-		rpID,
-		userName: username,
-		userDisplayName: username,
-		attestationType: 'none',
-		excludeCredentials: [],
-		authenticatorSelection: {
-			residentKey: 'preferred',
-			userVerification: 'preferred',
-		},
-	});
-
-	const challengeId = genEaidx(Date.now());
-	// Store challenge with type 'signup' and encode username in userId field (prefixed)
-	await db.insert(passkeysChallenges).values({
-		id: challengeId,
-		challenge: options.challenge,
-		userId: `signup:${tempUserId}:${username}`,
-		type: 'signup',
-		expiresAt: Date.now() + CHALLENGE_TTL_MS,
-	});
-
-	cleanupExpiredChallenges(db);
-
-	return c.json({ challengeId, options });
-});
-
-// ─── Passkey signup finish (no auth required) ───────────────────────────────
-
-app.post('/signup/finish', async (c) => {
-	const db = getDb(c.env);
-	const { rpID, origin } = getRpInfo(c.req.url);
-
-	const body = (await c.req.json()) as {
-		challengeId?: string;
-		credential?: RegistrationResponseJSON;
-		passkeyName?: string;
-	};
-
-	if (!body.challengeId || !body.credential) {
-		throw new HTTPException(400, { message: 'challengeId and credential are required' });
-	}
-
-	const now = Date.now();
-	const challengeRecord = await db
-		.select()
-		.from(passkeysChallenges)
-		.where(
-			and(
-				eq(passkeysChallenges.id, body.challengeId),
-				eq(passkeysChallenges.type, 'signup'),
-			),
-		)
-		.get();
-
-	if (!challengeRecord || challengeRecord.expiresAt < now) {
-		throw new HTTPException(400, { message: 'Invalid or expired challenge' });
-	}
-
-	// Parse username from the userId field
-	const parts = challengeRecord.userId?.split(':') ?? [];
-	if (parts.length < 3 || parts[0] !== 'signup') {
-		throw new HTTPException(400, { message: 'Invalid challenge data' });
-	}
-	const username = parts.slice(2).join(':');
-
-	await db.delete(passkeysChallenges).where(eq(passkeysChallenges.id, body.challengeId));
-
-	// Double-check username still available
-	const existing = await db.select({ id: users.id }).from(users).where(eq(users.username, username)).get();
-	if (existing) {
-		throw new HTTPException(409, { message: 'Username already taken' });
-	}
-
-	let verification;
-	try {
-		verification = await verifyRegistrationResponse({
-			response: body.credential,
-			expectedChallenge: challengeRecord.challenge,
-			expectedOrigin: origin,
-			expectedRPID: rpID,
+		const tempUserId = genEaidx(Date.now());
+		const options = await generateRegistrationOptions({
+			rpName: 'CFW FileUp',
+			rpID,
+			userName: trimmed,
+			userDisplayName: trimmed,
+			attestationType: 'none',
+			excludeCredentials: [],
+			authenticatorSelection: {
+				residentKey: 'preferred',
+				userVerification: 'preferred',
+			},
 		});
-	} catch (e) {
-		throw new HTTPException(400, { message: `Verification failed: ${String(e)}` });
-	}
 
-	if (!verification.verified) {
-		throw new HTTPException(400, { message: 'Verification failed' });
-	}
+		const challengeId = genEaidx(Date.now());
+		await db.insert(passkeysChallenges).values({
+			id: challengeId,
+			challenge: options.challenge,
+			userId: `signup:${tempUserId}:${trimmed}`,
+			type: 'signup',
+			expiresAt: Date.now() + CHALLENGE_TTL_MS,
+		});
 
-	const { credential } = verification.registrationInfo;
+		cleanupExpiredChallenges(db);
 
-	// Create user (no password)
-	const userId = genEaidx(Date.now());
-	await db.insert(users).values({
-		id: userId,
-		username,
-		passwordHash: null,
-		isSuspended: false,
-	});
+		return c.json({ challengeId, options }, 200);
+	}, apiDef['/api/passkey/signup/begin'].res),
+);
 
-	// Store passkey
-	const passkeyId = genEaidx(Date.now());
-	await db.insert(passkeys).values({
-		id: passkeyId,
-		userId,
-		credentialId: credential.id,
-		publicKey: uint8ArrayToBase64(credential.publicKey),
-		counter: credential.counter,
-		transports: body.credential.response.transports
-			? JSON.stringify(body.credential.response.transports)
-			: null,
-		name: body.passkeyName?.trim() ?? null,
-		createdAt: parseEaidx(passkeyId).date.getTime(),
-	});
+// ─── Passkey signup finish ──────────────────────────────────────────────────
 
-	// Issue token
-	const tokenId = genEaidx(Date.now());
-	const tokenValue = generateToken();
-	await db.insert(tokens).values({
-		id: tokenId,
-		userId,
-		token: tokenValue,
-	});
+app.post(
+	'/signup/finish',
+	describeRoute(omitResAndReq(apiDef['/api/passkey/signup/finish'])),
+	validator('json', apiDef['/api/passkey/signup/finish'].req),
+	describeResponse(async (c: JsonCtx<'/api/passkey/signup/finish', Env>) => {
+		const db = getDb(c.env);
+		const { rpID, origin } = getRpInfo(c.req.url);
+		const body = c.req.valid('json');
+		const credential = (body.credential as unknown) as RegistrationResponseJSON;
 
-	return c.json({ token: tokenValue });
-});
+		const now = Date.now();
+		const challengeRecord = await db
+			.select()
+			.from(passkeysChallenges)
+			.where(and(eq(passkeysChallenges.id, body.challengeId), eq(passkeysChallenges.type, 'signup')))
+			.get();
+
+		if (!challengeRecord || challengeRecord.expiresAt < now) {
+			throw new HTTPException(400, { message: 'Invalid or expired challenge' });
+		}
+
+		const parts = challengeRecord.userId?.split(':') ?? [];
+		if (parts.length < 3 || parts[0] !== 'signup') {
+			throw new HTTPException(400, { message: 'Invalid challenge data' });
+		}
+		const username = parts.slice(2).join(':');
+
+		await db.delete(passkeysChallenges).where(eq(passkeysChallenges.id, body.challengeId));
+
+		const existing = await db.select({ id: users.id }).from(users).where(eq(users.username, username)).get();
+		if (existing) {
+			throw new HTTPException(409, { message: 'Username already taken' });
+		}
+
+		let verification;
+		try {
+			verification = await verifyRegistrationResponse({
+				response: credential,
+				expectedChallenge: challengeRecord.challenge,
+				expectedOrigin: origin,
+				expectedRPID: rpID,
+			});
+		} catch (e) {
+			throw new HTTPException(400, { message: `Verification failed: ${String(e)}` });
+		}
+
+		if (!verification.verified) {
+			throw new HTTPException(400, { message: 'Verification failed' });
+		}
+
+		const { credential: cred } = verification.registrationInfo;
+
+		const userId = genEaidx(Date.now());
+		await db.insert(users).values({ id: userId, username, passwordHash: null, isSuspended: false });
+
+		const passkeyId = genEaidx(Date.now());
+		await db.insert(passkeys).values({
+			id: passkeyId,
+			userId,
+			credentialId: cred.id,
+			publicKey: uint8ArrayToBase64(cred.publicKey),
+			counter: cred.counter,
+			transports: credential.response.transports ? JSON.stringify(credential.response.transports) : null,
+			name: body.passkeyName?.trim() ?? null,
+			createdAt: parseEaidx(passkeyId).date.getTime(),
+		});
+
+		const tokenId = genEaidx(Date.now());
+		const tokenValue = generateToken();
+		await db.insert(tokens).values({ id: tokenId, userId, token: tokenValue });
+
+		return c.json({ token: tokenValue }, 200);
+	}, apiDef['/api/passkey/signup/finish'].res),
+);
 
 export const passkeyRoutes = app;

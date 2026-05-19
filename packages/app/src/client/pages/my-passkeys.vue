@@ -116,9 +116,10 @@ async function registerPasskey(): Promise<void> {
 async function deletePasskey(id: string): Promise<void> {
 	if (!window.confirm('このパスキーを削除しますか？')) return;
 	try {
-		const res = await fetch(`/api/passkey/${id}`, {
-			method: 'DELETE',
-			headers: authHeaders(),
+		const res = await fetch('/api/passkey/delete', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json', ...authHeaders() },
+			body: JSON.stringify({ passkeyId: id }),
 		});
 		if (!res.ok) {
 			const data = (await res.json()) as { error?: string };
