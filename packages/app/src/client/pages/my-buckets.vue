@@ -6,6 +6,7 @@ import { apiPost } from '../utils/api';
 import NirA from '@/components/nira.vue';
 import ConfirmDialog from '@/components/confirm-dialog.vue';
 import { isValidNameFormat, NAME_FORMAT_ERROR } from '../../shared/name-validation';
+import { setPendingUpload } from '@/store/pending-upload';
 
 interface Bucket {
 	id: string;
@@ -187,7 +188,7 @@ onMounted(loadBuckets);
                 </td>
                 <td class="col-actions">
                   <div class="flex gap-2 items-center">
-                    <NirA :to="`/my/buckets/${b.name}/upload`" class="btn btn-secondary">
+                    <NirA to="/upload" class="btn btn-secondary" @click="setPendingUpload([], b.name, '')">
                       アップロード
                     </NirA>
                     <Popover.Root>

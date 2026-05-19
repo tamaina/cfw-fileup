@@ -11,8 +11,6 @@ import UploadDestinationDialog from '@/components/upload-destination-dialog.vue'
 
 type ArchiveMode = 'individual' | 'gz' | 'tar' | 'targz';
 
-const props = defineProps<{ bucketName: string }>();
-
 interface Bucket {
 	id: string;
 	name: string;
@@ -26,7 +24,7 @@ interface Bucket {
 const DEFAULT_CHUNK_SIZE = 32 * 1024 * 1024;
 
 const buckets = ref<Bucket[]>([]);
-const selectedBucketName = ref(props.bucketName);
+const selectedBucketName = ref('');
 const destinationDialogOpen = ref(false);
 const bucket = computed(() => buckets.value.find(b => b.name === selectedBucketName.value) ?? null);
 const loadError = ref('');
@@ -79,6 +77,9 @@ async function loadBucket(): Promise<void> {
 		return;
 	}
 	buckets.value = result.data.buckets;
+	if (!selectedBucketName.value && buckets.value.length > 0) {
+		selectedBucketName.value = buckets.value[0].name;
+	}
 }
 
 async function pickDirectory(): Promise<void> {
@@ -593,6 +594,7 @@ onMounted(async () => {
 	await loadBucket();
 	const pending = takePendingUpload();
 	if (pending) {
+		if (pending.bucketName) selectedBucketName.value = pending.bucketName;
 		selectedFiles.value = pending.files;
 		uploadPrefix.value = pending.prefix;
 	}
@@ -769,7 +771,7 @@ onMounted(async () => {
 .destinationDisplay {
   font-size: 0.9rem;
   background: var(--color-surface);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius);
   padding: 6px 10px;
   word-break: break-all;
 }

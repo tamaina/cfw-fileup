@@ -248,8 +248,8 @@ function parentPath(): string | null {
 }
 
 function goUpload(): void {
-	setPendingUpload([], props.filePath);
-	mainRouter.pushByPath(`/my/buckets/${props.bucketName}/upload`);
+	setPendingUpload([], props.bucketName, props.filePath);
+	mainRouter.pushByPath('/upload');
 }
 
 function onDragOver(e: DragEvent): void {
@@ -268,8 +268,8 @@ function onDrop(e: DragEvent): void {
 	e.preventDefault();
 	const droppedFiles = Array.from(e.dataTransfer?.files ?? []);
 	if (droppedFiles.length === 0) return;
-	setPendingUpload(droppedFiles, props.filePath);
-	mainRouter.pushByPath(`/my/buckets/${props.bucketName}/upload`);
+	setPendingUpload(droppedFiles, props.bucketName, props.filePath);
+	mainRouter.pushByPath('/upload');
 }
 
 async function executeDeleteArchive(): Promise<void> {
