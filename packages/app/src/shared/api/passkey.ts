@@ -198,10 +198,12 @@ export const passkeyApiDef = {
 		tags: ['passkey'],
 		req: v.object({
 			username: v.pipe(v.string(), v.minLength(1), v.maxLength(32)),
+			passphrase: v.optional(v.string()),
 		}),
 		res: {
 			200: { description: 'Signup options', content: { 'application/json': { vSchema: v.object({ challengeId: v.string(), options: PublicKeyCredentialCreationOptionsJSON }) } } },
 			400: { description: 'Bad request or invalid username', content: { 'application/json': { vSchema: ErrorResponse } } },
+			403: { description: 'Forbidden (invalid passphrase or registration closed)', content: { 'application/json': { vSchema: ErrorResponse } } },
 			409: { description: 'Username already taken', content: { 'application/json': { vSchema: ErrorResponse } } },
 		},
 	},

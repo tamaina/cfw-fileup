@@ -26,6 +26,7 @@ export const authApiDef = {
 		req: v.object({
 			username: v.string(),
 			password: v.string(),
+			backupCode: v.optional(v.string()),
 			turnstileToken: v.optional(v.string()),
 		}),
 		res: {

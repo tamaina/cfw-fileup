@@ -42,6 +42,54 @@ app.post(
 );
 
 app.post(
+	'/unsuspend-user',
+	describeRoute(omitResAndReq(apiDef['/api/admin/unsuspend-user'])),
+	validator('json', apiDef['/api/admin/unsuspend-user'].req),
+	describeResponse(async (c: JsonCtx<'/api/admin/unsuspend-user', Env>) => {
+		const db = getDb(c.env);
+		const body = c.req.valid('json');
+
+		if (!body.userId) {
+			throw new HTTPException(400, { message: 'userId is required' });
+		}
+
+		const user = await db.select().from(users).where(eq(users.id, body.userId)).get();
+
+		if (!user) {
+			throw new HTTPException(404, { message: 'User not found' });
+		}
+
+		await db.update(users).set({ isSuspended: false }).where(eq(users.id, body.userId));
+
+		return c.json({ ok: true }, 200);
+	}, getResponseDefWithAuth('/api/admin/unsuspend-user')),
+);
+
+app.post(
+	'/make-admin',
+	describeRoute(omitResAndReq(apiDef['/api/admin/make-admin'])),
+	validator('json', apiDef['/api/admin/make-admin'].req),
+	describeResponse(async (c: JsonCtx<'/api/admin/make-admin', Env>) => {
+		const db = getDb(c.env);
+		const body = c.req.valid('json');
+
+		if (!body.userId) {
+			throw new HTTPException(400, { message: 'userId is required' });
+		}
+
+		const user = await db.select().from(users).where(eq(users.id, body.userId)).get();
+
+		if (!user) {
+			throw new HTTPException(404, { message: 'User not found' });
+		}
+
+		await db.update(users).set({ isAdmin: true }).where(eq(users.id, body.userId));
+
+		return c.json({ ok: true }, 200);
+	}, getResponseDefWithAuth('/api/admin/make-admin')),
+);
+
+app.post(
 	'/delete-file',
 	describeRoute(omitResAndReq(apiDef['/api/admin/delete-file'])),
 	validator('json', apiDef['/api/admin/delete-file'].req),

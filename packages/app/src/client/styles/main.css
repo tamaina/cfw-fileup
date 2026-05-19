@@ -100,6 +100,7 @@ code { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.9em; 
   font-size: 0.875rem;
 }
 .app-nav-username { font-weight: 500; color: var(--color-text); }
+
 .app-nav-user-menu,
 .action-menu {
   min-width: 140px;
@@ -108,6 +109,11 @@ code { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.9em; 
   border-radius: var(--radius);
   box-shadow: 0 4px 12px rgba(0,0,0,.12);
   padding: 4px;
+}
+.app-nav-user-menu-inner,
+.action-menu-inner {
+  display: flex;
+  flex-direction: column;
 }
 
 /* Responsive nav: two-row layout on small screens */
@@ -221,7 +227,10 @@ code { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.9em; 
   color: var(--color-danger);
   border-color: transparent;
 }
-.btn-ghost-danger:hover { background: #fef2f2; }
+.btn-ghost-danger:hover {
+  color: #fff;
+  background: var(--color-danger-hover);
+}
 
 .btn-lg { padding: 10px 20px; font-size: 1rem; }
 .btn-icon {

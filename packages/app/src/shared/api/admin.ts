@@ -23,6 +23,18 @@ export const adminApiDef = {
 		req: v.object({ userId: v.string() }),
 		res: { ...OkResponse, ...AdminErrors, 400: { description: 'Bad request (missing userId)', content: { 'application/json': { vSchema: ErrorResponse } } }, 404: { description: 'User not found', content: { 'application/json': { vSchema: ErrorResponse } } } },
 	},
+	'/api/admin/unsuspend-user': {
+		summary: 'Unsuspend a user',
+		tags: ['admin'],
+		req: v.object({ userId: v.string() }),
+		res: { ...OkResponse, ...AdminErrors, 400: { description: 'Bad request (missing userId)', content: { 'application/json': { vSchema: ErrorResponse } } }, 404: { description: 'User not found', content: { 'application/json': { vSchema: ErrorResponse } } } },
+	},
+	'/api/admin/make-admin': {
+		summary: 'Make a user an admin',
+		tags: ['admin'],
+		req: v.object({ userId: v.string() }),
+		res: { ...OkResponse, ...AdminErrors, 400: { description: 'Bad request (missing userId)', content: { 'application/json': { vSchema: ErrorResponse } } }, 404: { description: 'User not found', content: { 'application/json': { vSchema: ErrorResponse } } } },
+	},
 	'/api/admin/delete-file': {
 		summary: 'Delete a file',
 		tags: ['admin'],
@@ -75,7 +87,8 @@ export const adminApiDef = {
 		tags: ['admin'],
 		req: v.object({ userId: v.string() }),
 		res: { ...OkResponse, ...AdminErrors, 404: { description: 'User not found', content: { 'application/json': { vSchema: ErrorResponse } } } },
-	},	'/api/admin/list-users': {
+	},
+	'/api/admin/list-users': {
 		summary: 'List all users',
 		tags: ['admin'],
 		req: v.object({}),

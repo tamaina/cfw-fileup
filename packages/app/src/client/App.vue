@@ -72,9 +72,11 @@ function toggleTheme(): void {
                 {{ authStore.user.username }}
               </Popover.Activator>
               <Popover.Content class="app-nav-user-menu">
-                <Button.Root class="btn btn-ghost w-full" :class="$style.logoutBtn" @click="logout">
-                  <Button.Content>ログアウト</Button.Content>
-                </Button.Root>
+                <div class="app-nav-user-menu-inner">
+                  <Button.Root class="btn btn-ghost w-full" :class="$style.logoutBtn" @click="logout">
+                    <Button.Content>ログアウト</Button.Content>
+                  </Button.Root>
+                </div>
               </Popover.Content>
             </Popover.Root>
           </template>

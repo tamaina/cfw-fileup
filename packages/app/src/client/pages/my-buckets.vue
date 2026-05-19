@@ -195,9 +195,11 @@ onMounted(loadBuckets);
                         …
                       </Popover.Activator>
                       <Popover.Content class="action-menu">
-                        <Button.Root class="btn btn-ghost-danger w-full" :class="$style.menuItem" @click="requestDelete(b)">
-                          <Button.Content>削除</Button.Content>
-                        </Button.Root>
+                        <div class="action-menu-inner">
+                          <Button.Root class="btn btn-ghost-danger w-full" :class="$style.menuItem" @click="requestDelete(b)">
+                            <Button.Content>削除</Button.Content>
+                          </Button.Root>
+                        </div>
                       </Popover.Content>
                     </Popover.Root>
                   </div>

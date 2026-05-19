@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { describeResponse, describeRoute, validator } from 'hono-openapi';
-import { eq, count } from 'drizzle-orm';
-import { users, tokens, appSettings, usedUsernames } from '../scheme/index';
+import { eq, count, and } from 'drizzle-orm';
+import { users, tokens, appSettings, usedUsernames, passkeys, backupCodes } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { hashPassword, verifyPassword, generateToken } from '../utils/crypto';
 import { genEaidx } from '../../shared/eaid-x';
@@ -12,6 +12,21 @@ import { apiDef, type JsonCtx } from '../../shared/api';
 import { omitResAndReq } from '../utils/omit';
 
 const app = new Hono<{ Bindings: Env }>();
+
+function uint8ArrayToBase64(arr: Uint8Array): string {
+	let binary = '';
+	for (let i = 0; i < arr.length; i++) {
+		// eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+		binary += String.fromCharCode(arr[i]!);
+	}
+	return btoa(binary);
+}
+
+async function hashBackupCode(code: string): Promise<string> {
+	const data = new TextEncoder().encode(code);
+	const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+	return uint8ArrayToBase64(new Uint8Array(hashBuffer));
+}
 
 app.post(
 	'/signup',
@@ -123,6 +138,32 @@ app.post(
 		const passwordValid = await verifyPassword(password, user.passwordHash);
 		if (!passwordValid) {
 			throw new HTTPException(401, { message: 'Invalid credentials' });
+		}
+
+		const userPasskeys = await db
+			.select({ id: passkeys.id })
+			.from(passkeys)
+			.where(eq(passkeys.userId, user.id))
+			.limit(1);
+
+		if (userPasskeys.length > 0) {
+			const normalizedBackupCode = body.backupCode?.toUpperCase().replace(/[\s-]/g, '') ?? '';
+			if (!normalizedBackupCode) {
+				throw new HTTPException(401, { message: 'Backup code required' });
+			}
+
+			const codeHash = await hashBackupCode(normalizedBackupCode);
+			const codeRecord = await db
+				.select()
+				.from(backupCodes)
+				.where(and(eq(backupCodes.userId, user.id), eq(backupCodes.codeHash, codeHash)))
+				.get();
+
+			if (!codeRecord || codeRecord.usedAt !== null) {
+				throw new HTTPException(401, { message: 'Invalid credentials or code' });
+			}
+
+			await db.update(backupCodes).set({ usedAt: Date.now() }).where(eq(backupCodes.id, codeRecord.id));
 		}
 
 		const tokenId = genEaidx(Date.now());

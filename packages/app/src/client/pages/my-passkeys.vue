@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { computed, ref, onMounted } from 'vue';
 import { Button, Form } from '@vuetify/v0';
 import {
 	startRegistration,
@@ -7,6 +7,7 @@ import {
 import type { PublicKeyCredentialCreationOptionsJSON } from '@simplewebauthn/browser';
 import { apiPost } from '../utils/api';
 import type { ApiReq } from '../../shared/api';
+import ConfirmDialog from '../components/confirm-dialog.vue';
 
 interface PasskeyItem {
 	id: string;
@@ -32,6 +33,9 @@ const backupCodes = ref<string[]>([]);
 const generatingCodes = ref(false);
 const backupCodeError = ref('');
 const showGenerateConfirm = ref(false);
+const shouldWarnBackupCodes = computed(() =>
+	passkeys.value.length > 0 && backupCodeStatus.value?.count === 0,
+);
 
 async function loadPasskeys(): Promise<void> {
 	loading.value = true;
@@ -161,6 +165,58 @@ onMounted(async () => {
       パスキー（FIDO2 / WebAuthn）を登録すると、パスワード不要でサインインできます。
     </p>
 
+    <!-- Backup codes section -->
+    <div :class="['card', $style.backupCard, shouldWarnBackupCodes && $style.backupCardWarning]">
+      <h3 :class="$style.backupTitle">バックアップコード</h3>
+      <p :class="$style.backupDescription">
+        パスキーが使えない場合、安全のためバックアップコードを入力する必要があります。<br>
+        新しいコードを生成すると、古いコードはすべて無効になります。
+      </p>
+      <div v-if="backupCodeStatus" :class="$style.backupStatus">
+        <span v-if="backupCodeStatus.count === 0" :class="$style.mutedText">
+          バックアップコードが生成されていません
+        </span>
+        <span v-else>
+          残り <strong>{{ backupCodeStatus.remaining }}</strong> / {{ backupCodeStatus.count }} コード
+        </span>
+      </div>
+      <div v-if="passkeys.length === 0" :class="$style.mutedText">
+        バックアップコードを生成するには、先にパスキーを登録してください。
+      </div>
+      <div v-else-if="backupCodes.length === 0">
+        <Button.Root
+          :class="shouldWarnBackupCodes ? ['btn', 'btn-danger', $style.backupNeedsBtn] : ['btn', 'btn-secondary']"
+          :loading="generatingCodes"
+          @click="backupCodeStatus && backupCodeStatus.count > 0 ? showGenerateConfirm = true : generateBackupCodes()"
+        >
+          <Button.Loading>生成中...</Button.Loading>
+          <Button.Content>バックアップコードを生成</Button.Content>
+        </Button.Root>
+      </div>
+      <div v-if="shouldWarnBackupCodes" class="alert alert-warning">
+        パスキーをなくしたときにログインできなくなる可能性があります。バックアップコードを生成して安全な場所に保管してください。
+      </div>
+
+      <div v-if="backupCodeError" :class="['alert', 'alert-error', $style.inlineAlert]">
+        {{ backupCodeError }}
+      </div>
+
+      <div v-if="backupCodes.length > 0" :class="$style.backupCodesSection">
+        <p :class="$style.backupCodesWarning">
+          ⚠️ このコードは今後表示されません。必ず安全な場所に保存してください。
+        </p>
+        <div :class="$style.backupCodesGrid">
+          <div
+            v-for="code in backupCodes"
+            :key="code"
+            :class="$style.backupCode"
+          >
+            {{ formatBackupCode(code) }}
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Register section -->
     <div :class="['card', $style.registerCard]">
       <h3 :class="$style.sectionTitle">新しいパスキーを登録</h3>
@@ -204,88 +260,41 @@ onMounted(async () => {
       <div v-else-if="passkeys.length === 0" :class="$style.emptyText">
         登録済みのパスキーはありません。
       </div>
-      <div v-else :class="$style.passkeyList">
-        <div
-          v-for="pk in passkeys"
-          :key="pk.id"
-          :class="$style.passkeyItem"
-        >
-          <div>
-            <div :class="$style.passkeyName">
-              {{ pk.name ?? '（名前なし）' }}
-            </div>
-            <div :class="$style.passkeyMeta">
-              登録日時: {{ formatDate(pk.createdAt) }}
-            </div>
-          </div>
-          <Button.Root
-            :class="['btn', 'btn-ghost', $style.deleteButton]"
-            @click="deletePasskey(pk.id)"
-          >
-            <Button.Content>削除</Button.Content>
-          </Button.Root>
-        </div>
+      <div v-else class="table-responsive">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>名前</th>
+              <th>登録日時</th>
+              <th class="col-actions"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="pk in passkeys" :key="pk.id">
+              <td :class="$style.passkeyName">{{ pk.name ?? '（名前なし）' }}</td>
+              <td class="col-muted">{{ formatDate(pk.createdAt) }}</td>
+              <td class="col-actions">
+                <Button.Root
+                  :class="['btn', 'btn-ghost', $style.deleteButton]"
+                  @click="deletePasskey(pk.id)"
+                >
+                  <Button.Content>削除</Button.Content>
+                </Button.Root>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
-    <!-- Backup codes section -->
-    <div :class="['card', $style.backupCard]">
-      <h3 :class="$style.backupTitle">バックアップコード</h3>
-      <p :class="$style.backupDescription">
-        パスキーが使えないときにログインできるコードです。安全な場所に保管してください。
-        新しいコードを生成すると、古いコードはすべて無効になります。
-      </p>
-      <div v-if="backupCodeStatus" :class="$style.backupStatus">
-        <span v-if="backupCodeStatus.count === 0" :class="$style.mutedText">
-          バックアップコードが生成されていません
-        </span>
-        <span v-else>
-          残り <strong>{{ backupCodeStatus.remaining }}</strong> / {{ backupCodeStatus.count }} コード
-        </span>
-      </div>
-
-      <div v-if="passkeys.length === 0" :class="$style.mutedText">
-        バックアップコードを生成するには、先にパスキーを登録してください。
-      </div>
-      <div v-else-if="!showGenerateConfirm">
-        <Button.Root
-          class="btn btn-secondary"
-          :loading="generatingCodes"
-          @click="backupCodeStatus && backupCodeStatus.count > 0 ? showGenerateConfirm = true : generateBackupCodes()"
-        >
-          <Button.Loading>生成中...</Button.Loading>
-          <Button.Content>バックアップコードを生成</Button.Content>
-        </Button.Root>
-      </div>
-      <div v-else :class="$style.confirmRow">
-        <span :class="$style.warningText">既存のコードが無効になります。続けますか？</span>
-        <Button.Root class="btn btn-danger btn-sm" @click="generateBackupCodes">
-          <Button.Content>生成する</Button.Content>
-        </Button.Root>
-        <Button.Root class="btn btn-ghost btn-sm" @click="showGenerateConfirm = false">
-          <Button.Content>キャンセル</Button.Content>
-        </Button.Root>
-      </div>
-
-      <div v-if="backupCodeError" :class="['alert', 'alert-error', $style.inlineAlert]">
-        {{ backupCodeError }}
-      </div>
-
-      <div v-if="backupCodes.length > 0" :class="$style.backupCodesSection">
-        <p :class="$style.backupCodesWarning">
-          ⚠️ このコードは今後表示されません。必ず保存してください。
-        </p>
-        <div :class="$style.backupCodesGrid">
-          <div
-            v-for="code in backupCodes"
-            :key="code"
-            :class="$style.backupCode"
-          >
-            {{ formatBackupCode(code) }}
-          </div>
-        </div>
-      </div>
-    </div>
+    <ConfirmDialog
+      v-model:open="showGenerateConfirm"
+      title="バックアップコードを再生成"
+      message="既存のコードが無効になります。続けますか？"
+      confirm-label="生成する"
+      :danger="true"
+      @confirm="generateBackupCodes"
+    />
   </div>
 </template>
 
@@ -308,7 +317,6 @@ onMounted(async () => {
 
 .registerCard {
   padding: 16px;
-  margin-bottom: 24px;
 }
 
 .sectionTitle {
@@ -342,34 +350,8 @@ onMounted(async () => {
   padding: 16px;
 }
 
-.passkeyList {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.passkeyItem {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 0;
-  border-top: 1px solid var(--color-border);
-}
-
-.passkeyItem:first-child {
-  padding-top: 0;
-  border-top: none;
-}
-
 .passkeyName {
   font-weight: 500;
-}
-
-.passkeyMeta {
-  margin-top: 4px;
-  color: var(--color-text-subtle);
-  font-size: 0.8rem;
 }
 
 .deleteButton {
@@ -380,6 +362,11 @@ onMounted(async () => {
 .backupCard {
   padding: 16px;
   margin-top: 32px;
+}
+
+.backupCardWarning {
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.18), var(--shadow-sm);
 }
 
 .backupTitle {
@@ -395,17 +382,6 @@ onMounted(async () => {
 
 .backupStatus {
   margin-bottom: 12px;
-  font-size: 0.875rem;
-}
-
-.confirmRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.warningText {
-  color: var(--color-warning);
   font-size: 0.875rem;
 }
 
@@ -433,5 +409,9 @@ onMounted(async () => {
 .backupCode {
   font-size: 1rem;
   letter-spacing: 0.05em;
+}
+
+.backupNeedsBtn {
+  margin-bottom: 12px;
 }
 </style>

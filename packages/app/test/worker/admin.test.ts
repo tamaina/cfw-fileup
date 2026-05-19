@@ -27,6 +27,8 @@ describe('Admin access control', () => {
 
 		const endpoints = [
 			{ path: '/api/admin/suspend-user', body: { userId: 'x' } },
+			{ path: '/api/admin/unsuspend-user', body: { userId: 'x' } },
+			{ path: '/api/admin/make-admin', body: { userId: 'x' } },
 			{ path: '/api/admin/delete-file', body: { fileId: 'x' } },
 			{ path: '/api/admin/delete-bucket', body: { bucketId: 'x' } },
 			{ path: '/api/admin/toggle-registration', body: { enabled: false } },
@@ -63,6 +65,85 @@ describe('POST /api/admin/suspend-user', () => {
 		const { adminToken } = await setupAdminAndUser();
 
 		const res = await app.request('/api/admin/suspend-user', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ userId: 'nonexistent' }),
+		}, env);
+		expect(res.status).toBe(404);
+	});
+});
+
+describe('POST /api/admin/unsuspend-user', () => {
+	test('admin can unsuspend a user', async () => {
+		const { adminToken, userId } = await setupAdminAndUser();
+
+		await app.request('/api/admin/suspend-user', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ userId }),
+		}, env);
+
+		const res = await app.request('/api/admin/unsuspend-user', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ userId }),
+		}, env);
+		expect(res.status).toBe(200);
+
+		const listRes = await app.request('/api/admin/list-users', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({}),
+		}, env);
+		expect(listRes.status).toBe(200);
+		const users = await listRes.json() as Array<{ id: string; isSuspended: boolean }>;
+		expect(users.find((user) => user.id === userId)?.isSuspended).toBe(false);
+	});
+
+	test('nonexistent user returns 404', async () => {
+		const { adminToken } = await setupAdminAndUser();
+
+		const res = await app.request('/api/admin/unsuspend-user', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ userId: 'nonexistent' }),
+		}, env);
+		expect(res.status).toBe(404);
+	});
+});
+
+describe('POST /api/admin/make-admin', () => {
+	test('admin can make another user an admin', async () => {
+		const { adminToken, userToken, userId } = await setupAdminAndUser();
+
+		const res = await app.request('/api/admin/make-admin', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ userId }),
+		}, env);
+		expect(res.status).toBe(200);
+
+		const listRes = await app.request('/api/admin/list-users', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({}),
+		}, env);
+		expect(listRes.status).toBe(200);
+		const users = await listRes.json() as Array<{ id: string; isAdmin: boolean }>;
+		expect(users.find((user) => user.id === userId)?.isAdmin).toBe(true);
+
+		const promotedAdminRes = await app.request('/api/admin/get-global-quota', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({}),
+		}, env);
+		expect(promotedAdminRes.status).toBe(200);
+	});
+
+	test('nonexistent user returns 404', async () => {
+		const { adminToken } = await setupAdminAndUser();
+
+		const res = await app.request('/api/admin/make-admin', {
 			method: 'POST',
 			headers: authHeaders(adminToken),
 			body: JSON.stringify({ userId: 'nonexistent' }),

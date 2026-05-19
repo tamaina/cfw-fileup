@@ -1,19 +1,20 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { describeResponse, describeRoute, validator } from 'hono-openapi';
-import { eq, and, lt } from 'drizzle-orm';
+import { eq, and, lt, count } from 'drizzle-orm';
 import {
 	generateRegistrationOptions,
 	verifyRegistrationResponse,
 	generateAuthenticationOptions,
 	verifyAuthenticationResponse,
 } from '@simplewebauthn/server';
-import { passkeys, passkeysChallenges, backupCodes, tokens, users } from '../scheme/index';
+import { passkeys, passkeysChallenges, backupCodes, tokens, users, appSettings, usedUsernames } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { authMiddleware } from '../middleware/auth';
 import { genEaidx, parseEaidx } from '../../shared/eaid-x';
 import { generateToken, verifyPassword } from '../utils/crypto';
 import { isValidNameFormat } from '../../shared/name-validation';
+import { validateUsername } from '../utils/name-validation';
 import { apiDef, getResponseDefWithAuth, type JsonCtx } from '../../shared/api';
 import { omitResAndReq } from '../utils/omit';
 import type { AuthenticatorTransportFuture } from '@simplewebauthn/server';
@@ -440,7 +441,7 @@ app.post(
 			throw new HTTPException(401, { message: 'Invalid credentials or code' });
 		}
 
-		const codeHash = await hashBackupCode(code.toUpperCase().replace(/\s/g, ''));
+		const codeHash = await hashBackupCode(code.toUpperCase().replace(/[\s-]/g, ''));
 
 		const codeRecord = await db
 			.select()
@@ -471,16 +472,46 @@ app.post(
 	describeResponse(async (c: JsonCtx<'/api/passkey/signup/begin', Env>) => {
 		const db = getDb(c.env);
 		const { rpID } = getRpInfo(c.req.url);
-		const { username } = c.req.valid('json');
+		const { username, passphrase } = c.req.valid('json');
 		const trimmed = username.trim();
 
 		if (!isValidNameFormat(trimmed)) {
 			throw new HTTPException(400, { message: 'Invalid username format' });
 		}
 
+		const userCount = await db.select({ count: count() }).from(users);
+		const isFirstUser = (userCount[0]?.count ?? 0) === 0;
+
+		const registrationModeSetting = await db
+			.select()
+			.from(appSettings)
+			.where(eq(appSettings.key, 'registration_mode'))
+			.get();
+
+		const registrationMode = (registrationModeSetting?.value ?? 'passphrase') as 'closed' | 'passphrase' | 'open';
+
+		if (!isFirstUser && registrationMode === 'closed') {
+			throw new HTTPException(403, { message: 'Registration is closed' });
+		}
+
+		if (registrationMode === 'passphrase') {
+			const signupPassphrase = c.env.SIGNUP_PASSPHRASE;
+			if (!signupPassphrase || !passphrase || passphrase !== signupPassphrase) {
+				throw new HTTPException(403, { message: 'Invalid passphrase' });
+			}
+		}
+
 		const existing = await db.select({ id: users.id }).from(users).where(eq(users.username, trimmed)).get();
 		if (existing) {
 			throw new HTTPException(409, { message: 'Username already taken' });
+		}
+
+		if (!isFirstUser) {
+			const usernameError = await validateUsername(db, trimmed);
+			if (usernameError) {
+				const status = usernameError === 'Username already exists' ? 409 : 400;
+				throw new HTTPException(status, { message: usernameError });
+			}
 		}
 
 		const tempUserId = genEaidx(Date.now());
@@ -550,6 +581,16 @@ app.post(
 			throw new HTTPException(409, { message: 'Username already taken' });
 		}
 
+		const userCount = await db.select({ count: count() }).from(users);
+		const isFirstUser = (userCount[0]?.count ?? 0) === 0;
+		if (!isFirstUser) {
+			const usernameError = await validateUsername(db, username);
+			if (usernameError) {
+				const status = usernameError === 'Username already exists' ? 409 : 400;
+				throw new HTTPException(status, { message: usernameError });
+			}
+		}
+
 		let verification;
 		try {
 			verification = await verifyRegistrationResponse({
@@ -568,7 +609,11 @@ app.post(
 
 		const { credential: cred } = verification.registrationInfo;
 
-		await db.insert(users).values({ id: userId, username, passwordHash: null, isSuspended: false });
+		await db.insert(users).values({ id: userId, username, passwordHash: null, isAdmin: isFirstUser, isSuspended: false });
+		await db
+			.insert(usedUsernames)
+			.values({ username: username.toLowerCase() })
+			.onConflictDoNothing();
 
 		const passkeyId = genEaidx(Date.now());
 		await db.insert(passkeys).values({
