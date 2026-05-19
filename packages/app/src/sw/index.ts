@@ -1,6 +1,13 @@
 import { isBgzf, createBgzfDecompressor } from 'bgzf';
 
+declare global {
+	interface WorkerGlobalScope {
+		__WB_MANIFEST: unknown[];
+	}
+}
+
 const sw = self as unknown as ServiceWorkerGlobalScope;
+void self.__WB_MANIFEST;
 
 // Issue #15: Individual file from BGZF tar.gz
 // If the filename (from Content-Disposition) does not end with .gz but the

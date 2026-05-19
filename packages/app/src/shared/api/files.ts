@@ -1,6 +1,7 @@
 import * as v from 'valibot';
 import type { ApiEndpointDefinitionRecord } from '../api.types.js';
 import { ErrorResponse } from '../api.schemas.js';
+import { fileVisibilitySchema } from '../file-visibility.js';
 
 const UploadingFileResponse = v.pipe(
 	v.object({
@@ -10,12 +11,27 @@ const UploadingFileResponse = v.pipe(
 		path: v.string(),
 		size: v.nullable(v.number()),
 		isClosed: v.boolean(),
-		isPublic: v.boolean(),
+		visibility: fileVisibilitySchema,
 		uploadExpiresAt: v.number(),
 		isTargz: v.boolean(),
 		isTar: v.boolean(),
 	}),
 	v.metadata({ ref: 'UploadingFile' }),
+);
+
+const FileListEntry = v.pipe(
+	v.object({
+		type: v.union([v.literal('dir'), v.literal('file')]),
+		name: v.string(),
+		path: v.optional(v.string()),
+		fileId: v.optional(v.string()),
+		size: v.optional(v.number()),
+		mimeType: v.optional(v.string()),
+		isTargz: v.optional(v.boolean()),
+		isTar: v.optional(v.boolean()),
+		visibility: v.optional(fileVisibilitySchema),
+	}),
+	v.metadata({ ref: 'FileListEntry' }),
 );
 
 export const filesApiDef = {
@@ -82,7 +98,7 @@ export const filesApiDef = {
 		tags: ['files'],
 		req: v.object({
 			fileId: v.string(),
-			isPublic: v.boolean(),
+			visibility: fileVisibilitySchema,
 			passphrase: v.optional(v.string()),
 		}),
 		res: {
@@ -105,18 +121,33 @@ export const filesApiDef = {
 			404: { description: 'File not found', content: { 'application/json': { vSchema: ErrorResponse } } },
 		},
 	},
+	'/api/files/ls': {
+		summary: 'List files in a bucket path',
+		tags: ['files'],
+		req: v.object({
+			bucketName: v.string(),
+			path: v.optional(v.string()),
+		}),
+		res: {
+			200: { description: 'Success', content: { 'application/json': { vSchema: v.object({
+				type: v.literal('directory'),
+				entries: v.array(FileListEntry),
+			}) } } },
+			404: { description: 'Bucket or directory not found', content: { 'application/json': { vSchema: ErrorResponse } } },
+		},
+	},
 	'/api/files/update': {
 		summary: 'Update file visibility',
 		tags: ['files'],
 		req: v.object({
 			bucketName: v.string(),
 			filePath: v.string(),
-			isPublic: v.boolean(),
+			visibility: fileVisibilitySchema,
 			passphrase: v.optional(v.string()),
 		}),
 		res: {
 			200: { description: 'Success', content: { 'application/json': { vSchema: v.object({ ok: v.literal(true) }) } } },
-			400: { description: 'Bad request (missing fields or file not closed)', content: { 'application/json': { vSchema: ErrorResponse } } },
+			400: { description: 'Bad request (missing fields, file not closed, or public file cannot be made private)', content: { 'application/json': { vSchema: ErrorResponse } } },
 			404: { description: 'Bucket or file not found', content: { 'application/json': { vSchema: ErrorResponse } } },
 		},
 	},
@@ -139,6 +170,22 @@ export const filesApiDef = {
 			200: { description: 'Success', content: { 'application/json': { vSchema: v.object({ ok: v.literal(true) }) } } },
 			400: { description: 'Bad request (missing fields)', content: { 'application/json': { vSchema: ErrorResponse } } },
 			404: { description: 'File or bucket not found', content: { 'application/json': { vSchema: ErrorResponse } } },
+		},
+	},
+	'/api/files/meta': {
+		summary: 'Get file metadata by bucket name and path',
+		tags: ['files'],
+		req: v.object({}),
+		res: {
+			200: { description: 'Success', content: { 'application/json': { vSchema: v.object({
+				visibility: fileVisibilitySchema,
+				isTargz: v.boolean(),
+				isTar: v.boolean(),
+				size: v.nullable(v.number()),
+				fileId: v.optional(v.string()),
+				bucketId: v.optional(v.string()),
+			}) } } },
+			404: { description: 'Bucket or file not found', content: { 'application/json': { vSchema: ErrorResponse } } },
 		},
 	},
 } as const satisfies ApiEndpointDefinitionRecord;

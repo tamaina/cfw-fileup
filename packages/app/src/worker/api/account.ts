@@ -48,6 +48,9 @@ app.post(
 			throw new HTTPException(404, { message: 'User not found' });
 		}
 
+		if (!userRecord.passwordHash) {
+			throw new HTTPException(401, { message: 'Invalid password' });
+		}
 		const passwordValid = await verifyPassword(body.currentPassword, userRecord.passwordHash);
 		if (!passwordValid) {
 			throw new HTTPException(401, { message: 'Invalid password' });

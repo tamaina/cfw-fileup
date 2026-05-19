@@ -1,15 +1,15 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
+import type { FileVisibility } from '../../shared/file-visibility';
 import { Button, Progress } from '@vuetify/v0';
 import { authHeaders, authStore } from '../store/auth';
 import { apiPost } from '../utils/api';
 import NirA from '@/components/nira.vue';
 import { TarArchiver, BgzfTarArchiver, type TarIndex, type TarGzIndex, type ArchiveProgress } from 'bgzf';
 import { takePendingUpload } from '@/store/pending-upload';
+import UploadDestinationDialog from '@/components/upload-destination-dialog.vue';
 
 type ArchiveMode = 'individual' | 'gz' | 'tar' | 'targz';
-
-const props = defineProps<{ bucketName: string }>();
 
 interface Bucket {
 	id: string;
@@ -24,7 +24,8 @@ interface Bucket {
 const DEFAULT_CHUNK_SIZE = 32 * 1024 * 1024;
 
 const buckets = ref<Bucket[]>([]);
-const selectedBucketName = ref(props.bucketName);
+const selectedBucketName = ref('');
+const destinationDialogOpen = ref(false);
 const bucket = computed(() => buckets.value.find(b => b.name === selectedBucketName.value) ?? null);
 const loadError = ref('');
 
@@ -33,7 +34,7 @@ const uploadPrefix = ref('');
 const selectedDir = ref<FileSystemDirectoryHandle | null>(null);
 const selectedDirName = ref('');
 const archiveMode = ref<ArchiveMode>('individual');
-const isPublic = ref(true);
+const visibility = ref<FileVisibility>('public');
 const passphrase = ref('');
 interface UploadProgress {
 	filename: string;
@@ -76,6 +77,9 @@ async function loadBucket(): Promise<void> {
 		return;
 	}
 	buckets.value = result.data.buckets;
+	if (!selectedBucketName.value && buckets.value.length > 0) {
+		selectedBucketName.value = buckets.value[0].name;
+	}
 }
 
 async function pickDirectory(): Promise<void> {
@@ -183,11 +187,9 @@ async function tusUpload(fileId: string, blob: Blob, filename: string, partSize:
 // ---- Core upload primitives ----
 
 async function deleteExistingFile(path: string): Promise<boolean> {
-	const res = await fetch(`/d/${selectedBucketName.value}/${path}`, {
-		method: 'DELETE',
-		headers: authHeaders(),
-	});
-	return res.ok;
+	if (!bucket.value) return false;
+	const result = await apiPost('/api/files/delete', { bucketId: bucket.value.id, path });
+	return result.ok;
 }
 
 interface OpenUploadResult {
@@ -204,7 +206,7 @@ async function openUpload(path: string): Promise<OpenUploadResult | null> {
 }
 
 async function closeUpload(fileId: string): Promise<boolean> {
-	const result = await apiPost('/api/files/create/close', { fileId, isPublic: isPublic.value, passphrase: passphrase.value || undefined });
+	const result = await apiPost('/api/files/create/close', { fileId, visibility: visibility.value, passphrase: passphrase.value || undefined });
 	if (!result.ok) {
 		uploadError.value = result.data.error;
 		return false;
@@ -493,8 +495,18 @@ async function startUpload(): Promise<void> {
 	if (paths.length > 0) {
 		const conflicts: string[] = [];
 		for (const path of paths) {
-			const res = await fetch(`/d/${selectedBucketName.value}/${path}?meta`);
-			if (res.ok) conflicts.push(path);
+			const lastSlash = path.lastIndexOf('/');
+			const parentPath = lastSlash === -1 ? '' : path.slice(0, lastSlash + 1);
+			const fileName = path.slice(lastSlash + 1);
+			const res = await fetch(`/api/files/ls?bucketName=${encodeURIComponent(selectedBucketName.value)}&path=${encodeURIComponent(parentPath)}`, {
+				headers: authHeaders(),
+			});
+			if (res.ok) {
+				const data = await res.json() as { entries: Array<{ type: string; name: string }> };
+				if (data.entries.some(e => e.type === 'file' && e.name === fileName)) {
+					conflicts.push(path);
+				}
+			}
 		}
 		if (conflicts.length > 0) {
 			const msg = `以下のパスにすでにファイルが存在します:\n${conflicts.join('\n')}\n\n上書きしますか？`;
@@ -582,6 +594,7 @@ onMounted(async () => {
 	await loadBucket();
 	const pending = takePendingUpload();
 	if (pending) {
+		if (pending.bucketName) selectedBucketName.value = pending.bucketName;
 		selectedFiles.value = pending.files;
 		uploadPrefix.value = pending.prefix;
 	}
@@ -597,14 +610,26 @@ onMounted(async () => {
     <div v-if="!authStore.user" class="alert alert-info">ログインが必要です。</div>
     <div v-else-if="loadError" class="alert alert-error">{{ loadError }}</div>
     <template v-else>
-      <!-- バケット選択 -->
+      <!-- アップロード先選択 -->
       <div class="upload-section">
-        <p class="upload-section-title">バケット</p>
-        <div :class="[$style.bucketSelectWrapper, 'form-group']">
-          <select v-model="selectedBucketName" class="form-input">
-            <option v-for="b in buckets" :key="b.id" :value="b.name">{{ b.name }}</option>
-          </select>
+        <p class="upload-section-title">アップロード先</p>
+        <div :class="$style.destinationRow">
+          <template v-if="selectedBucketName">
+            <span :class="[$style.destinationDisplay, 'font-mono']">{{ selectedBucketName }}/{{ uploadPrefix }}</span>
+            <Button.Root class="btn btn-secondary" @click="destinationDialogOpen = true">
+              <Button.Content>変更</Button.Content>
+            </Button.Root>
+          </template>
+          <template v-else>
+            <Button.Root class="btn btn-primary" @click="destinationDialogOpen = true">
+              <Button.Content>アップロード先を選択</Button.Content>
+            </Button.Root>
+          </template>
         </div>
+        <UploadDestinationDialog
+          v-model:open="destinationDialogOpen"
+          @select="({ bucketName, prefix }) => { selectedBucketName = bucketName; uploadPrefix = prefix; }"
+        />
       </div>
 
       <!-- ファイル選択 -->
@@ -631,19 +656,6 @@ onMounted(async () => {
             </Button.Root>
             <span v-if="selectedDirName" class="badge badge-info">{{ selectedDirName }}</span>
           </template>
-        </div>
-
-        <div :class="[$style.prefixGroup, 'form-group', 'mt-3']">
-          <label class="form-label">アップロード先パス (任意)</label>
-          <div class="form-row">
-            <span :class="[$style.prefixBucketName, 'form-hint', 'font-mono']">{{ selectedBucketName }}/</span>
-            <input
-              v-model="uploadPrefix"
-              class="form-input form-input-mono"
-              type="text"
-              placeholder="folder/path/"
-            >
-          </div>
         </div>
 
         <div v-if="selectedDir || (selectedFiles && selectedFiles.length > 0)" class="mt-3">
@@ -673,18 +685,29 @@ onMounted(async () => {
       <div class="upload-section">
         <p class="upload-section-title">オプション</p>
         <div :class="$style.optionsList">
-          <label class="checkbox-label">
-            <input v-model="isPublic" type="checkbox" :class="$style.radioInput">
-            公開ファイル
+          <label class="radio-label">
+            <input v-model="visibility" type="radio" value="public" :class="$style.radioInput">
+            公開
           </label>
-          <div :class="[$style.passphraseGroup, 'form-group']">
-            <label class="form-label" for="upload-passphrase">合言葉 (任意)</label>
+          <label class="radio-label">
+            <input v-model="visibility" type="radio" value="private" :class="$style.radioInput">
+            非公開
+          </label>
+          <label class="radio-label">
+            <input v-model="visibility" type="radio" value="passphrase" :class="$style.radioInput">
+            合言葉で保護
+          </label>
+          <div v-if="visibility === 'public'" class="form-hint">
+            一度公開したファイルは非公開に戻せません。
+          </div>
+          <div v-if="visibility === 'passphrase'" :class="[$style.passphraseGroup, 'form-group']">
+            <label class="form-label" for="upload-passphrase">合言葉</label>
             <input
               id="upload-passphrase"
               v-model="passphrase"
               class="form-input"
               type="text"
-              placeholder="非公開ファイルのパスワード"
+              placeholder="アクセス用の合言葉"
             >
           </div>
         </div>
@@ -738,8 +761,19 @@ onMounted(async () => {
 </template>
 
 <style module lang="scss">
-.bucketSelectWrapper {
-  max-width: 280px;
+.destinationRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.destinationDisplay {
+  font-size: 0.9rem;
+  background: var(--color-surface);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  word-break: break-all;
 }
 
 .fileLabel {
@@ -748,15 +782,6 @@ onMounted(async () => {
 
 .hiddenInput {
   display: none;
-}
-
-.prefixGroup {
-  max-width: 400px;
-}
-
-.prefixBucketName {
-  white-space: nowrap;
-  padding: 8px 4px 8px 0;
 }
 
 .archiveModeLabel {
