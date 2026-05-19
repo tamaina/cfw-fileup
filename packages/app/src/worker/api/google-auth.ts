@@ -5,8 +5,6 @@ import { users, tokens, appSettings, oauthStates } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { generateToken } from '../utils/crypto';
 import { genEaidx } from '../../shared/eaid-x';
-import { googleAuthApiSchema } from './google-auth.definition';
-import type { ExtractResponseType } from './schema-type';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -212,7 +210,6 @@ app.get('/callback', async (c) => {
 
 // API endpoint to complete Google sign-in from the frontend (exchange token)
 app.post('/complete', async (c) => {
-	type CompleteReq = ExtractResponseType<typeof googleAuthApiSchema, '/api/auth/google/complete', 'post', 200>;
 	const body = (await c.req.json()) as { googleToken?: string };
 
 	if (!body.googleToken) {
@@ -227,7 +224,7 @@ app.post('/complete', async (c) => {
 	}
 
 	// Token is valid - return it as the session token
-	return c.json({ token: body.googleToken } as CompleteReq);
+	return c.json({ token: body.googleToken });
 });
 
 export const googleAuthRoutes = app;

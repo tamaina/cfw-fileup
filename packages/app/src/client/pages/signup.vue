@@ -1,14 +1,23 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue';
-import { Button } from '@vuetify/v0';
+import { Button, Form } from '@vuetify/v0';
 import { setToken, fetchCurrentUser } from '../store/auth';
+import { apiPost } from '../utils/api';
 import { navigateTo } from '../navigate';
 import TurnstileWidget from '../components/turnstile-widget.vue';
+import { isValidNameFormat, NAME_FORMAT_ERROR } from '../../shared/name-validation';
 
 const form = reactive({ username: '', password: '', passphrase: '' });
 const error = ref('');
 const loading = ref(false);
 const googleLoading = ref(false);
+
+/** ユーザー名の文字種バリデーション（クライアントサイド） */
+const usernameFormatError = computed(() => {
+	if (!form.username) return '';
+	if (!isValidNameFormat(form.username)) return NAME_FORMAT_ERROR;
+	return '';
+});
 const passphraseRequired = ref(false);
 const turnstileEnabled = ref(false);
 const turnstileSiteKey = ref('');
@@ -34,35 +43,31 @@ onMounted(async () => {
 	await fetchMeta();
 });
 
-const canSubmit = computed(() => !turnstileEnabled.value || turnstileToken.value !== null);
+const canSubmit = computed(() =>
+	(!turnstileEnabled.value || turnstileToken.value !== null) && !usernameFormatError.value,
+);
 
-async function submit(): Promise<void> {
-	if (!canSubmit.value) return;
+async function submit({ valid }: { valid: boolean }): Promise<void> {
+	if (!valid || !canSubmit.value) return;
+	if (usernameFormatError.value) {
+		error.value = usernameFormatError.value;
+		return;
+	}
 	error.value = '';
 	loading.value = true;
 	try {
-		const body: Record<string, string> = {
-			username: form.username,
+		const result = await apiPost('/api/signup', {
+			username: form.username.trim(),
 			password: form.password,
-		};
-		if (form.passphrase) {
-			body.passphrase = form.passphrase;
-		}
-		if (turnstileEnabled.value && turnstileToken.value) {
-			body.turnstileToken = turnstileToken.value;
-		}
-		const res = await fetch('/api/signup', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(body),
+			passphrase: form.passphrase || undefined,
+			turnstileToken: turnstileEnabled.value && turnstileToken.value ? turnstileToken.value : undefined,
 		});
-		const data = (await res.json()) as { token?: string; error?: string };
-		if (!res.ok) {
-			error.value = data.error ?? 'エラーが発生しました';
+		if (!result.ok) {
+			error.value = result.data.error;
 			return;
 		}
-		if (data.token) {
-			setToken(data.token);
+		if (result.data.token) {
+			setToken(result.data.token);
 			await fetchCurrentUser();
 			navigateTo('/my/buckets');
 		}
@@ -79,15 +84,15 @@ function signupWithGoogle(): void {
 </script>
 
 <template>
-  <div style="display:flex; justify-content:center; padding-top:48px">
-    <div class="card max-w-sm" style="width:100%">
-      <h2 style="margin-bottom:20px; text-align:center">アカウント作成</h2>
+  <div :class="$style.root">
+    <div :class="[$style.card, 'card', 'max-w-sm']">
+      <h2 :class="$style.heading">アカウント作成</h2>
 
-      <div v-if="googleRequired" class="alert alert-error" style="margin-bottom:12px">
+      <div v-if="googleRequired" :class="[$style.googleRequiredAlert, 'alert', 'alert-error']">
         このサービスはGoogleアカウントによる登録のみ受け付けています。
       </div>
 
-      <form v-if="!googleRequired" @submit.prevent="submit" style="display:flex; flex-direction:column; gap:14px">
+      <Form v-if="!googleRequired" :class="$style.form" @submit="submit">
         <div class="form-group">
           <label class="form-label" for="username">ユーザー名</label>
           <input
@@ -99,6 +104,8 @@ function signupWithGoogle(): void {
             autocomplete="username"
             placeholder="username"
           >
+          <div v-if="usernameFormatError" class="form-hint form-hint--error">{{ usernameFormatError }}</div>
+          <div v-else class="form-hint">英数字とアンダースコア [0-9a-zA-Z_] のみ使用できます</div>
         </div>
 
         <div class="form-group">
@@ -133,22 +140,21 @@ function signupWithGoogle(): void {
 
         <div v-if="error" class="alert alert-error">{{ error }}</div>
 
-        <Button.Root type="submit" class="btn btn-primary w-full" style="justify-content: center" :loading="loading" :disabled="!canSubmit">
-          <Button.Loading>処理中...</Button.Loading>
-          <Button.Content>アカウント作成</Button.Content>
-        </Button.Root>
-      </form>
+        <button type="submit" :class="[$style.submitBtn, 'btn', 'btn-primary', 'w-full']" :disabled="!canSubmit || loading">
+          {{ loading ? '処理中...' : turnstileEnabled && !turnstileToken ? '確認中...' : 'アカウント作成' }}
+        </button>
+      </Form>
 
-      <div v-if="googleAuthEnabled" style="margin-top:16px; display:flex; flex-direction:column; align-items:center; gap:8px">
-        <div style="display:flex; align-items:center; width:100%; gap:8px">
-          <hr style="flex:1; border:none; border-top:1px solid var(--color-border)">
-          <span style="font-size:0.75rem; color:var(--color-text-subtle)">または</span>
-          <hr style="flex:1; border:none; border-top:1px solid var(--color-border)">
+      <div v-if="googleAuthEnabled" :class="$style.altMethods">
+        <div :class="$style.divider">
+          <hr :class="$style.dividerLine">
+          <span :class="$style.dividerText">または</span>
+          <hr :class="$style.dividerLine">
         </div>
         <Button.Root
           type="button"
           class="btn btn-ghost w-full"
-          style="justify-content:center"
+          :class="$style.altBtn"
           :loading="googleLoading"
           @click="signupWithGoogle"
         >
@@ -157,7 +163,7 @@ function signupWithGoogle(): void {
         </Button.Root>
       </div>
 
-      <div style="margin-top:16px; text-align:center; font-size:0.875rem; color:var(--color-text-muted)">
+      <div :class="$style.footer">
         <button type="button" class="btn btn-ghost" @click="navigateTo('/signin')">
           サインインページへ
         </button>
@@ -165,3 +171,71 @@ function signupWithGoogle(): void {
     </div>
   </div>
 </template>
+
+<style module lang="scss">
+.root {
+  display: flex;
+  justify-content: center;
+  padding-top: 48px;
+}
+
+.card {
+  width: 100%;
+}
+
+.heading {
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.submitBtn {
+  justify-content: center;
+}
+
+.footer {
+  margin-top: 16px;
+  text-align: center;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.googleRequiredAlert {
+  margin-bottom: 12px;
+}
+
+.altMethods {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 8px;
+}
+
+.dividerLine {
+  flex: 1;
+  border: none;
+  border-top: 1px solid var(--color-border);
+}
+
+.dividerText {
+  font-size: 0.75rem;
+  color: var(--color-text-subtle);
+}
+
+.altBtn {
+  justify-content: center;
+}
+</style>

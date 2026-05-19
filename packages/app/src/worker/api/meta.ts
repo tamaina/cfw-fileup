@@ -2,8 +2,6 @@ import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { appSettings } from '../scheme/index';
 import { getDb } from '../utils/db';
-import { metaApiSchema } from './meta.definition';
-import type { ExtractResponseType } from './schema-type';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -42,7 +40,7 @@ app.get('/meta', async (c) => {
 			turnstileSiteKey: c.env.TURNSTILE_SITE_KEY,
 			googleAuthEnabled,
 			googleRequired,
-		} as ExtractResponseType<typeof metaApiSchema, '/api/meta', 'get', 200>);
+		});
 	} catch {
 		return c.json({
 			registrationEnabled: true,
@@ -51,7 +49,7 @@ app.get('/meta', async (c) => {
 			turnstileSiteKey: '',
 			googleAuthEnabled: false,
 			googleRequired: false,
-		} as ExtractResponseType<typeof metaApiSchema, '/api/meta', 'get', 200>);
+		});
 	}
 });
 
