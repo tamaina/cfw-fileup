@@ -6,16 +6,13 @@ import { buckets, files, targzFiles, tarFiles, directories, tokens, users, fileA
 import { getDb } from '../utils/db';
 import { abortUpload } from '../utils/abort-upload';
 import { authMiddleware } from '../middleware/auth';
+import { DownloadContext } from '../utils/download-context';
 
 const app = new Hono<{ Bindings: Env }>();
 
 function getContentDisposition(filename: string, acceptsGzip: boolean): string {
 	const displayName = acceptsGzip ? filename : `${filename}.gz`;
 	return `attachment; filename="${displayName}"`;
-}
-
-function getETag(baseETag: string, acceptsGzip: boolean): string {
-	return acceptsGzip ? baseETag : `${baseETag}-gz`;
 }
 
 async function decompressGzipChunk(data: Uint8Array): Promise<Uint8Array> {
@@ -61,7 +58,7 @@ app.get('/d/:bucketName/*', async (c) => {
 	const bucketName = c.req.param('bucketName');
 	const filePath = c.req.path.replace(`/d/${bucketName}/`, '');
 	const acceptEncoding = c.req.header('Accept-Encoding') ?? '';
-	const acceptsGzip = acceptEncoding.includes('gzip');
+	const fileQuery = c.req.query('file');
 
 	const bucket = await db.select().from(buckets).where(eq(buckets.name, bucketName)).get();
 
@@ -184,6 +181,8 @@ app.get('/d/:bucketName/*', async (c) => {
 		throw new HTTPException(404, { message: 'File not found' });
 	}
 
+	const dlCtx = new DownloadContext(file, acceptEncoding, fileQuery);
+
 	if (c.req.query('meta') !== undefined) {
 		return c.json({
 			type: 'file',
@@ -248,8 +247,7 @@ app.get('/d/:bucketName/*', async (c) => {
 		}
 	}
 
-	const fileQuery = c.req.query('file');
-	if (file.isTar && fileQuery && typeof fileQuery === 'string') {
+	if (dlCtx.isTarFileDownload && fileQuery) {
 		const indexEntry = await db
 			.select()
 			.from(tarFiles)
@@ -272,11 +270,12 @@ app.get('/d/:bucketName/*', async (c) => {
 				'Content-Type': indexEntry.mimeType,
 				'Content-Disposition': `attachment; filename="${indexEntry.path.split('/').pop()}"`,
 				'Content-Length': String(indexEntry.size),
+				'ETag': dlCtx.getETag(indexEntry.path),
 			},
 		});
 	}
 
-	if (file.isTargz && fileQuery && typeof fileQuery === 'string') {
+	if (dlCtx.isTargzFileDownload && fileQuery) {
 		const indexEntry = await db
 			.select()
 			.from(targzFiles)
@@ -362,8 +361,8 @@ app.get('/d/:bucketName/*', async (c) => {
 				headers: {
 					'Content-Type': indexEntry.mimeType,
 					'Content-Encoding': 'gzip',
-					'Content-Disposition': getContentDisposition(indexEntry.path, acceptsGzip),
-					'ETag': getETag(`"${file.id}-${indexEntry.path}"`, acceptsGzip),
+					'Content-Disposition': getContentDisposition(indexEntry.path, dlCtx.acceptsGzip),
+					'ETag': dlCtx.getETag(indexEntry.path),
 				},
 			});
 		} catch (error) {
@@ -382,6 +381,7 @@ app.get('/d/:bucketName/*', async (c) => {
 		headers: {
 			'Content-Type': file.mimeType ?? 'application/octet-stream',
 			'Content-Length': String(file.size ?? 0),
+			'ETag': dlCtx.getETag(),
 		},
 	});
 });
