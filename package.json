@@ -8,8 +8,12 @@
     "build": "pnpm run --filter app build",
     "deploy": "pnpm run --filter app deploy",
     "test": "pnpm -w -r test",
+    "test:e2e": "pnpm --filter app test:e2e",
+    "test:e2e:fresh": "pnpm --filter app test:e2e:fresh",
     "typecheck": "pnpm --filter app typecheck",
-    "lint": "pnpm --filter app eslint src/worker/"
+    "typecheck:all": "pnpm --filter app typecheck:worker && pnpm --filter app typecheck:client && pnpm --filter app typecheck:sw",
+    "lint": "pnpm --filter app eslint src/worker/",
+    "check": "pnpm lint && pnpm test && pnpm typecheck:all"
   },
   "dependencies": {
     "hono": "^4.12.18"

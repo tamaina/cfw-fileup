@@ -10,5 +10,6 @@
     "./**/*.ts",
     "../../src/worker/**/*.ts",
     "../../src/shared/**/*.ts"
-  ]
+  ],
+  "exclude": []
 }

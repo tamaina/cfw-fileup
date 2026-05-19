@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
+import type { FileVisibility } from '../../shared/file-visibility';
 import { Button, Form } from '@vuetify/v0';
 import NirA from '@/components/nira.vue';
 import { authStore, authHeaders } from '@/store/auth';
@@ -14,6 +15,7 @@ const props = defineProps<{
 	isTargz: boolean;
 	isTar: boolean;
 	entryPath?: string;
+	fileId?: string;
 	token?: string;
 }>();
 
@@ -27,17 +29,19 @@ interface DisplayEntry {
 	fullPath: string;
 	size?: number;
 	label: string;
-	isPublic?: boolean;
+	visibility?: FileVisibility;
 	/** 画像プレビューURL (画像MIMEタイプのファイルのみ) */
 	previewUrl?: string;
 }
 
 const downloadUrl = computed(() => {
-	const base = `/d/${props.bucketName}/${props.filePath}`;
+	if (!props.fileId) return '';
+	const base = `/d/${props.fileId}`;
 	return props.token ? `${base}?token=${props.token}` : base;
 });
 const decompressUrl = computed(() => {
-	const base = `/d/${props.bucketName}/${props.filePath}?decompress`;
+	if (!props.fileId) return '';
+	const base = `/d/${props.fileId}?decompress`;
 	return props.token ? `${base}&token=${props.token}` : base;
 });
 
@@ -205,12 +209,13 @@ async function load(): Promise<void> {
 			allArchiveEntries.value = raw;
 			buildArchiveEntries();
 		} else {
-			const res = await fetch(downloadUrl.value, { headers: authHeaders() });
+			const lsUrl = `/api/files/ls?bucketName=${encodeURIComponent(props.bucketName)}&path=${encodeURIComponent(props.filePath)}`;
+			const res = await fetch(lsUrl, { headers: authHeaders() });
 			if (!res.ok) { error.value = `取得失敗: ${res.status}`; return; }
 			const data = await res.json() as {
 				entries: Array<{
-					type: 'dir' | 'file'; name: string; path?: string;
-					size?: number; mimeType?: string; isTargz?: boolean; isTar?: boolean; isPublic?: boolean;
+					type: 'dir' | 'file'; name: string; path?: string; fileId?: string;
+					size?: number; mimeType?: string; isTargz?: boolean; isTar?: boolean; visibility?: FileVisibility;
 				}>;
 			};
 			entries.value = data.entries.map(e => {
@@ -226,7 +231,7 @@ async function load(): Promise<void> {
 				}
 				const mime = e.isTargz ? 'application/gzip' : e.isTar ? 'application/x-tar' : (e.mimeType ?? '');
 				// 画像ファイルはプレビューURLを設定（ダウンロードURLを使用）
-				const previewUrl = isImageMime(mime) ? `/d/${props.bucketName}/${e.path}` : undefined;
+				const previewUrl = isImageMime(mime) && e.fileId ? `/d/${e.fileId}` : undefined;
 				return {
 					key: `file:${e.name}`,
 					name: e.name,
@@ -235,7 +240,7 @@ async function load(): Promise<void> {
 					fullPath: e.path ?? e.name,
 					size: e.size,
 					label: e.isTargz ? 'tar.gz' : e.isTar ? 'tar' : mime,
-					isPublic: e.isPublic,
+					visibility: e.visibility,
 					previewUrl,
 				};
 			});
@@ -423,8 +428,8 @@ watch(() => props.entryPath, (newEntryPath) => {
                     <span v-if="entry.label" class="badge badge-muted">{{ entry.label }}</span>
                   </td>
                   <td v-if="!isArchive && authStore.user" :class="$style.publicCell">
-                    <span v-if="!entry.isDir && entry.isPublic != null" :class="entry.isPublic ? 'badge badge-success' : 'badge badge-muted'">
-                      {{ entry.isPublic ? '公開' : '非公開' }}
+                    <span v-if="!entry.isDir && entry.visibility != null" :class="entry.visibility === 'public' ? 'badge badge-success' : entry.visibility === 'passphrase' ? 'badge badge-warning' : 'badge badge-muted'">
+                      {{ entry.visibility === 'public' ? '公開' : entry.visibility === 'passphrase' ? '合言葉' : '非公開' }}
                     </span>
                   </td>
                   <td v-if="!isArchive && authStore.user && bucketId" class="col-actions" :class="$style.actionsCell">
@@ -490,8 +495,8 @@ watch(() => props.entryPath, (newEntryPath) => {
                 <div :class="$style.gridCardName" :title="entry.name">{{ entry.name }}</div>
                 <div :class="$style.gridCardMeta">
                   <span v-if="entry.size != null" :class="$style.gridCardSize">{{ formatSize(entry.size) }}</span>
-                  <span v-if="!entry.isDir && entry.isPublic != null && !isArchive" :class="[entry.isPublic ? 'badge badge-success' : 'badge badge-muted', $style.gridCardBadge]">
-                    {{ entry.isPublic ? '公開' : '非公開' }}
+                  <span v-if="!entry.isDir && entry.visibility != null && !isArchive" :class="[entry.visibility === 'public' ? 'badge badge-success' : entry.visibility === 'passphrase' ? 'badge badge-warning' : 'badge badge-muted', $style.gridCardBadge]">
+                    {{ entry.visibility === 'public' ? '公開' : entry.visibility === 'passphrase' ? '合言葉' : '非公開' }}
                   </span>
                 </div>
                 <div v-if="!isArchive && authStore.user && bucketId" :class="$style.gridCardActions">

@@ -1,9 +1,9 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { describeResponse, describeRoute, validator } from 'hono-openapi';
-import { eq, and, gte, desc, sql, count } from 'drizzle-orm';
+import { eq, and, gte, desc, sql, count, like } from 'drizzle-orm';
 import { filetypemime } from 'magic-bytes.js';
-import { buckets, files, targzFiles, tarFiles, uploadParts, DEFAULT_PART_SIZE, MIN_PART_SIZE } from '../scheme/index';
+import { buckets, files, targzFiles, tarFiles, uploadParts, directories, tokens, users, DEFAULT_PART_SIZE, MIN_PART_SIZE } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { getQuotaForUser } from '../utils/rate-limit';
 import { authMiddleware } from '../middleware/auth';
@@ -13,7 +13,150 @@ import { omitResAndReq } from '../utils/omit';
 
 const app = new Hono<{ Bindings: Env }>();
 
+async function listFiles(c: { env: Env; req: { header(name: string): string | undefined } }, bucketName: string, path = '', forceOwner = false) {
+	const db = getDb(c.env);
+	const normalizedPath = path === '' || path.endsWith('/') ? path : `${path}/`;
+	const bucket = await db.select().from(buckets).where(eq(buckets.name, bucketName)).get();
+	if (!bucket) throw new HTTPException(404, { message: 'Bucket not found' });
+
+	let isOwnerOrAdmin = forceOwner;
+	if (!isOwnerOrAdmin) {
+		const authorization = c.req.header('Authorization');
+		if (authorization?.startsWith('Bearer ')) {
+			const token = authorization.slice(7);
+			const tokenRecord = await db
+				.select({ userId: tokens.userId, isAdmin: users.isAdmin, isSuspended: users.isSuspended })
+				.from(tokens)
+				.innerJoin(users, eq(tokens.userId, users.id))
+				.where(eq(tokens.token, token))
+				.get();
+			isOwnerOrAdmin = !!tokenRecord && !tokenRecord.isSuspended && (tokenRecord.isAdmin || tokenRecord.userId === bucket.userId);
+		}
+	}
+
+	if (normalizedPath !== '') {
+		const dirExists = await db.select({ id: directories.id })
+			.from(directories)
+			.where(and(eq(directories.bucketId, bucket.id), eq(directories.path, normalizedPath)))
+			.get();
+		if (!dirExists) {
+			const hasFileCondition = isOwnerOrAdmin
+				? and(eq(files.bucketId, bucket.id), like(files.path, `${normalizedPath}%`), eq(files.isClosed, true))
+				: and(eq(files.bucketId, bucket.id), like(files.path, `${normalizedPath}%`), eq(files.isClosed, true), eq(files.visibility, 'public'));
+			const hasFile = await db.select({ path: files.path }).from(files).where(hasFileCondition).get();
+			if (!hasFile) throw new HTTPException(404, { message: 'Directory not found' });
+		}
+	}
+
+	const fileCondition = isOwnerOrAdmin
+		? and(eq(files.bucketId, bucket.id), eq(files.isClosed, true))
+		: and(eq(files.bucketId, bucket.id), eq(files.isClosed, true), eq(files.visibility, 'public'));
+	const allFiles = await db
+		.select({
+			id: files.id,
+			path: files.path,
+			size: files.size,
+			mimeType: files.mimeType,
+			isTargz: files.isTargz,
+			isTar: files.isTar,
+			visibility: files.visibility,
+		})
+		.from(files)
+		.where(fileCondition);
+	const allDirs = await db.select({ path: directories.path }).from(directories).where(eq(directories.bucketId, bucket.id));
+
+	const entries: Array<{ type: 'dir' | 'file'; name: string; path?: string; fileId?: string; size?: number; mimeType?: string; isTargz?: boolean; isTar?: boolean; visibility?: 'public' | 'private' | 'passphrase' }> = [];
+	const seenDirs = new Set<string>();
+	for (const d of allDirs) {
+		if (!d.path.startsWith(normalizedPath)) continue;
+		const rest = d.path.slice(normalizedPath.length);
+		const slashIdx = rest.indexOf('/');
+		if (slashIdx !== -1) {
+			const dirName = rest.slice(0, slashIdx);
+			if (!seenDirs.has(dirName)) {
+				seenDirs.add(dirName);
+				entries.push({ type: 'dir', name: dirName });
+			}
+		}
+	}
+	for (const f of allFiles) {
+		if (!f.path.startsWith(normalizedPath)) continue;
+		const rest = f.path.slice(normalizedPath.length);
+		const slashIdx = rest.indexOf('/');
+		if (slashIdx === -1) {
+			entries.push({ type: 'file', name: rest, path: f.path, fileId: f.id, size: f.size ?? undefined, mimeType: f.mimeType ?? undefined, isTargz: f.isTargz, isTar: f.isTar, visibility: f.visibility });
+		} else {
+			const dirName = rest.slice(0, slashIdx);
+			if (!seenDirs.has(dirName)) {
+				seenDirs.add(dirName);
+				entries.push({ type: 'dir', name: dirName });
+			}
+		}
+	}
+	entries.sort((a, b) => a.type !== b.type ? (a.type === 'dir' ? -1 : 1) : a.name.localeCompare(b.name));
+	return { type: 'directory' as const, entries };
+}
+
+app.get('/ls', async (c) => {
+	const bucketName = c.req.query('bucketName');
+	if (!bucketName) throw new HTTPException(400, { message: 'bucketName is required' });
+	return c.json(await listFiles(c, bucketName, c.req.query('path') ?? ''), 200);
+});
+
+app.get('/meta', async (c) => {
+	const bucketName = c.req.query('bucketName');
+	const path = c.req.query('path');
+	if (!bucketName || path == null) throw new HTTPException(400, { message: 'bucketName and path are required' });
+
+	const db = getDb(c.env);
+	const bucket = await db.select().from(buckets).where(eq(buckets.name, bucketName)).get();
+	if (!bucket) throw new HTTPException(404, { message: 'Bucket not found' });
+
+	let isOwnerOrAdmin = false;
+	const authorization = c.req.header('Authorization');
+	if (authorization?.startsWith('Bearer ')) {
+		const token = authorization.slice(7);
+		const tokenRecord = await db
+			.select({ userId: tokens.userId, isAdmin: users.isAdmin, isSuspended: users.isSuspended })
+			.from(tokens)
+			.innerJoin(users, eq(tokens.userId, users.id))
+			.where(eq(tokens.token, token))
+			.get();
+		if (tokenRecord && !tokenRecord.isSuspended) {
+			isOwnerOrAdmin = tokenRecord.isAdmin || tokenRecord.userId === bucket.userId;
+		}
+	}
+
+	const file = await db
+		.select()
+		.from(files)
+		.where(and(eq(files.bucketId, bucket.id), eq(files.path, path), eq(files.isClosed, true)))
+		.get();
+	if (!file) throw new HTTPException(404, { message: 'File not found' });
+
+	const base = { visibility: file.visibility, isTargz: file.isTargz, isTar: file.isTar, size: file.size };
+	if (file.visibility === 'public' || isOwnerOrAdmin) {
+		return c.json({ ...base, fileId: file.id, bucketId: bucket.id });
+	}
+	return c.json(base);
+});
+
 app.use(authMiddleware);
+
+app.post(
+	'/ls',
+	describeRoute(omitResAndReq(apiDef['/api/files/ls'])),
+	validator('json', apiDef['/api/files/ls'].req),
+	describeResponse(async (c: JsonCtx<'/api/files/ls', Env>) => {
+		const db = getDb(c.env);
+		const user = c.get('user');
+		const body = c.req.valid('json');
+		const bucket = await db.select().from(buckets).where(eq(buckets.name, body.bucketName)).get();
+		if (!bucket) throw new HTTPException(404, { message: 'Bucket not found' });
+		if (bucket.userId !== user.id && !user.isAdmin) throw new HTTPException(403, { message: 'Forbidden' });
+		return c.json(await listFiles(c, body.bucketName, body.path ?? '', true), 200);
+	}, getResponseDefWithAuth('/api/files/ls')),
+);
 
 app.post(
 	'/create/open',
@@ -81,7 +224,7 @@ app.post(
 		}
 
 		const fileId = genEaidx(Date.now());
-		const r2Key = `${bucket.id}/${body.path}`;
+		const r2Key = fileId;
 		const uploadExpiry = Date.now() + 24 * 60 * 60 * 1000;
 
 		await db.insert(files).values({
@@ -256,7 +399,15 @@ app.post(
 			await db.update(files).set({ uploadId: null }).where(eq(files.id, file.id));
 		}
 
-		const r2Object = await c.env.R2.head(file.r2Key);
+		let r2Object = await c.env.R2.head(file.r2Key);
+		if (!r2Object) {
+			const legacyR2Key = `${bucket.id}/${file.path}`;
+			r2Object = await c.env.R2.head(legacyR2Key);
+			if (r2Object) {
+				await db.update(files).set({ r2Key: legacyR2Key }).where(eq(files.id, file.id));
+				file.r2Key = legacyR2Key;
+			}
+		}
 
 		if (!r2Object) {
 			throw new HTTPException(400, { message: 'Upload has not been completed' });
@@ -289,8 +440,8 @@ app.post(
 			.update(files)
 			.set({
 				isClosed: true,
-				isPublic: body.isPublic,
-				passphrase: body.passphrase,
+				visibility: body.visibility,
+				passphrase: body.visibility === 'passphrase' ? (body.passphrase ?? null) : null,
 				size: fileSize,
 				mimeType,
 			})
@@ -362,12 +513,15 @@ app.post(
 			.get();
 		if (!file) throw new HTTPException(404, { message: 'File not found' });
 		if (!file.isClosed) throw new HTTPException(400, { message: 'File is not closed' });
+		if (file.visibility === 'public' && body.visibility !== 'public') {
+			throw new HTTPException(400, { message: 'Public files cannot change visibility' });
+		}
 
 		await db
 			.update(files)
 			.set({
-				isPublic: body.isPublic,
-				passphrase: body.isPublic ? null : (body.passphrase ?? null),
+				visibility: body.visibility,
+				passphrase: body.visibility === 'passphrase' ? (body.passphrase ?? null) : null,
 			})
 			.where(eq(files.id, file.id));
 
@@ -391,7 +545,7 @@ app.post(
 				path: files.path,
 				size: files.size,
 				isClosed: files.isClosed,
-				isPublic: files.isPublic,
+				visibility: files.visibility,
 				uploadExpiresAt: files.uploadExpiresAt,
 				isTargz: files.isTargz,
 				isTar: files.isTar,

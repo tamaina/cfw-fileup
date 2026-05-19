@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import type { FileVisibility } from '../../shared/file-visibility';
 import { Form, Input } from '@vuetify/v0';
 import BrowseDirectory from './browse.directory.vue';
 import BrowseFile from './browse.file.vue';
@@ -27,7 +28,8 @@ const isEntryDirectory = computed(() => entryPath.value !== null && entryPath.va
 const innerMeta = ref<{ mimeType: string; size?: number } | null>(null);
 
 const innerDownloadUrl = computed(() => {
-	const base = `/d/${props.bucketName}/${props.filePath}?file=${encodeURIComponent(entryPath.value ?? '')}`;
+	if (!fileId.value) return '';
+	const base = `/d/${fileId.value}?file=${encodeURIComponent(entryPath.value ?? '')}`;
 	return autoToken.value ? `${base}&token=${autoToken.value}` : base;
 });
 
@@ -95,12 +97,17 @@ function formatSize(bytes: number): string {
 const isTargz = ref(false);
 const isTar = ref(false);
 const fileSize = ref<number | null>(null);
+const fileId = ref<string | null>(null);
+const fileBucketId = ref<string | null>(null);
 const metaLoading = ref(false);
 const metaError = ref('');
-const fileIsPublic = ref(true);
+const fileVisibility = ref<FileVisibility>('public');
 
 const activeTab = ref<'info' | 'tokens'>('info');
 const autoToken = ref<string | null>(null);
+const autoTokenId = ref<string | null>(null);
+const autoTokenLoading = ref(false);
+let autoTokenPromise: Promise<void> | null = null;
 
 const turnstileEnabled = ref(false);
 const turnstileSiteKey = ref('');
@@ -117,13 +124,16 @@ const passphraseTokenExpiryStr = computed(() => {
 });
 
 const needsPassphrase = computed(() =>
-	!isDirectory.value && !authStore.user && !fileIsPublic.value && !autoToken.value && !metaLoading.value && !metaError.value,
+	!isDirectory.value && !authStore.user && fileVisibility.value === 'passphrase' && !autoToken.value && !metaLoading.value && !metaError.value,
+);
+const detailsLoading = computed(() =>
+	metaLoading.value || (activeTab.value === 'info' && authStore.user && !isDirectory.value && fileVisibility.value !== 'public' && autoTokenLoading.value),
 );
 
 async function fetchInnerMeta(): Promise<void> {
-	if (!isEntryFile.value || !entryPath.value) return;
+	if (!isEntryFile.value || !entryPath.value || !fileId.value) return;
 	const tokenParam = autoToken.value ? `&token=${autoToken.value}` : '';
-	const url = `/d/${props.bucketName}/${props.filePath}?list=${encodeURIComponent(entryPath.value)}${tokenParam}`;
+	const url = `/d/${fileId.value}?list=${encodeURIComponent(entryPath.value)}${tokenParam}`;
 	try {
 		const res = await fetch(url, { headers: authHeaders() });
 		if (!res.ok) return;
@@ -141,17 +151,21 @@ async function fetchMeta(): Promise<void> {
 	metaLoading.value = true;
 	metaError.value = '';
 	innerMeta.value = null;
+	fileId.value = null;
+	fileBucketId.value = null;
 	try {
 		const [metaRes, apiMetaRes] = await Promise.all([
-			fetch(`/d/${props.bucketName}/${props.filePath}?meta`),
+			fetch(`/api/files/meta?bucketName=${encodeURIComponent(props.bucketName)}&path=${encodeURIComponent(props.filePath)}`, { headers: authHeaders() }),
 			fetch('/api/meta'),
 		]);
 		if (!metaRes.ok) { metaError.value = `取得失敗: ${metaRes.status}`; return; }
-		const data = await metaRes.json() as { isTargz?: boolean; isTar?: boolean; isPublic?: boolean; size?: number };
+		const data = await metaRes.json() as { isTargz?: boolean; isTar?: boolean; visibility?: FileVisibility; size?: number; fileId?: string; bucketId?: string };
 		isTargz.value = data.isTargz ?? false;
 		isTar.value = data.isTar ?? false;
 		fileSize.value = data.size ?? null;
-		fileIsPublic.value = data.isPublic ?? true;
+		fileVisibility.value = data.visibility ?? 'public';
+		fileId.value = data.fileId ?? null;
+		fileBucketId.value = data.bucketId ?? null;
 
 		if (apiMetaRes.ok) {
 			const apiMeta = await apiMetaRes.json() as { turnstileEnabled?: boolean; turnstileSiteKey?: string };
@@ -159,7 +173,7 @@ async function fetchMeta(): Promise<void> {
 			turnstileSiteKey.value = apiMeta.turnstileSiteKey ?? '';
 		}
 
-		if (!fileIsPublic.value) {
+		if (fileVisibility.value !== 'public') {
 			if (authStore.user) {
 				await issueAutoToken();
 			} else {
@@ -169,6 +183,7 @@ async function fetchMeta(): Promise<void> {
 					autoToken.value = cached.token;
 					passphraseTokenExpiresAt.value = cached.expiresAt;
 					scheduleTokenExpiry(cached.expiresAt);
+					if (cached.fileId) fileId.value = cached.fileId;
 				}
 			}
 		}
@@ -187,28 +202,22 @@ async function submitPassphrase({ valid }: { valid: boolean }): Promise<void> {
 	passphraseError.value = '';
 	passphraseLoading.value = true;
 	try {
-		const body: Record<string, string> = {
+		const result = await apiPost('/api/file-tokens/create-by-passphrase', {
 			bucketName: props.bucketName,
 			filePath: props.filePath,
 			passphrase: passphraseInput.value,
-		};
-		if (turnstileEnabled.value && turnstileToken.value) {
-			body.turnstileToken = turnstileToken.value;
-		}
-		const res = await fetch('/api/file-tokens/create-by-passphrase', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(body),
+			turnstileToken: turnstileEnabled.value && turnstileToken.value ? turnstileToken.value : undefined,
 		});
-		const result = await res.json() as { token?: string; expiresAt?: number | null; error?: string };
-		if (!res.ok) {
-			passphraseError.value = result.error ?? `エラー: ${res.status}`;
+		if (!result.ok) {
+			passphraseError.value = result.data.error || `エラー: ${result.status}`;
 			return;
 		}
-		autoToken.value = result.token ?? null;
-		passphraseTokenExpiresAt.value = result.expiresAt ?? null;
-		saveCachedToken(result.token ?? '', result.expiresAt ?? null);
-		scheduleTokenExpiry(result.expiresAt ?? null);
+		autoToken.value = result.data.token;
+		autoTokenId.value = result.data.id;
+		passphraseTokenExpiresAt.value = result.data.expiresAt;
+		fileId.value = result.data.fileId;
+		saveCachedToken(result.data.token, result.data.expiresAt, result.data.id, result.data.fileId);
+		scheduleTokenExpiry(result.data.expiresAt);
 		passphraseInput.value = '';
 		turnstileToken.value = null;
 		await fetchInnerMeta();
@@ -232,6 +241,7 @@ function clearExpiryTimer(): void {
 
 function expireToken(): void {
 	autoToken.value = null;
+	autoTokenId.value = null;
 	passphraseTokenExpiresAt.value = null;
 	tokenExpiryTimer = null;
 	try { sessionStorage.removeItem(autoTokenCacheKey()); } catch { /* */ }
@@ -245,20 +255,20 @@ function scheduleTokenExpiry(expiresAt: number | null): void {
 	tokenExpiryTimer = setTimeout(expireToken, delay);
 }
 
-function loadCachedToken(): { token: string; expiresAt: number | null } | null {
+function loadCachedToken(): { id: string | null; token: string; expiresAt: number | null; fileId?: string } | null {
 	try {
 		const raw = sessionStorage.getItem(autoTokenCacheKey());
 		if (!raw) return null;
-		const cached = JSON.parse(raw) as { token: string; expiresAt: number | null };
+		const cached = JSON.parse(raw) as { id?: string | null; token: string; expiresAt: number | null; fileId?: string };
 		// 60秒バッファを持たせて期限チェック
 		if (cached.expiresAt !== null && cached.expiresAt < Date.now() + 60_000) return null;
-		return cached;
+		return { id: cached.id ?? null, token: cached.token, expiresAt: cached.expiresAt, fileId: cached.fileId };
 	} catch { return null; }
 }
 
-function saveCachedToken(token: string, expiresAt: number | null): void {
+function saveCachedToken(token: string, expiresAt: number | null, id: string | null, fileId?: string): void {
 	try {
-		sessionStorage.setItem(autoTokenCacheKey(), JSON.stringify({ token, expiresAt }));
+		sessionStorage.setItem(autoTokenCacheKey(), JSON.stringify({ id, token, expiresAt, fileId }));
 	} catch { /* quota exceeded etc. */ }
 }
 
@@ -266,23 +276,57 @@ async function issueAutoToken(): Promise<void> {
 	const cached = loadCachedToken();
 	if (cached) {
 		autoToken.value = cached.token;
+		autoTokenId.value = cached.id;
 		return;
 	}
+	if (autoTokenPromise) return autoTokenPromise;
+	const requestKey = autoTokenCacheKey();
 	autoToken.value = null;
-	try {
+	autoTokenId.value = null;
+	autoTokenLoading.value = true;
+	autoTokenPromise = (async () => {
 		const result = await apiPost('/api/file-tokens/create', { bucketName: props.bucketName, filePath: props.filePath, expiresIn: 3600 });
-		if (result.ok) {
+		if (result.ok && requestKey === autoTokenCacheKey()) {
 			autoToken.value = result.data.token;
-			saveCachedToken(result.data.token, result.data.expiresAt);
+			autoTokenId.value = result.data.id;
+			saveCachedToken(result.data.token, result.data.expiresAt, result.data.id);
 		}
-	} catch { /* silent */ }
+	})().catch(() => { /* silent */ }).finally(() => {
+		if (requestKey === autoTokenCacheKey()) {
+			autoTokenLoading.value = false;
+			autoTokenPromise = null;
+		}
+	});
+	return autoTokenPromise;
+}
+
+function infoTabClicked() {
+	activeTab.value = 'info';
+	if (fileVisibility.value !== 'public') issueAutoToken();
+}
+
+function fileVisibilityChanged(v: FileVisibility) {
+	fileVisibility.value = v;
+	if (v !== 'public' && authStore.user) issueAutoToken();
+}
+
+function tokenDeleted(tokenId: string) {
+	if (autoTokenId.value !== tokenId) return;
+	autoToken.value = null;
+	autoTokenId.value = null;
+	try { sessionStorage.removeItem(autoTokenCacheKey()); } catch { /* */ }
 }
 
 onMounted(fetchMeta);
 watch(() => [props.bucketName, props.filePath], () => {
 	activeTab.value = 'info';
 	autoToken.value = null;
+	autoTokenId.value = null;
+	autoTokenLoading.value = false;
+	autoTokenPromise = null;
 	passphraseTokenExpiresAt.value = null;
+	fileId.value = null;
+	fileBucketId.value = null;
 	clearExpiryTimer();
 	fetchMeta();
 });
@@ -305,9 +349,9 @@ watch(() => entryPath.value, () => {
       </nav>
       <span
         v-if="!isDirectory && !metaLoading && !metaError"
-        :class="fileIsPublic ? 'badge badge-success' : 'badge badge-muted'"
+        :class="fileVisibility === 'public' ? 'badge badge-success' : fileVisibility === 'passphrase' ? 'badge badge-warning' : 'badge badge-muted'"
       >
-        {{ fileIsPublic ? '公開' : '非公開' }}
+        {{ fileVisibility === 'public' ? '公開' : fileVisibility === 'passphrase' ? '合言葉' : '非公開' }}
       </span>
       <span
         v-if="!isDirectory && !metaLoading && !metaError && (isEntryFile ? innerMeta?.size != null : fileSize != null)"
@@ -320,7 +364,7 @@ watch(() => entryPath.value, () => {
       </span>
     </div>
 
-    <div v-if="metaLoading" class="page-loading">
+    <div v-if="detailsLoading" class="page-loading">
       <span class="spinner"></span>読み込み中...
     </div>
     <div v-else-if="metaError" class="alert alert-error">{{ metaError }}</div>
@@ -339,14 +383,14 @@ watch(() => entryPath.value, () => {
       <!-- ファイル・ログイン済み: タブ付きパネル -->
       <template v-else-if="!isDirectory && authStore.user">
         <div class="tab-bar mb-3">
-          <button :class="['tab-btn', activeTab === 'info' ? 'tab-btn-active' : '']" @click="activeTab = 'info'">詳細</button>
+          <button :class="['tab-btn', activeTab === 'info' ? 'tab-btn-active' : '']" @click="infoTabClicked">詳細</button>
           <button :class="['tab-btn', activeTab === 'tokens' ? 'tab-btn-active' : '']" @click="activeTab = 'tokens'">アクセストークン</button>
         </div>
 
         <!-- 詳細タブ: ファイル表示 -->
         <template v-if="activeTab === 'info'">
-          <BrowseDirectory v-if="isTargz || isTar" :bucketName="bucketName" :filePath="filePath" :isTargz="isTargz" :isTar="isTar" :entryPath="entryPath ?? ''" :token="autoToken ?? undefined" />
-          <BrowseFile v-else :bucketName="bucketName" :filePath="filePath" :token="autoToken ?? undefined" />
+          <BrowseDirectory v-if="isTargz || isTar" :bucketName="bucketName" :filePath="filePath" :isTargz="isTargz" :isTar="isTar" :entryPath="entryPath ?? ''" :token="autoToken ?? undefined" :fileId="fileId ?? undefined" />
+          <BrowseFile v-else :bucketName="bucketName" :filePath="filePath" :token="autoToken ?? undefined" :fileId="fileId ?? ''" :bucketId="fileBucketId" />
         </template>
 
         <!-- アクセストークンタブ: 公開設定 + トークン管理 -->
@@ -354,8 +398,10 @@ watch(() => entryPath.value, () => {
           v-else-if="activeTab === 'tokens'"
           :bucketName="bucketName"
           :filePath="filePath"
-          :fileIsPublic="fileIsPublic"
-          @update:fileIsPublic="fileIsPublic = $event"
+          :fileVisibility="fileVisibility"
+          :autoTokenId="autoTokenId"
+          @update:fileVisibility="fileVisibilityChanged"
+          @tokenDeleted="tokenDeleted"
         />
       </template>
 
@@ -392,8 +438,8 @@ watch(() => entryPath.value, () => {
 
       <!-- ログインなし or ディレクトリ or (非公開 + トークンあり): タブなし -->
       <template v-else>
-        <BrowseDirectory v-if="isDirectory || isTargz || isTar" :bucketName="bucketName" :filePath="filePath" :isTargz="isTargz" :isTar="isTar" :entryPath="entryPath ?? ''" :token="autoToken ?? undefined" />
-        <BrowseFile v-else-if="!isDirectory" :bucketName="bucketName" :filePath="filePath" :token="autoToken ?? undefined" />
+        <BrowseDirectory v-if="isDirectory || isTargz || isTar" :bucketName="bucketName" :filePath="filePath" :isTargz="isTargz" :isTar="isTar" :entryPath="entryPath ?? ''" :token="autoToken ?? undefined" :fileId="fileId ?? undefined" />
+        <BrowseFile v-else-if="!isDirectory" :bucketName="bucketName" :filePath="filePath" :token="autoToken ?? undefined" :fileId="fileId ?? ''" :bucketId="fileBucketId" />
       </template>
     </template>
   </div>
