@@ -6,6 +6,7 @@ import { apiPost } from '../utils/api';
 import NirA from '@/components/nira.vue';
 import { TarArchiver, BgzfTarArchiver, type TarIndex, type TarGzIndex, type ArchiveProgress } from 'bgzf';
 import { takePendingUpload } from '@/store/pending-upload';
+import UploadDestinationDialog from '@/components/upload-destination-dialog.vue';
 
 type ArchiveMode = 'individual' | 'gz' | 'tar' | 'targz';
 
@@ -25,6 +26,7 @@ const DEFAULT_CHUNK_SIZE = 32 * 1024 * 1024;
 
 const buckets = ref<Bucket[]>([]);
 const selectedBucketName = ref(props.bucketName);
+const destinationDialogOpen = ref(false);
 const bucket = computed(() => buckets.value.find(b => b.name === selectedBucketName.value) ?? null);
 const loadError = ref('');
 
@@ -597,14 +599,26 @@ onMounted(async () => {
     <div v-if="!authStore.user" class="alert alert-info">ログインが必要です。</div>
     <div v-else-if="loadError" class="alert alert-error">{{ loadError }}</div>
     <template v-else>
-      <!-- バケット選択 -->
+      <!-- アップロード先選択 -->
       <div class="upload-section">
-        <p class="upload-section-title">バケット</p>
-        <div :class="[$style.bucketSelectWrapper, 'form-group']">
-          <select v-model="selectedBucketName" class="form-input">
-            <option v-for="b in buckets" :key="b.id" :value="b.name">{{ b.name }}</option>
-          </select>
+        <p class="upload-section-title">アップロード先</p>
+        <div :class="$style.destinationRow">
+          <template v-if="selectedBucketName">
+            <span :class="[$style.destinationDisplay, 'font-mono']">{{ selectedBucketName }}/{{ uploadPrefix }}</span>
+            <Button.Root class="btn btn-secondary" @click="destinationDialogOpen = true">
+              <Button.Content>変更</Button.Content>
+            </Button.Root>
+          </template>
+          <template v-else>
+            <Button.Root class="btn btn-primary" @click="destinationDialogOpen = true">
+              <Button.Content>アップロード先を選択</Button.Content>
+            </Button.Root>
+          </template>
         </div>
+        <UploadDestinationDialog
+          v-model:open="destinationDialogOpen"
+          @select="({ bucketName, prefix }) => { selectedBucketName = bucketName; uploadPrefix = prefix; }"
+        />
       </div>
 
       <!-- ファイル選択 -->
@@ -631,19 +645,6 @@ onMounted(async () => {
             </Button.Root>
             <span v-if="selectedDirName" class="badge badge-info">{{ selectedDirName }}</span>
           </template>
-        </div>
-
-        <div :class="[$style.prefixGroup, 'form-group', 'mt-3']">
-          <label class="form-label">アップロード先パス (任意)</label>
-          <div class="form-row">
-            <span :class="[$style.prefixBucketName, 'form-hint', 'font-mono']">{{ selectedBucketName }}/</span>
-            <input
-              v-model="uploadPrefix"
-              class="form-input form-input-mono"
-              type="text"
-              placeholder="folder/path/"
-            >
-          </div>
         </div>
 
         <div v-if="selectedDir || (selectedFiles && selectedFiles.length > 0)" class="mt-3">
@@ -738,8 +739,19 @@ onMounted(async () => {
 </template>
 
 <style module lang="scss">
-.bucketSelectWrapper {
-  max-width: 280px;
+.destinationRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.destinationDisplay {
+  font-size: 0.9rem;
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  padding: 6px 10px;
+  word-break: break-all;
 }
 
 .fileLabel {
@@ -748,15 +760,6 @@ onMounted(async () => {
 
 .hiddenInput {
   display: none;
-}
-
-.prefixGroup {
-  max-width: 400px;
-}
-
-.prefixBucketName {
-  white-space: nowrap;
-  padding: 8px 4px 8px 0;
 }
 
 .archiveModeLabel {
