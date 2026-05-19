@@ -81,12 +81,6 @@ export const adminApiDef = {
 		req: v.object({}),
 		res: { 200: { description: 'Success', content: { 'application/json': { vSchema: v.array(v.object({ id: v.string(), username: v.string(), isAdmin: v.boolean(), isSuspended: v.boolean() })) } } }, ...AdminErrors },
 	},
-	'/api/admin/toggle-registration': {
-		summary: 'Toggle user registration',
-		tags: ['admin'],
-		req: v.object({ enabled: v.boolean() }),
-		res: { ...OkResponse, ...AdminErrors },
-	},
 	'/api/admin/update-setting': {
 		summary: 'Update app setting',
 		tags: ['admin'],

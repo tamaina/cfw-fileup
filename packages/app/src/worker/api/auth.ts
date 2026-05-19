@@ -20,11 +20,8 @@ app.post(
 	describeResponse(async (c: JsonCtx<'/api/signup', Env>) => {
 		const db = getDb(c.env);
 		const body = c.req.valid('json');
-		const username = (body.username ?? '').trim();
-
-		if (!username || !body.password) {
-			throw new HTTPException(400, { message: 'username and password are required' });
-		}
+		// username は schema で trim・minLength・maxLength・regex 検証済み
+		const { username, password } = body;
 
 		if ((c.env.TURNSTILE_SECRET as string) !== '') {
 			const token = body.turnstileToken;
@@ -33,63 +30,39 @@ app.post(
 			}
 		}
 
-		if (username.length < 1 || username.length > 32) {
-			throw new HTTPException(400, { message: 'username must be 1-32 characters' });
-		}
-
-		// 使用可能な文字・禁止ワード・重複（大文字小文字を区別しない）チェック
-		const usernameError = await validateUsername(db, username);
-		if (usernameError) {
-			// 重複エラーのみ409、それ以外は400
-			const status = usernameError === 'Username already exists' ? 409 : 400;
-			throw new HTTPException(status, { message: usernameError });
-		}
-
-		if (body.password.length < 8) {
-			throw new HTTPException(400, { message: 'password must be at least 8 characters' });
-		}
-
 		const userCount = await db.select({ count: count() }).from(users);
 		const isFirstUser = (userCount[0]?.count ?? 0) === 0;
 
-		// Get or initialize require_signup_passphrase setting
-		let requireSignupPassphraseSetting = await db
+		const registrationModeSetting = await db
 			.select()
 			.from(appSettings)
-			.where(eq(appSettings.key, 'require_signup_passphrase'))
+			.where(eq(appSettings.key, 'registration_mode'))
 			.get();
 
-		if (!requireSignupPassphraseSetting) {
-			const defaultValue = c.env.SIGNUP_PASSPHRASE ? 'true' : 'false';
-			await db.insert(appSettings).values({
-				key: 'require_signup_passphrase',
-				value: defaultValue,
-			});
-			requireSignupPassphraseSetting = { key: 'require_signup_passphrase', value: defaultValue };
+		const registrationMode = (registrationModeSetting?.value ?? 'passphrase') as 'closed' | 'passphrase' | 'open';
+
+		if (!isFirstUser && registrationMode === 'closed') {
+			throw new HTTPException(403, { message: 'Registration is closed' });
 		}
 
-		// Check passphrase requirement (first user is always exempt)
-		const requireSignupPassphrase = requireSignupPassphraseSetting.value === 'true';
-		const signupPassphrase = c.env.SIGNUP_PASSPHRASE;
-
-		if (requireSignupPassphrase && !isFirstUser) {
+		if (registrationMode === 'passphrase') {
+			const signupPassphrase = c.env.SIGNUP_PASSPHRASE;
 			if (!signupPassphrase || !body.passphrase || body.passphrase !== signupPassphrase) {
 				throw new HTTPException(403, { message: 'Invalid passphrase' });
 			}
 		}
 
-		const registrationEnabled = await db
-			.select()
-			.from(appSettings)
-			.where(eq(appSettings.key, 'registration_enabled'))
-			.get();
-
-		if (!isFirstUser && registrationEnabled?.value === 'false') {
-			throw new HTTPException(403, { message: 'Registration is closed' });
+		// 最初のユーザー（admin）は禁止名・重複チェックをスキップ
+		if (!isFirstUser) {
+			const usernameError = await validateUsername(db, username);
+			if (usernameError) {
+				const status = usernameError === 'Username already exists' ? 409 : 400;
+				throw new HTTPException(status, { message: usernameError });
+			}
 		}
 
 		const userId = genEaidx(Date.now());
-		const passwordHash = await hashPassword(body.password);
+		const passwordHash = await hashPassword(password);
 
 		await db.insert(users).values({
 			id: userId,
@@ -114,16 +87,6 @@ app.post(
 			token: tokenValue,
 		});
 
-		if (isFirstUser) {
-			await db
-				.insert(appSettings)
-				.values({
-					key: 'registration_enabled',
-					value: 'true',
-				})
-				.onConflictDoNothing();
-		}
-
 		return c.json({ userId, token: tokenValue }, 200);
 	}, apiDef['/api/signup'].res),
 );
@@ -135,11 +98,7 @@ app.post(
 	describeResponse(async (c: JsonCtx<'/api/signin', Env>) => {
 		const db = getDb(c.env);
 		const body = c.req.valid('json');
-		const username = (body.username ?? '').trim();
-
-		if (!username || !body.password) {
-			throw new HTTPException(400, { message: 'username and password are required' });
-		}
+		const { username, password } = body;
 
 		if ((c.env.TURNSTILE_SECRET as string) !== '') {
 			const token = body.turnstileToken;
@@ -161,7 +120,7 @@ app.post(
 		if (!user.passwordHash) {
 			throw new HTTPException(401, { message: 'Invalid credentials' });
 		}
-		const passwordValid = await verifyPassword(body.password, user.passwordHash);
+		const passwordValid = await verifyPassword(password, user.passwordHash);
 		if (!passwordValid) {
 			throw new HTTPException(401, { message: 'Invalid credentials' });
 		}

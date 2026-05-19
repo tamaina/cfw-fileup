@@ -23,7 +23,28 @@ DeepWikiに問い合わせると、npmパッケージの内容理解に役立つ
 ## Commands
 各コマンドの使い方は、skillを検索してみてください。
 
-@.claude/skills
+@.agents/skills
+
+### Codex-oriented workflow
+
+最初に見るコマンドは次の順です。
+
+- `pnpm run --filter app dev`
+- `pnpm run --filter app typecheck`
+- `pnpm run --filter app test:e2e`
+- `pnpm run --filter app test:e2e:fresh`
+
+変更の境界はなるべく次の責務に合わせます。
+
+- `src/worker` は Worker/API/DB
+- `src/client` は Vue 3 SPA
+- `src/shared` は両方で共有する型やユーティリティ
+
+重い処理は Workers の制約を意識します。`arrayBuffer()` で一度に全部読まず、必要な部分だけ扱う方向を優先します。R2 は `env.R2` 経由で触ります。
+
+ローカル実行に必要な環境変数は `packages/app/.dev.vars.example` を起点にします。`packages/app/.dev.vars` は各自のローカル用です。
+
+画面変更は必要に応じて Playwright で確認します。標準は `pnpm run --filter app test:e2e`、DB を作り直したいときだけ `pnpm run --filter app test:e2e:fresh` を使います。
 
 ## Architecture
 

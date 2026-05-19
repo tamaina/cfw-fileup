@@ -145,3 +145,5 @@ CREATE TABLE `used_bucket_names` (
 CREATE TABLE `used_usernames` (
 	`username` text PRIMARY KEY NOT NULL
 );
+--> statement-breakpoint
+INSERT INTO `app_settings` (`key`, `value`) VALUES ('registration_mode', 'passphrase');

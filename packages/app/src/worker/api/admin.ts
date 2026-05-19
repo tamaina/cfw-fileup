@@ -6,7 +6,8 @@ import { users, tokens, files, buckets, appSettings, userQuotas, globalQuotas } 
 import { getDb } from '../utils/db';
 import { getQuotaForUser, getGlobalQuota } from '../utils/rate-limit';
 import { authMiddleware, adminMiddleware } from '../middleware/auth';
-import { KNOWN_SETTINGS, KNOWN_SETTING_KEYS } from '../../shared/app-settings';
+import * as v from 'valibot';
+import { KNOWN_SETTINGS } from '../../shared/app-settings';
 import { apiDef, getResponseDefWithAuth, type JsonCtx } from '../../shared/api';
 import { omitResAndReq } from '../utils/omit';
 
@@ -242,31 +243,6 @@ app.post(
 );
 
 app.post(
-	'/toggle-registration',
-	describeRoute(omitResAndReq(apiDef['/api/admin/toggle-registration'])),
-	validator('json', apiDef['/api/admin/toggle-registration'].req),
-	describeResponse(async (c: JsonCtx<'/api/admin/toggle-registration', Env>) => {
-		const db = getDb(c.env);
-		const body = c.req.valid('json');
-
-		const value = body.enabled ? 'true' : 'false';
-
-		await db
-			.insert(appSettings)
-			.values({
-				key: 'registration_enabled',
-				value,
-			})
-			.onConflictDoUpdate({
-				target: appSettings.key,
-				set: { value },
-			});
-
-		return c.json({ ok: true }, 200);
-	}, getResponseDefWithAuth('/api/admin/toggle-registration')),
-);
-
-app.post(
 	'/update-setting',
 	describeRoute(omitResAndReq(apiDef['/api/admin/update-setting'])),
 	validator('json', apiDef['/api/admin/update-setting'].req),
@@ -274,15 +250,14 @@ app.post(
 		const db = getDb(c.env);
 		const body = c.req.valid('json');
 
-		if (!KNOWN_SETTING_KEYS.includes(body.key)) {
+		const schema = KNOWN_SETTINGS[body.key as keyof typeof KNOWN_SETTINGS];
+		if (!schema) {
 			throw new HTTPException(400, { message: `Unknown setting key: ${body.key}` });
 		}
 
-		// eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-		const settingDef = KNOWN_SETTINGS.find((s) => s.key === body.key)!;
-
-		if (settingDef.type === 'boolean' && body.value !== 'true' && body.value !== 'false') {
-			throw new HTTPException(400, { message: `Value for "${body.key}" must be "true" or "false"` });
+		const parsed = v.safeParse(schema, body.value);
+		if (!parsed.success) {
+			throw new HTTPException(400, { message: `Invalid value for "${body.key}"` });
 		}
 
 		await db
