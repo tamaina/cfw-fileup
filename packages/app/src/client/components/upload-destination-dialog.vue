@@ -298,7 +298,7 @@ watch(() => props.open, async (val) => {
 }
 
 .bucketPart {
-  font-weight: 600;
+  color: var(--color-text);
 }
 
 .loadingText {
