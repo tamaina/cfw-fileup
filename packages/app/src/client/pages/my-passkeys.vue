@@ -301,7 +301,7 @@ onMounted(async () => {
 <style module lang="scss">
 .root {
   max-width: 640px;
-  margin: 40px auto;
+  margin: 0 auto;
   padding: 0 16px;
 }
 
