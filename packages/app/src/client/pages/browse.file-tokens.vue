@@ -8,9 +8,11 @@ const props = defineProps<{
 	bucketName: string;
 	filePath: string;
 	fileIsPublic: boolean;
+	autoTokenId?: string | null;
 }>();
 const emit = defineEmits<{
 	(e: 'update:fileIsPublic', value: boolean): void;
+	(e: 'tokenDeleted', tokenId: string): void;
 }>();
 
 interface FileToken {
@@ -128,6 +130,7 @@ async function executeDelete(): Promise<void> {
 		}
 		tokens.value = tokens.value.filter((t) => t.id !== deletingId.value);
 		if (createdToken.value?.id === deletingId.value) createdToken.value = null;
+		emit('tokenDeleted', deletingId.value);
 	} catch (e) {
 		deleteError.value = String(e);
 	}
@@ -279,45 +282,50 @@ onMounted(loadTokens);
       <div v-if="loading" :class="['text-muted', $style.smallText]">読み込み中...</div>
       <div v-else-if="listError" :class="$style.listError">{{ listError }}</div>
       <div v-else-if="tokens.length === 0" :class="['text-muted', $style.smallText]">トークンはありません</div>
-      <table v-else :class="[$style.tokenTable, 'data-table']">
-        <thead>
-          <tr>
-            <th :class="$style.idCol">ID</th>
-            <th>発行日時</th>
-            <th>有効期限</th>
-            <th>状態</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="t in tokens" :key="t.id">
-            <td :class="$style.idCell">
-              <code :class="$style.tokenId">{{ t.id }}</code>
-            </td>
-            <td>{{ new Date(t.createdAt).toLocaleString() }}</td>
-            <td>{{ formatDate(t.expiresAt) }}</td>
-            <td>
-              <span :class="isExpired(t.expiresAt) ? 'badge badge-muted' : 'badge badge-success'">
-                {{ isExpired(t.expiresAt) ? '期限切れ' : '有効' }}
-              </span>
-            </td>
-            <td>
-              <Popover.Root>
-                <Popover.Activator class="btn btn-ghost btn-icon" aria-label="操作メニュー">
-                  …
-                </Popover.Activator>
-                <Popover.Content class="action-menu">
-                  <div class="action-menu-inner">
+      <div v-else :class="$style.tokenTableScroller">
+        <table :class="[$style.tokenTable, 'data-table']">
+          <thead>
+            <tr>
+              <th :class="$style.idCol">ID</th>
+              <th>発行日時</th>
+              <th>有効期限</th>
+              <th>状態</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="t in tokens" :key="t.id">
+              <td :class="$style.idCell">
+                <div :class="$style.idContent">
+                  <code :class="$style.tokenId">{{ t.id }}</code>
+                  <span v-if="t.id === autoTokenId" class="badge badge-info" :class="$style.autoTokenBadge">
+                    このビューで使用
+                  </span>
+                </div>
+              </td>
+              <td>{{ new Date(t.createdAt).toLocaleString() }}</td>
+              <td>{{ formatDate(t.expiresAt) }}</td>
+              <td>
+                <span :class="isExpired(t.expiresAt) ? 'badge badge-muted' : 'badge badge-success'">
+                  {{ isExpired(t.expiresAt) ? '期限切れ' : '有効' }}
+                </span>
+              </td>
+              <td>
+                <Popover.Root>
+                  <Popover.Activator class="btn btn-ghost btn-icon" aria-label="操作メニュー">
+                    …
+                  </Popover.Activator>
+                  <Popover.Content class="action-menu">
                     <Button.Root class="btn btn-ghost-danger w-full" :class="$style.menuItem" @click="openDeleteDialog(t.id)">
                       <Button.Content>削除</Button.Content>
                     </Button.Root>
-                  </div>
-                </Popover.Content>
-              </Popover.Root>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+                  </Popover.Content>
+                </Popover.Root>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
       <div v-if="deleteError" :class="[$style.deleteError, 'mt-2']">{{ deleteError }}</div>
     </div>
 
@@ -408,15 +416,30 @@ onMounted(loadTokens);
 
 .tokenTable {
   width: 100%;
+  min-width: 640px;
   font-size: 0.875rem;
 }
 
+.tokenTableScroller {
+  overflow-x: auto;
+}
+
 .idCol {
-  width: 9.5em;
+  width: 16em;
 }
 
 .idCell {
   max-width: 0;
+}
+
+.idContent {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.idContent .tokenId {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -424,6 +447,10 @@ onMounted(loadTokens);
 
 .tokenId {
   font-size: 0.8rem;
+}
+
+.autoTokenBadge {
+  flex: 0 0 auto;
 }
 
 .listError {

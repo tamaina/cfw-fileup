@@ -11,6 +11,12 @@ navigateFn.value = (path) => mainRouter.pushByPath(path);
 const theme = useTheme();
 const isDark = theme.isDark;
 
+const appNavOpen = ref(false);
+
+function closeAppNav() {
+  appNavOpen.value = false;
+};
+
 const isReady = ref(false);
 
 (async () => {
@@ -36,7 +42,7 @@ const CurrentPage = computed(() => {
 
 function logout(): void {
 	clearAuth();
-	mainRouter.pushByPath('/signin');
+	mainRouter.pushByPath('/');
 }
 
 function toggleTheme(): void {
@@ -52,8 +58,6 @@ function toggleTheme(): void {
 
         <div class="app-nav-links">
           <NirA to="/my/buckets" class="app-nav-link">マイバケット</NirA>
-          <NirA to="/my/uploadings" class="app-nav-link">アップロード中</NirA>
-          <NirA to="/my/passkeys" class="app-nav-link">パスキー</NirA>
           <template v-if="authStore.user?.isAdmin">
             <NirA to="/admin" class="app-nav-link">管理</NirA>
           </template>
@@ -67,13 +71,19 @@ function toggleTheme(): void {
 
         <div class="app-nav-user">
           <template v-if="authStore.user">
-            <Popover.Root>
+            <Popover.Root v-model="appNavOpen">
               <Popover.Activator class="btn btn-ghost app-nav-username" aria-haspopup="true">
                 {{ authStore.user.username }}
               </Popover.Activator>
               <Popover.Content class="app-nav-user-menu">
                 <div class="app-nav-user-menu-inner">
-                  <Button.Root class="btn btn-ghost w-full" :class="$style.logoutBtn" @click="logout">
+                  <Button.Root :as="NirA" to="/my/uploadings" class="btn btn-ghost w-full" @click="closeAppNav">
+                    <Button.Content>アップロード状況</Button.Content>
+                  </Button.Root>
+                  <Button.Root :as="NirA" to="/my/passkeys" class="btn btn-ghost w-full" @click="closeAppNav">
+                    <Button.Content>パスキー</Button.Content>
+                  </Button.Root>
+                  <Button.Root class="btn btn-ghost w-full" @click="logout">
                     <Button.Content>ログアウト</Button.Content>
                   </Button.Root>
                 </div>
@@ -98,7 +108,5 @@ function toggleTheme(): void {
 </template>
 
 <style module lang="scss">
-.logoutBtn {
-  justify-content: flex-start;
-}
+
 </style>

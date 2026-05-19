@@ -101,6 +101,9 @@ const fileIsPublic = ref(true);
 
 const activeTab = ref<'info' | 'tokens'>('info');
 const autoToken = ref<string | null>(null);
+const autoTokenId = ref<string | null>(null);
+const autoTokenLoading = ref(false);
+let autoTokenPromise: Promise<void> | null = null;
 
 const turnstileEnabled = ref(false);
 const turnstileSiteKey = ref('');
@@ -118,6 +121,9 @@ const passphraseTokenExpiryStr = computed(() => {
 
 const needsPassphrase = computed(() =>
 	!isDirectory.value && !authStore.user && !fileIsPublic.value && !autoToken.value && !metaLoading.value && !metaError.value,
+);
+const detailsLoading = computed(() =>
+	metaLoading.value || (activeTab.value === 'info' && authStore.user && !isDirectory.value && !fileIsPublic.value && autoTokenLoading.value),
 );
 
 async function fetchInnerMeta(): Promise<void> {
@@ -198,8 +204,9 @@ async function submitPassphrase({ valid }: { valid: boolean }): Promise<void> {
 			return;
 		}
 		autoToken.value = result.data.token;
+		autoTokenId.value = result.data.id;
 		passphraseTokenExpiresAt.value = result.data.expiresAt;
-		saveCachedToken(result.data.token, result.data.expiresAt);
+		saveCachedToken(result.data.token, result.data.expiresAt, result.data.id);
 		scheduleTokenExpiry(result.data.expiresAt);
 		passphraseInput.value = '';
 		turnstileToken.value = null;
@@ -224,6 +231,7 @@ function clearExpiryTimer(): void {
 
 function expireToken(): void {
 	autoToken.value = null;
+	autoTokenId.value = null;
 	passphraseTokenExpiresAt.value = null;
 	tokenExpiryTimer = null;
 	try { sessionStorage.removeItem(autoTokenCacheKey()); } catch { /* */ }
@@ -237,20 +245,20 @@ function scheduleTokenExpiry(expiresAt: number | null): void {
 	tokenExpiryTimer = setTimeout(expireToken, delay);
 }
 
-function loadCachedToken(): { token: string; expiresAt: number | null } | null {
+function loadCachedToken(): { id: string | null; token: string; expiresAt: number | null } | null {
 	try {
 		const raw = sessionStorage.getItem(autoTokenCacheKey());
 		if (!raw) return null;
-		const cached = JSON.parse(raw) as { token: string; expiresAt: number | null };
+		const cached = JSON.parse(raw) as { id?: string | null; token: string; expiresAt: number | null };
 		// 60秒バッファを持たせて期限チェック
 		if (cached.expiresAt !== null && cached.expiresAt < Date.now() + 60_000) return null;
-		return cached;
+		return { id: cached.id ?? null, token: cached.token, expiresAt: cached.expiresAt };
 	} catch { return null; }
 }
 
-function saveCachedToken(token: string, expiresAt: number | null): void {
+function saveCachedToken(token: string, expiresAt: number | null, id: string | null): void {
 	try {
-		sessionStorage.setItem(autoTokenCacheKey(), JSON.stringify({ token, expiresAt }));
+		sessionStorage.setItem(autoTokenCacheKey(), JSON.stringify({ id, token, expiresAt }));
 	} catch { /* quota exceeded etc. */ }
 }
 
@@ -258,22 +266,54 @@ async function issueAutoToken(): Promise<void> {
 	const cached = loadCachedToken();
 	if (cached) {
 		autoToken.value = cached.token;
+		autoTokenId.value = cached.id;
 		return;
 	}
+	if (autoTokenPromise) return autoTokenPromise;
+	const requestKey = autoTokenCacheKey();
 	autoToken.value = null;
-	try {
+	autoTokenId.value = null;
+	autoTokenLoading.value = true;
+	autoTokenPromise = (async () => {
 		const result = await apiPost('/api/file-tokens/create', { bucketName: props.bucketName, filePath: props.filePath, expiresIn: 3600 });
-		if (result.ok) {
+		if (result.ok && requestKey === autoTokenCacheKey()) {
 			autoToken.value = result.data.token;
-			saveCachedToken(result.data.token, result.data.expiresAt);
+			autoTokenId.value = result.data.id;
+			saveCachedToken(result.data.token, result.data.expiresAt, result.data.id);
 		}
-	} catch { /* silent */ }
+	})().catch(() => { /* silent */ }).finally(() => {
+		if (requestKey === autoTokenCacheKey()) {
+			autoTokenLoading.value = false;
+			autoTokenPromise = null;
+		}
+	});
+	return autoTokenPromise;
+}
+
+function infoTabClicked() {
+	activeTab.value = 'info';
+	issueAutoToken();
+}
+
+function filePublicStateChanged(v: boolean) {
+	fileIsPublic.value = v;
+	if (!v && authStore.user) issueAutoToken();
+}
+
+function tokenDeleted(tokenId: string) {
+	if (autoTokenId.value !== tokenId) return;
+	autoToken.value = null;
+	autoTokenId.value = null;
+	try { sessionStorage.removeItem(autoTokenCacheKey()); } catch { /* */ }
 }
 
 onMounted(fetchMeta);
 watch(() => [props.bucketName, props.filePath], () => {
 	activeTab.value = 'info';
 	autoToken.value = null;
+	autoTokenId.value = null;
+	autoTokenLoading.value = false;
+	autoTokenPromise = null;
 	passphraseTokenExpiresAt.value = null;
 	clearExpiryTimer();
 	fetchMeta();
@@ -312,7 +352,7 @@ watch(() => entryPath.value, () => {
       </span>
     </div>
 
-    <div v-if="metaLoading" class="page-loading">
+    <div v-if="detailsLoading" class="page-loading">
       <span class="spinner"></span>読み込み中...
     </div>
     <div v-else-if="metaError" class="alert alert-error">{{ metaError }}</div>
@@ -331,7 +371,7 @@ watch(() => entryPath.value, () => {
       <!-- ファイル・ログイン済み: タブ付きパネル -->
       <template v-else-if="!isDirectory && authStore.user">
         <div class="tab-bar mb-3">
-          <button :class="['tab-btn', activeTab === 'info' ? 'tab-btn-active' : '']" @click="activeTab = 'info'">詳細</button>
+          <button :class="['tab-btn', activeTab === 'info' ? 'tab-btn-active' : '']" @click="infoTabClicked">詳細</button>
           <button :class="['tab-btn', activeTab === 'tokens' ? 'tab-btn-active' : '']" @click="activeTab = 'tokens'">アクセストークン</button>
         </div>
 
@@ -347,7 +387,9 @@ watch(() => entryPath.value, () => {
           :bucketName="bucketName"
           :filePath="filePath"
           :fileIsPublic="fileIsPublic"
-          @update:fileIsPublic="fileIsPublic = $event"
+          :autoTokenId="autoTokenId"
+          @update:fileIsPublic="filePublicStateChanged"
+          @tokenDeleted="tokenDeleted"
         />
       </template>
 
