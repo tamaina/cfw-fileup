@@ -17,6 +17,8 @@ export const files = sqliteTable('files', {
 	isTargz: integer('is_targz', { mode: 'boolean' }).notNull().default(false),
 	isTar: integer('is_tar', { mode: 'boolean' }).notNull().default(false),
 	uploadId: text('upload_id'),
+	/** マルチパートアップロードのパートサイズ（バイト）。デフォルト32MiB */
+	partSize: integer('part_size').notNull().default(32 * 1024 * 1024),
 }, (table) => [
 	uniqueIndex('files_bucket_path_idx').on(table.bucketId, table.path),
 ]);
@@ -49,3 +51,12 @@ export const uploadParts = sqliteTable('upload_parts', {
 	partNumber: integer('part_number').notNull(),
 	etag: text('etag').notNull(),
 });
+
+/** デフォルトのパートサイズ: 32MiB
+ * R2のマルチパートアップロードはパートごとにClass A操作となるため、
+ * コストを抑えるためにパートサイズを大きく設定する。
+ */
+export const DEFAULT_PART_SIZE = 32 * 1024 * 1024;
+
+/** R2マルチパートアップロードの最小パートサイズ: 5MiB */
+export const MIN_PART_SIZE = 5 * 1024 * 1024;

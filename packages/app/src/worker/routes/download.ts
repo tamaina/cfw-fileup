@@ -94,9 +94,12 @@ app.get('/d/:bucketName/*', async (c) => {
 				.where(and(eq(directories.bucketId, bucket.id), eq(directories.path, filePath)))
 				.get();
 			if (!dirExists) {
+				const hasFileCondition = isOwnerOrAdmin
+					? and(eq(files.bucketId, bucket.id), like(files.path, `${filePath}%`), eq(files.isClosed, true))
+					: and(eq(files.bucketId, bucket.id), like(files.path, `${filePath}%`), eq(files.isClosed, true), eq(files.isPublic, true));
 				const hasFile = await db.select({ path: files.path })
 					.from(files)
-					.where(and(eq(files.bucketId, bucket.id), like(files.path, `${filePath}%`)))
+					.where(hasFileCondition)
 					.get();
 				if (!hasFile) throw new HTTPException(404, { message: 'Directory not found' });
 			}

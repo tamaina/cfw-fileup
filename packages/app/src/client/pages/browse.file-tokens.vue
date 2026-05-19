@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { Button } from '@vuetify/v0';
+import { Button, Popover } from '@vuetify/v0';
 import ConfirmDialog from '@/components/confirm-dialog.vue';
-import { authHeaders } from '@/store/auth';
+import { apiPost } from '@/utils/api';
 
 const props = defineProps<{
 	bucketName: string;
@@ -47,18 +47,12 @@ async function loadTokens(): Promise<void> {
 	loading.value = true;
 	listError.value = '';
 	try {
-		const res = await fetch('/api/file-tokens/list', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', ...authHeaders() },
-			body: JSON.stringify({ bucketName: props.bucketName, filePath: props.filePath }),
-		});
-		if (!res.ok) {
-			const err = await res.json().catch(() => ({})) as { error?: string };
-			listError.value = err.error ?? `取得失敗: ${res.status}`;
+		const result = await apiPost('/api/file-tokens/list', { bucketName: props.bucketName, filePath: props.filePath });
+		if (!result.ok) {
+			listError.value = result.data.error;
 			return;
 		}
-		const data = await res.json() as { tokens: FileToken[] };
-		tokens.value = data.tokens.sort((a, b) => b.createdAt - a.createdAt);
+		tokens.value = result.data.tokens.sort((a, b) => b.createdAt - a.createdAt);
 	} catch (e) {
 		listError.value = String(e);
 	} finally {
@@ -89,22 +83,16 @@ async function createToken(): Promise<void> {
 	createdToken.value = null;
 	copied.value = false;
 	try {
-		const res = await fetch('/api/file-tokens/create', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', ...authHeaders() },
-			body: JSON.stringify({
-				bucketName: props.bucketName,
-				filePath: props.filePath,
-				expiresIn,
-			}),
+		const result = await apiPost('/api/file-tokens/create', {
+			bucketName: props.bucketName,
+			filePath: props.filePath,
+			expiresIn,
 		});
-		if (!res.ok) {
-			const err = await res.json().catch(() => ({})) as { error?: string };
-			createError.value = err.error ?? `発行失敗: ${res.status}`;
+		if (!result.ok) {
+			createError.value = result.data.error;
 			return;
 		}
-		const data = await res.json() as { id: string; token: string; expiresAt: number | null };
-		createdToken.value = data;
+		createdToken.value = result.data;
 		await loadTokens();
 	} catch (e) {
 		createError.value = String(e);
@@ -133,14 +121,9 @@ function openDeleteDialog(id: string): void {
 async function executeDelete(): Promise<void> {
 	deleteError.value = '';
 	try {
-		const res = await fetch('/api/file-tokens/delete', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', ...authHeaders() },
-			body: JSON.stringify({ tokenId: deletingId.value }),
-		});
-		if (!res.ok) {
-			const err = await res.json().catch(() => ({})) as { error?: string };
-			deleteError.value = err.error ?? `削除失敗: ${res.status}`;
+		const result = await apiPost('/api/file-tokens/delete', { tokenId: deletingId.value });
+		if (!result.ok) {
+			deleteError.value = result.data.error;
 			return;
 		}
 		tokens.value = tokens.value.filter((t) => t.id !== deletingId.value);
@@ -171,19 +154,14 @@ async function saveVisibility(): Promise<void> {
 	visibilitySaving.value = true;
 	visibilityError.value = '';
 	try {
-		const res = await fetch('/api/files/update', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', ...authHeaders() },
-			body: JSON.stringify({
-				bucketName: props.bucketName,
-				filePath: props.filePath,
-				isPublic: editIsPublic.value,
-				passphrase: editPassphrase.value || undefined,
-			}),
+		const result = await apiPost('/api/files/update', {
+			bucketName: props.bucketName,
+			filePath: props.filePath,
+			isPublic: editIsPublic.value,
+			passphrase: editPassphrase.value || undefined,
 		});
-		if (!res.ok) {
-			const err = await res.json().catch(() => ({})) as { error?: string };
-			visibilityError.value = err.error ?? '保存失敗';
+		if (!result.ok) {
+			visibilityError.value = result.data.error;
 			return;
 		}
 		emit('update:fileIsPublic', editIsPublic.value);
@@ -201,9 +179,9 @@ onMounted(loadTokens);
 <template>
   <div>
     <!-- 公開設定 -->
-    <div class="card mb-3" style="padding: 12px 16px">
+    <div :class="[$style.sectionCard, 'card', 'mb-3']">
       <div class="flex items-center gap-3 flex-wrap">
-        <span class="text-muted" style="font-size:0.875rem">公開設定</span>
+        <span :class="['text-muted', $style.smallText]">公開設定</span>
         <span :class="fileIsPublic ? 'badge badge-success' : 'badge badge-muted'">
           {{ fileIsPublic ? '公開' : '非公開' }}
         </span>
@@ -213,19 +191,18 @@ onMounted(loadTokens);
       </div>
       <template v-if="visibilityEditing">
         <div class="flex items-center gap-3 mt-2 flex-wrap">
-          <label class="flex items-center gap-2" style="cursor:pointer">
+          <label :class="[$style.radioLabel, 'flex', 'items-center', 'gap-2']">
             <input type="radio" v-model="editIsPublic" :value="true"> 公開
           </label>
-          <label class="flex items-center gap-2" style="cursor:pointer">
+          <label :class="[$style.radioLabel, 'flex', 'items-center', 'gap-2']">
             <input type="radio" v-model="editIsPublic" :value="false"> 非公開
           </label>
           <input
             v-if="!editIsPublic"
             v-model="editPassphrase"
-            class="form-input form-input-mono"
+            :class="[$style.passphraseInput, 'form-input', 'form-input-mono']"
             type="text"
             placeholder="パスフレーズ（任意）"
-            style="width:200px"
           >
           <Button.Root class="btn btn-primary" :disabled="visibilitySaving" @click="saveVisibility">
             <Button.Content>保存</Button.Content>
@@ -234,19 +211,19 @@ onMounted(loadTokens);
             <Button.Content>キャンセル</Button.Content>
           </Button.Root>
         </div>
-        <div v-if="visibilityError" class="mt-1" style="color:var(--color-danger); font-size:0.8rem">{{ visibilityError }}</div>
+        <div v-if="visibilityError" :class="[$style.visibilityError, 'mt-1']">{{ visibilityError }}</div>
       </template>
     </div>
 
     <!-- 発行フォーム -->
-    <div v-if="fileIsPublic" class="card mb-3" style="padding: 12px 16px">
-      <div class="text-muted" style="font-size:0.875rem">公開ファイルにはアクセストークンは不要です。</div>
+    <div v-if="fileIsPublic" :class="[$style.sectionCard, 'card', 'mb-3']">
+      <div :class="['text-muted', $style.smallText]">公開ファイルにはアクセストークンは不要です。</div>
     </div>
-    <div v-else class="card mb-3" style="padding: 12px 16px">
-      <div class="text-muted mb-2" style="font-size:0.875rem; font-weight:600">新しいトークンを発行</div>
+    <div v-else :class="[$style.sectionCard, 'card', 'mb-3']">
+      <div :class="[$style.sectionHeading, 'text-muted', 'mb-2']">新しいトークンを発行</div>
 
       <div class="flex items-center gap-3 flex-wrap">
-        <select v-model="expiryMode" class="form-input" style="width:120px">
+        <select v-model="expiryMode" :class="[$style.expiryModeSelect, 'form-input']">
           <option value="unlimited">無制限</option>
           <option value="datetime">日時指定</option>
           <option value="duration">経過指定</option>
@@ -254,20 +231,19 @@ onMounted(loadTokens);
 
         <!-- 日時指定 -->
         <template v-if="expiryMode === 'datetime'">
-          <input v-model="datetimeDate" class="form-input" type="date" style="width:160px">
-          <input v-model="datetimeTime" class="form-input" type="time" style="width:120px">
+          <input v-model="datetimeDate" :class="[$style.dateInput, 'form-input']" type="date">
+          <input v-model="datetimeTime" :class="[$style.timeInput, 'form-input']" type="time">
         </template>
 
         <!-- 経過指定 -->
         <template v-else-if="expiryMode === 'duration'">
           <input
             v-model.number="durationValue"
-            class="form-input"
+            :class="[$style.durationInput, 'form-input']"
             type="number"
             min="1"
-            style="width:80px"
           >
-          <select v-model.number="durationUnit" class="form-input" style="width:100px">
+          <select v-model.number="durationUnit" :class="[$style.durationUnitSelect, 'form-input']">
             <option :value="60">分</option>
             <option :value="3600">時間</option>
             <option :value="86400">日</option>
@@ -278,19 +254,19 @@ onMounted(loadTokens);
           <Button.Content>発行</Button.Content>
         </Button.Root>
       </div>
-      <div v-if="createError" class="mt-2" style="color:var(--color-danger); font-size:0.8rem">{{ createError }}</div>
+      <div v-if="createError" :class="[$style.createError, 'mt-2']">{{ createError }}</div>
 
       <!-- 発行後のトークン表示 -->
       <template v-if="createdToken">
-        <div class="mt-3" style="background:var(--color-bg); border:1px solid var(--color-border); border-radius:6px; padding:10px 12px">
-          <div class="text-muted mb-1" style="font-size:0.8rem">ダウンロードURL（この画面を閉じると再表示できません）</div>
+        <div :class="[$style.createdTokenBox, 'mt-3']">
+          <div :class="['text-muted', $style.createdTokenLabel, 'mb-1']">ダウンロードURL（この画面を閉じると再表示できません）</div>
           <div class="flex items-center gap-2 flex-wrap">
-            <code style="font-size:0.8rem; word-break:break-all; flex:1">{{ downloadUrl(createdToken.token) }}</code>
+            <code :class="$style.tokenUrl">{{ downloadUrl(createdToken.token) }}</code>
             <Button.Root class="btn btn-secondary" @click="copyUrl">
               <Button.Content>{{ copied ? 'コピー済み' : 'コピー' }}</Button.Content>
             </Button.Root>
           </div>
-          <div class="mt-1" style="font-size:0.75rem; color:var(--color-muted)">
+          <div :class="[$style.expiryInfo, 'mt-1']">
             有効期限: {{ formatDate(createdToken.expiresAt) }}
           </div>
         </div>
@@ -298,15 +274,15 @@ onMounted(loadTokens);
     </div>
 
     <!-- トークン一覧 -->
-    <div v-if="!fileIsPublic" class="card" style="padding: 12px 16px">
-      <div class="text-muted mb-2" style="font-size:0.875rem; font-weight:600">発行済みトークン</div>
-      <div v-if="loading" class="text-muted" style="font-size:0.875rem">読み込み中...</div>
-      <div v-else-if="listError" style="color:var(--color-danger); font-size:0.875rem">{{ listError }}</div>
-      <div v-else-if="tokens.length === 0" class="text-muted" style="font-size:0.875rem">トークンはありません</div>
-      <table v-else class="table" style="width:100%; font-size:0.875rem">
+    <div v-if="!fileIsPublic" :class="[$style.sectionCard, 'card']">
+      <div :class="[$style.sectionHeading, 'text-muted', 'mb-2']">発行済みトークン</div>
+      <div v-if="loading" :class="['text-muted', $style.smallText]">読み込み中...</div>
+      <div v-else-if="listError" :class="$style.listError">{{ listError }}</div>
+      <div v-else-if="tokens.length === 0" :class="['text-muted', $style.smallText]">トークンはありません</div>
+      <table v-else :class="[$style.tokenTable, 'data-table']">
         <thead>
           <tr>
-            <th style="width: 9.5em;">ID</th>
+            <th :class="$style.idCol">ID</th>
             <th>発行日時</th>
             <th>有効期限</th>
             <th>状態</th>
@@ -315,8 +291,8 @@ onMounted(loadTokens);
         </thead>
         <tbody>
           <tr v-for="t in tokens" :key="t.id">
-            <td style="max-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">
-              <code style="font-size:0.8rem">{{ t.id }}</code>
+            <td :class="$style.idCell">
+              <code :class="$style.tokenId">{{ t.id }}</code>
             </td>
             <td>{{ new Date(t.createdAt).toLocaleString() }}</td>
             <td>{{ formatDate(t.expiresAt) }}</td>
@@ -326,14 +302,21 @@ onMounted(loadTokens);
               </span>
             </td>
             <td>
-              <Button.Root class="btn btn-danger" @click="openDeleteDialog(t.id)">
-                <Button.Content>削除</Button.Content>
-              </Button.Root>
+              <Popover.Root>
+                <Popover.Activator class="btn btn-ghost btn-icon" aria-label="操作メニュー">
+                  …
+                </Popover.Activator>
+                <Popover.Content class="action-menu">
+                  <Button.Root class="btn btn-ghost-danger w-full" :class="$style.menuItem" @click="openDeleteDialog(t.id)">
+                    <Button.Content>削除</Button.Content>
+                  </Button.Root>
+                </Popover.Content>
+              </Popover.Root>
             </td>
           </tr>
         </tbody>
       </table>
-      <div v-if="deleteError" class="mt-2" style="color:var(--color-danger); font-size:0.8rem">{{ deleteError }}</div>
+      <div v-if="deleteError" :class="[$style.deleteError, 'mt-2']">{{ deleteError }}</div>
     </div>
 
     <ConfirmDialog
@@ -346,3 +329,112 @@ onMounted(loadTokens);
     />
   </div>
 </template>
+
+<style module lang="scss">
+.sectionCard {
+  padding: 12px 16px;
+}
+
+.smallText {
+  font-size: 0.875rem;
+}
+
+.radioLabel {
+  cursor: pointer;
+}
+
+.passphraseInput {
+  width: 200px;
+}
+
+.visibilityError {
+  color: var(--color-danger);
+  font-size: 0.8rem;
+}
+
+.sectionHeading {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.expiryModeSelect {
+  width: 120px;
+}
+
+.dateInput {
+  width: 160px;
+}
+
+.timeInput {
+  width: 120px;
+}
+
+.durationInput {
+  width: 80px;
+}
+
+.durationUnitSelect {
+  width: 100px;
+}
+
+.createError {
+  color: var(--color-danger);
+  font-size: 0.8rem;
+}
+
+.createdTokenBox {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+
+.createdTokenLabel {
+  font-size: 0.8rem;
+}
+
+.tokenUrl {
+  font-size: 0.8rem;
+  word-break: break-all;
+  flex: 1;
+}
+
+.expiryInfo {
+  font-size: 0.75rem;
+  color: var(--color-muted);
+}
+
+.tokenTable {
+  width: 100%;
+  font-size: 0.875rem;
+}
+
+.idCol {
+  width: 9.5em;
+}
+
+.idCell {
+  max-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tokenId {
+  font-size: 0.8rem;
+}
+
+.listError {
+  color: var(--color-danger);
+  font-size: 0.875rem;
+}
+
+.deleteError {
+  color: var(--color-danger);
+  font-size: 0.8rem;
+}
+
+.menuItem {
+  justify-content: flex-start;
+}
+</style>

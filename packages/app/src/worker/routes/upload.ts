@@ -7,7 +7,6 @@ import { abortUpload } from '../utils/abort-upload';
 import { authMiddleware } from '../middleware/auth';
 import { genEaidx } from '../../shared/eaid-x';
 
-const PART_SIZE = 5 * 1024 * 1024; // 5MB
 const app = new Hono<{ Bindings: Env }>();
 
 app.use('/upload/*', authMiddleware);
@@ -38,7 +37,8 @@ app.get('/upload/:fileId/resume', async (c) => {
 			.select({ count: sql<number>`COUNT(*)` })
 			.from(uploadParts)
 			.where(eq(uploadParts.fileId, fileId));
-		offset = Number(count) * PART_SIZE;
+		// パートサイズはDBに保存した値を使用（クライアントが宣言したサイズに基づく）
+		offset = Number(count) * file.partSize;
 	} else {
 		const r2Object = await c.env.R2.head(file.r2Key);
 		offset = r2Object?.size ?? 0;
@@ -99,8 +99,9 @@ app.patch('/upload/:fileId/resume', async (c) => {
 		.from(uploadParts)
 		.where(eq(uploadParts.fileId, fileId));
 
-	if (contentLength > PART_SIZE) {
-		throw new HTTPException(400, { message: `All parts except the last must be exactly ${PART_SIZE} bytes` });
+	// ファイル作成時にクライアントが宣言したパートサイズをDBから取得して検証
+	if (contentLength > file.partSize) {
+		throw new HTTPException(400, { message: `All parts except the last must be at most ${file.partSize} bytes` });
 	}
 
 	const nextPartNumber = (maxPartNumber ?? 0) + 1;

@@ -12,7 +12,7 @@
     "lint": "eslint src/"
   },
   "dependencies": {
-    "file-type": "^22.0.1"
+    "magic-bytes.js": "^1.13.0"
   },
   "devDependencies": {
     "@misskey-dev/eslint-plugin": "^2.2.0",

@@ -36,5 +36,5 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div ref="container" />
+  <div ref="container" data-size="normal" />
 </template>

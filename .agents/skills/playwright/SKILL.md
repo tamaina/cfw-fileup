@@ -77,7 +77,34 @@ npx playwright show-report packages/app/playwright-report
 
 ---
 
+## Playwright MCP によるブラウザ操作
+
+`.mcp.json` に設定済みの `@playwright/mcp` を使うと、Claude が直接ブラウザを操作できる。
+E2E テストスクリプトを書かずに、ページの確認・スクリーンショット撮影・UI 操作が可能。
+
+### 主な使い方
+
+- 開発サーバーを起動しておき、「`http://localhost:5173` を開いてスクリーンショットを撮って」と指示する
+- ログインが必要なページは「メールアドレス X・パスワード Y でサインインして〇〇ページを確認して」のように伝える
+- E2E テスト (`test:e2e`) が重い場面での簡易確認に向いている
+
+### 注意点
+
+- MCP 経由のブラウザ操作はヘッドレス Chromium で動く（画面には表示されない）
+- 本格的な回帰テストは E2E テスト (`test:e2e`) を使うこと
+
+---
+
 ## スクリーンショット撮影
+
+### 撮影後の確認（エージェント向け）
+
+撮影したPNGはReadツールで目視確認すること。以下の問題が写り込んでいる場合は、揉み消さずに原因を調べて対処する:
+
+- **Vite HMR エラーオーバーレイ** (`Cannot read properties of null (reading 'invalidateTypeCache')`)  
+  → `@vitejs/plugin-vue` のHMRバグ。worktreeでdev serverを起動した直後にファイル変更が検知されると発生することがある。`vite.config.ts` の `server.watch.ignored` に `.wrangler/**` を追加するなどで根本対処する。
+- **コンポーネント読み込みエラー** (`Failed to fetch dynamically imported module`)  
+  → Vueファイルのコンパイルエラー。featureブランチに未修正のバグが残っている可能性がある（例: `browse.vue` の `/    >` 構文エラー）。mainをマージして解消する。
 
 ### E2Eテスト内で撮影する
 
@@ -156,10 +183,12 @@ gh release create "screenshots" --title "Screenshots" --notes ""
 # すでにドラフトで作った場合は公開に変更
 gh release edit "screenshots" --draft=false --latest=false
 
-# 2. ファイル名にPR番号プレフィックスをつけてアップロード
-cp /tmp/ss/signin.png /tmp/ss/pr23-signin.png
-gh release upload "screenshots" /tmp/ss/pr23-signin.png --clobber
-URL="https://github.com/tamaina/cfw-fileup/releases/download/screenshots/pr23-signin.png"
+# 2. ファイル名に PR番号+Unix時刻 プレフィックスをつけてアップロード
+#    （Unix時刻でCDNキャッシュを回避）
+TS=$(date +%s)
+cp /tmp/ss/signin.png /tmp/ss/pr23-${TS}-signin.png
+gh release upload "screenshots" /tmp/ss/pr23-${TS}-signin.png --clobber
+URL="https://github.com/tamaina/cfw-fileup/releases/download/screenshots/pr23-${TS}-signin.png"
 
 # 3. PR コメントに埋め込む（リポジトリ内から実行すること）
 gh pr comment 23 --body "![signin]($URL)"
@@ -168,9 +197,13 @@ gh pr comment 23 --body "![signin]($URL)"
 ### PR へのスクリーンショット投稿の一連の流れ（複数PR対応）
 
 ```sh
+TS=$(date +%s)
+SS_DIR=/tmp/ss-pr23-${TS}
+mkdir -p "$SS_DIR"
+
 # 1. worktree 作成 & install & migrate
-git worktree add /tmp/wt-pr23 origin/feature/xxx
-cd /tmp/wt-pr23
+git worktree add /tmp/wt-pr23-${TS} origin/feature/xxx
+cd /tmp/wt-pr23-${TS}
 pnpm install --frozen-lockfile --ignore-scripts
 pnpm --filter app run db:reset
 pnpm --filter app run db:migrate:local
@@ -181,22 +214,22 @@ until curl -sf http://localhost:5173 > /dev/null; do sleep 2; done
 
 # 3. 撮影（スクリプトはメインリポジトリのものを使用）
 cd /path/to/main-repo
-BASE_URL=http://localhost:5173 SCENARIO=directory SCREENSHOTS_DIR=/tmp/ss-pr23 \
+BASE_URL=http://localhost:5173 SCENARIO=directory SCREENSHOTS_DIR="$SS_DIR" \
   pnpm --filter app run screenshot
 
-# 4. PR番号プレフィックスをつけてリネーム → アップロード（リポジトリ内から実行）
+# 4. PR番号+Unix時刻プレフィックスをつけてリネーム → アップロード（リポジトリ内から実行）
 cd /path/to/main-repo
-for f in /tmp/ss-pr23/*.png; do
-  fname="pr23-$(basename $f)"
-  cp "$f" "/tmp/ss-pr23/$fname"
-  gh release upload "screenshots" "/tmp/ss-pr23/$fname" --clobber
+for f in "${SS_DIR}"/*.png; do
+  fname="pr23-${TS}-$(basename $f)"
+  mv "$f" "${SS_DIR}/$fname"
+  gh release upload "screenshots" "${SS_DIR}/$fname" --clobber
   URL="https://github.com/tamaina/cfw-fileup/releases/download/screenshots/$fname"
   gh pr comment 23 --body "![$(basename $f .png)]($URL)"
 done
 
 # 5. サーバー停止 & worktree削除
 kill %1
-git worktree remove /tmp/wt-pr23 --force
+git worktree remove /tmp/wt-pr23-${TS} --force
 ```
 
 ---

@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { Button, Progress } from '@vuetify/v0';
 import { authHeaders, authStore } from '../store/auth';
+import { apiPost } from '../utils/api';
 import NirA from '@/components/nira.vue';
 import { TarArchiver, BgzfTarArchiver, type TarIndex, type TarGzIndex, type ArchiveProgress } from 'bgzf';
 import { takePendingUpload } from '@/store/pending-upload';
@@ -15,7 +16,12 @@ interface Bucket {
 	name: string;
 }
 
-const CHUNK_SIZE = 5 * 1024 * 1024;
+/** デフォルトのチャンクサイズ: 32MiB
+ * R2のマルチパートアップロードはパートごとにClass A操作となるため、
+ * コストを抑えるためにデフォルトを大きく設定する。
+ * サーバーからpartSizeが返された場合はそちらを優先する。
+ */
+const DEFAULT_CHUNK_SIZE = 32 * 1024 * 1024;
 
 const buckets = ref<Bucket[]>([]);
 const selectedBucketName = ref(props.bucketName);
@@ -64,17 +70,12 @@ function getUploadPaths(): string[] {
 const supportsFileAccessAPI = typeof window !== 'undefined' && 'showDirectoryPicker' in window;
 
 async function loadBucket(): Promise<void> {
-	try {
-		const res = await fetch('/api/buckets/list', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', ...authHeaders() },
-			body: JSON.stringify({}),
-		});
-		const data = (await res.json()) as { buckets?: Bucket[] };
-		buckets.value = data.buckets ?? [];
-	} catch (e) {
-		loadError.value = String(e);
+	const result = await apiPost('/api/buckets/list');
+	if (!result.ok) {
+		loadError.value = result.data.error;
+		return;
 	}
+	buckets.value = result.data.buckets;
 }
 
 async function pickDirectory(): Promise<void> {
@@ -118,24 +119,19 @@ async function getResumeOffset(fileId: string): Promise<number> {
 }
 
 async function getUploadPartCount(fileId: string): Promise<number> {
-	const res = await fetch('/api/files/create/status', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json', ...authHeaders() },
-		body: JSON.stringify({ fileId }),
-	}).catch(() => null);
-	if (!res?.ok) return -1;
-	const data = (await res.json().catch(() => null)) as { partCount: number } | null;
-	return data?.partCount ?? -1;
+	const result = await apiPost('/api/files/create/status', { fileId }).catch(() => null);
+	if (!result?.ok) return -1;
+	return result.data.partCount;
 }
 
-async function tusUpload(fileId: string, blob: Blob, filename: string, onProgress?: (uploaded: number) => void): Promise<boolean> {
+async function tusUpload(fileId: string, blob: Blob, filename: string, partSize: number, onProgress?: (uploaded: number) => void): Promise<boolean> {
 	const total = blob.size;
 	let offset = Math.max(0, await getResumeOffset(fileId));
 	onProgress?.(offset);
 
 	while (offset < total) {
-		const chunk = blob.slice(offset, offset + CHUNK_SIZE);
-		const chunkIndex = offset / CHUNK_SIZE; // 0始まりのチャンク番号
+		const chunk = blob.slice(offset, offset + partSize);
+		const chunkIndex = offset / partSize; // 0始まりのチャンク番号
 		let success = false;
 
 		for (let attempt = 0; attempt < 3; attempt++) {
@@ -163,7 +159,7 @@ async function tusUpload(fileId: string, blob: Blob, filename: string, onProgres
 					await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
 					const partCount = await getUploadPartCount(fileId);
 					if (partCount > chunkIndex) {
-						offset = partCount * CHUNK_SIZE;
+						offset = partCount * partSize;
 						onProgress?.(offset);
 						success = true;
 						break;
@@ -194,27 +190,23 @@ async function deleteExistingFile(path: string): Promise<boolean> {
 	return res.ok;
 }
 
-async function openUpload(path: string): Promise<string | null> {
+interface OpenUploadResult {
+	fileId: string;
+	partSize: number;
+}
+
+async function openUpload(path: string): Promise<OpenUploadResult | null> {
 	if (!bucket.value) return null;
-	const res = await fetch('/api/files/create/open', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json', ...authHeaders() },
-		body: JSON.stringify({ bucketId: bucket.value.id, path }),
-	});
-	const data = (await res.json()) as { fileId?: string; error?: string };
-	if (!res.ok) { uploadError.value = data.error ?? 'アップロード開始失敗'; return null; }
-	return data.fileId!;
+	// サーバーのデフォルト (32MiB) を使用するためpartSizeは省略可能
+	const result = await apiPost('/api/files/create/open', { bucketId: bucket.value.id, path });
+	if (!result.ok) { uploadError.value = result.data.error; return null; }
+	return { fileId: result.data.fileId, partSize: result.data.partSize };
 }
 
 async function closeUpload(fileId: string): Promise<boolean> {
-	const res = await fetch('/api/files/create/close', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json', ...authHeaders() },
-		body: JSON.stringify({ fileId, isPublic: isPublic.value, passphrase: passphrase.value || undefined }),
-	});
-	if (!res.ok) {
-		const err = (await res.json()) as { error?: string };
-		uploadError.value = err.error ?? 'アップロード完了失敗';
+	const result = await apiPost('/api/files/create/close', { fileId, isPublic: isPublic.value, passphrase: passphrase.value || undefined });
+	if (!result.ok) {
+		uploadError.value = result.data.error;
 		return false;
 	}
 	return true;
@@ -222,9 +214,10 @@ async function closeUpload(fileId: string): Promise<boolean> {
 
 /** Upload a Blob (File or OPFS File) via TUS. */
 async function uploadBlob(blob: Blob, path: string, onProgress?: (uploaded: number) => void): Promise<boolean> {
-	const fileId = await openUpload(path);
-	if (!fileId) return false;
-	if (!(await tusUpload(fileId, blob, path, onProgress)) || !(await closeUpload(fileId))) {
+	const result = await openUpload(path);
+	if (!result) return false;
+	const { fileId, partSize } = result;
+	if (!(await tusUpload(fileId, blob, path, partSize, onProgress)) || !(await closeUpload(fileId))) {
 		await deleteExistingFile(path);
 		return false;
 	}
@@ -244,14 +237,16 @@ async function uploadStream(stream: ReadableStream<Uint8Array>, path: string, on
 class TusChunkQueue {
 	private fileId: string;
 	private path: string;
+	private partSize: number;
 	private onUploadedBytes?: (total: number) => void;
 	private queueChain: Promise<boolean> = Promise.resolve(true);
 	private hasError = false;
 	private pendingUploads: Promise<boolean>[] = [];
 
-	constructor(fileId: string, path: string, onUploadedBytes?: (total: number) => void) {
+	constructor(fileId: string, path: string, partSize: number, onUploadedBytes?: (total: number) => void) {
 		this.fileId = fileId;
 		this.path = path;
+		this.partSize = partSize;
 		this.onUploadedBytes = onUploadedBytes;
 	}
 
@@ -370,17 +365,18 @@ class TusChunkQueue {
 	}
 }
 
-/** Open upload then stream in CHUNK_SIZE pieces via OPFS. Returns fileId or null on error. */
+/** Open upload then stream in partSize pieces via OPFS. Returns fileId or null on error. */
 async function uploadChunkedStream(
 	stream: ReadableStream<Uint8Array>,
 	path: string,
 	onUploadedBytes?: (total: number) => void,
 ): Promise<string | null> {
-	const fileId = await openUpload(path);
-	if (!fileId) return null;
+	const result = await openUpload(path);
+	if (!result) return null;
+	const { fileId, partSize } = result;
 
 	const reader = stream.getReader();
-	const queue = new TusChunkQueue(fileId, path, onUploadedBytes);
+	const queue = new TusChunkQueue(fileId, path, partSize, onUploadedBytes);
 	let buf = new Uint8Array(0);
 	let offset = 0;
 	let partNum = 0;
@@ -395,9 +391,9 @@ async function uploadChunkedStream(
 				buf = next;
 			}
 
-			if (buf.length >= CHUNK_SIZE) {
-				const chunk = buf.slice(0, CHUNK_SIZE);
-				buf = buf.slice(CHUNK_SIZE);
+			if (buf.length >= partSize) {
+				const chunk = buf.slice(0, partSize);
+				buf = buf.slice(partSize);
 				if (!(await queue.appendChunk(chunk, offset, partNum++, false))) {
 					await deleteExistingFile(path);
 					return null;
@@ -406,10 +402,10 @@ async function uploadChunkedStream(
 			}
 
 			if (done) {
-				// 残りのバッファを全て送信（5MB超過でも分割して対応）
+				// 残りのバッファを全て送信（partSize超過でも分割して対応）
 				while (buf.length > 0) {
-					const isFinal = buf.length <= CHUNK_SIZE;
-					const chunk = isFinal ? buf : buf.slice(0, CHUNK_SIZE);
+					const isFinal = buf.length <= partSize;
+					const chunk = isFinal ? buf : buf.slice(0, partSize);
 					buf = buf.slice(chunk.length);
 					if (!(await queue.appendChunk(chunk, offset, partNum++, isFinal))) {
 						await deleteExistingFile(path);
@@ -444,14 +440,9 @@ async function uploadTarStream(
 
 	const resolvedIndex = await index;
 
-	const indexRes = await fetch('/api/files/create/tar-index', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json', ...authHeaders() },
-		body: JSON.stringify({ fileId, files: resolvedIndex }),
-	});
-	if (!indexRes.ok) {
-		const err = (await indexRes.json()) as { error?: string };
-		uploadError.value = err.error ?? 'インデックス登録失敗';
+	const indexResult = await apiPost('/api/files/create/tar-index', { fileId, files: resolvedIndex });
+	if (!indexResult.ok) {
+		uploadError.value = indexResult.data.error;
 		await deleteExistingFile(archivePath);
 		return false;
 	}
@@ -475,14 +466,9 @@ async function uploadBgzfStream(
 
 	const resolvedIndex = await index;
 
-	const indexRes = await fetch('/api/files/create/targz-index', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json', ...authHeaders() },
-		body: JSON.stringify({ fileId, files: resolvedIndex }),
-	});
-	if (!indexRes.ok) {
-		const err = (await indexRes.json()) as { error?: string };
-		uploadError.value = err.error ?? 'インデックス登録失敗';
+	const bgzfIndexResult = await apiPost('/api/files/create/targz-index', { fileId, files: resolvedIndex });
+	if (!bgzfIndexResult.ok) {
+		uploadError.value = bgzfIndexResult.data.error;
 		await deleteExistingFile(archivePath);
 		return false;
 	}
@@ -614,7 +600,7 @@ onMounted(async () => {
       <!-- バケット選択 -->
       <div class="upload-section">
         <p class="upload-section-title">バケット</p>
-        <div class="form-group" style="max-width:280px">
+        <div :class="[$style.bucketSelectWrapper, 'form-group']">
           <select v-model="selectedBucketName" class="form-input">
             <option v-for="b in buckets" :key="b.id" :value="b.name">{{ b.name }}</option>
           </select>
@@ -626,12 +612,12 @@ onMounted(async () => {
         <p class="upload-section-title">ファイル選択</p>
 
         <div class="flex items-center gap-2 flex-wrap">
-          <label class="btn btn-secondary" style="cursor:pointer">
+          <label :class="[$style.fileLabel, 'btn', 'btn-secondary']">
             ファイルを選択
             <input
               type="file"
               multiple
-              style="display:none"
+              :class="$style.hiddenInput"
               @change="e => { selectedFiles = Array.from((e.target as HTMLInputElement).files ?? []); selectedDir = null; selectedDirName = ''; }"
             >
           </label>
@@ -647,10 +633,10 @@ onMounted(async () => {
           </template>
         </div>
 
-        <div class="form-group mt-3" style="max-width:400px">
+        <div :class="[$style.prefixGroup, 'form-group', 'mt-3']">
           <label class="form-label">アップロード先パス (任意)</label>
           <div class="form-row">
-            <span class="form-hint font-mono" style="white-space:nowrap; padding:8px 4px 8px 0">{{ selectedBucketName }}/</span>
+            <span :class="[$style.prefixBucketName, 'form-hint', 'font-mono']">{{ selectedBucketName }}/</span>
             <input
               v-model="uploadPrefix"
               class="form-input form-input-mono"
@@ -661,23 +647,23 @@ onMounted(async () => {
         </div>
 
         <div v-if="selectedDir || (selectedFiles && selectedFiles.length > 0)" class="mt-3">
-          <p class="form-label" style="margin-bottom:8px">アップロード形式</p>
-          <div style="display:flex; flex-direction:column; gap:6px">
+          <p class="form-label" :class="$style.archiveModeLabel">アップロード形式</p>
+          <div :class="$style.archiveModeList">
             <label class="checkbox-label">
-              <input v-model="archiveMode" type="radio" value="individual" style="accent-color:var(--color-primary)">
+              <input v-model="archiveMode" type="radio" value="individual" :class="$style.radioInput">
               個別ファイルとしてアップロード
             </label>
             <label v-if="!selectedDir" class="checkbox-label">
-              <input v-model="archiveMode" type="radio" value="gz" style="accent-color:var(--color-primary)">
-              gzip 圧縮してアップロード <span class="badge badge-muted" style="margin-left:4px">.gz</span>
+              <input v-model="archiveMode" type="radio" value="gz" :class="$style.radioInput">
+              gzip 圧縮してアップロード <span class="badge badge-muted" :class="$style.badgeMargin">.gz</span>
             </label>
             <label v-if="selectedDir" class="checkbox-label">
-              <input v-model="archiveMode" type="radio" value="tar" style="accent-color:var(--color-primary)">
-              tar にまとめてアップロード <span class="badge badge-muted" style="margin-left:4px">無圧縮</span>
+              <input v-model="archiveMode" type="radio" value="tar" :class="$style.radioInput">
+              tar にまとめてアップロード <span class="badge badge-muted" :class="$style.badgeMargin">無圧縮</span>
             </label>
             <label v-if="selectedDir" class="checkbox-label">
-              <input v-model="archiveMode" type="radio" value="targz" style="accent-color:var(--color-primary)">
-              tar.gz にまとめてアップロード <span class="badge badge-info" style="margin-left:4px">BGZF・ランダムアクセス対応</span>
+              <input v-model="archiveMode" type="radio" value="targz" :class="$style.radioInput">
+              tar.gz にまとめてアップロード <span class="badge badge-info" :class="$style.badgeMargin">BGZF・ランダムアクセス対応</span>
             </label>
           </div>
         </div>
@@ -686,12 +672,12 @@ onMounted(async () => {
       <!-- オプション -->
       <div class="upload-section">
         <p class="upload-section-title">オプション</p>
-        <div style="display:flex; flex-direction:column; gap:10px">
+        <div :class="$style.optionsList">
           <label class="checkbox-label">
-            <input v-model="isPublic" type="checkbox" style="accent-color:var(--color-primary)">
+            <input v-model="isPublic" type="checkbox" :class="$style.radioInput">
             公開ファイル
           </label>
-          <div class="form-group" style="max-width:320px">
+          <div :class="[$style.passphraseGroup, 'form-group']">
             <label class="form-label" for="upload-passphrase">合言葉 (任意)</label>
             <input
               id="upload-passphrase"
@@ -719,7 +705,7 @@ onMounted(async () => {
       <div v-if="uploadProgress" class="upload-progress-box mt-4">
         <p class="upload-progress-filename">
           <template v-if="uploadProgress.totalFiles > 0">
-            <span class="badge badge-info" style="margin-right:6px">{{ uploadProgress.fileIndex }}/{{ uploadProgress.totalFiles }}</span>
+            <span class="badge badge-info" :class="$style.progressBadge">{{ uploadProgress.fileIndex }}/{{ uploadProgress.totalFiles }}</span>
           </template>
           {{ uploadProgress.filename || 'アーカイブ作成中...' }}
         </p>
@@ -745,8 +731,68 @@ onMounted(async () => {
       <div v-if="uploadError" class="alert alert-error mt-3">{{ uploadError }}</div>
       <div v-if="uploadDone" class="alert alert-success mt-3">
         アップロード完了！
-        <NirA :to="`/v/${selectedBucketName}/`" style="margin-left:8px; font-weight:600">ファイル一覧を見る →</NirA>
+        <NirA :to="`/v/${selectedBucketName}/`" :class="$style.doneLink">ファイル一覧を見る →</NirA>
       </div>
     </template>
   </div>
 </template>
+
+<style module lang="scss">
+.bucketSelectWrapper {
+  max-width: 280px;
+}
+
+.fileLabel {
+  cursor: pointer;
+}
+
+.hiddenInput {
+  display: none;
+}
+
+.prefixGroup {
+  max-width: 400px;
+}
+
+.prefixBucketName {
+  white-space: nowrap;
+  padding: 8px 4px 8px 0;
+}
+
+.archiveModeLabel {
+  margin-bottom: 8px;
+}
+
+.archiveModeList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.radioInput {
+  accent-color: var(--color-primary);
+}
+
+.badgeMargin {
+  margin-left: 4px;
+}
+
+.optionsList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.passphraseGroup {
+  max-width: 320px;
+}
+
+.progressBadge {
+  margin-right: 6px;
+}
+
+.doneLink {
+  margin-left: 8px;
+  font-weight: 600;
+}
+</style>
