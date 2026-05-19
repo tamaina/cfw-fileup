@@ -5,6 +5,7 @@ import { startRegistration } from '@simplewebauthn/browser';
 import type { PublicKeyCredentialCreationOptionsJSON } from '@simplewebauthn/browser';
 import { setToken, fetchCurrentUser } from '../store/auth';
 import { apiPost } from '../utils/api';
+import type { ApiReq } from '../../shared/api';
 import { navigateTo } from '../navigate';
 import TurnstileWidget from '../components/turnstile-widget.vue';
 import { isValidNameFormat, NAME_FORMAT_ERROR } from '../../shared/name-validation';
@@ -91,46 +92,32 @@ async function signupWithPasskey(): Promise<void> {
 	passkeyError.value = '';
 	passkeyLoading.value = true;
 	try {
-		const beginRes = await fetch('/api/passkey/signup/begin', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ username: passkeyForm.username.trim() }),
-		});
-		if (!beginRes.ok) {
-			const data = (await beginRes.json()) as { error?: string };
-			passkeyError.value = data.error ?? 'サインアップの開始に失敗しました';
+		const beginResult = await apiPost('/api/passkey/signup/begin', { username: passkeyForm.username.trim() });
+		if (!beginResult.ok) {
+			passkeyError.value = beginResult.data.error || 'サインアップの開始に失敗しました';
 			return;
 		}
-		const { challengeId, options } = (await beginRes.json()) as {
-			challengeId: string;
-			options: PublicKeyCredentialCreationOptionsJSON;
-		};
+		const { challengeId, options } = beginResult.data;
 
 		let credential;
 		try {
-			credential = await startRegistration({ optionsJSON: options });
+			credential = await startRegistration({ optionsJSON: options as unknown as PublicKeyCredentialCreationOptionsJSON });
 		} catch (e) {
 			passkeyError.value = `パスキーの作成がキャンセルされました: ${String(e)}`;
 			return;
 		}
 
-		const finishRes = await fetch('/api/passkey/signup/finish', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				challengeId,
-				credential,
-				passkeyName: passkeyForm.passkeyName.trim() || undefined,
-			}),
+		const finishResult = await apiPost('/api/passkey/signup/finish', {
+			challengeId,
+			credential: credential as unknown as ApiReq<'/api/passkey/signup/finish'>['credential'],
+			passkeyName: passkeyForm.passkeyName.trim() || undefined,
 		});
-		if (!finishRes.ok) {
-			const data = (await finishRes.json()) as { error?: string };
-			passkeyError.value = data.error ?? 'アカウント作成に失敗しました';
+		if (!finishResult.ok) {
+			passkeyError.value = finishResult.data.error || 'アカウント作成に失敗しました';
 			return;
 		}
-		const data = (await finishRes.json()) as { token?: string };
-		if (data.token) {
-			setToken(data.token);
+		if (finishResult.data.token) {
+			setToken(finishResult.data.token);
 			await fetchCurrentUser();
 			navigateTo('/my/buckets');
 		}
@@ -259,7 +246,7 @@ async function signupWithPasskey(): Promise<void> {
             {{ passkeyLoading ? '処理中...' : 'パスキーでアカウント作成' }}
           </button>
 
-          <button type="button" class="btn btn-ghost w-full" style="justify-content: center" @click="showPasskeySignup = false">
+          <button type="button" :class="['btn', 'btn-ghost', 'w-full', $style.backToPasswordButton]" @click="showPasskeySignup = false">
             ← パスワードで登録する
           </button>
         </div>
@@ -327,6 +314,10 @@ async function signupWithPasskey(): Promise<void> {
 }
 
 .passkeyBtn {
+  justify-content: center;
+}
+
+.backToPasswordButton {
   justify-content: center;
 }
 

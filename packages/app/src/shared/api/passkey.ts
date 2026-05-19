@@ -83,6 +83,7 @@ const BackupCodeStatus = v.pipe(
 );
 
 const PublicKeyCredentialCreationOptionsJSON = v.pipe(
+  // このunknownは仕方がない
 	v.record(v.string(), v.unknown()),
 	v.metadata({ ref: 'PublicKeyCredentialCreationOptionsJSON' }),
 );

@@ -41,6 +41,10 @@ function base64ToUint8Array(b64: string): Uint8Array<ArrayBuffer> {
 	return arr;
 }
 
+function stringToUserId(value: string): Uint8Array<ArrayBuffer> {
+	return new TextEncoder().encode(value);
+}
+
 const CHALLENGE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const BACKUP_CODE_COUNT = 10;
 const BACKUP_CODE_LENGTH = 10; // characters
@@ -92,6 +96,7 @@ app.post(
 		const options = await generateRegistrationOptions({
 			rpName: 'CFW FileUp',
 			rpID,
+			userID: stringToUserId(user.id),
 			userName: user.username,
 			userDisplayName: user.username,
 			attestationType: 'none',
@@ -309,10 +314,11 @@ app.post(
 
 // ─── List passkeys (requires auth) ─────────────────────────────────────────
 
-app.get(
+app.post(
 	'/list',
 	authMiddleware,
 	describeRoute(omitResAndReq(apiDef['/api/passkey/list'])),
+	validator('json', apiDef['/api/passkey/list'].req),
 	describeResponse(async (c: JsonCtx<'/api/passkey/list', Env>) => {
 		const db = getDb(c.env);
 		const user = c.get('user');
@@ -366,7 +372,7 @@ app.post(
 		const user = c.get('user');
 
 		await db.delete(backupCodes).where(eq(backupCodes.userId, user.id));
-
+  
 		const codes: string[] = [];
 		for (let i = 0; i < BACKUP_CODE_COUNT; i++) {
 			const code = generateBackupCode();
@@ -388,10 +394,11 @@ app.post(
 
 // ─── Get backup code status (requires auth) ────────────────────────────────
 
-app.get(
+app.post(
 	'/backup-codes/status',
 	authMiddleware,
 	describeRoute(omitResAndReq(apiDef['/api/passkey/backup-codes/status'])),
+	validator('json', apiDef['/api/passkey/backup-codes/status'].req),
 	describeResponse(async (c: JsonCtx<'/api/passkey/backup-codes/status', Env>) => {
 		const db = getDb(c.env);
 		const user = c.get('user');
@@ -473,6 +480,7 @@ app.post(
 		const options = await generateRegistrationOptions({
 			rpName: 'CFW FileUp',
 			rpID,
+			userID: stringToUserId(tempUserId),
 			userName: trimmed,
 			userDisplayName: trimmed,
 			attestationType: 'none',
@@ -522,9 +530,10 @@ app.post(
 		}
 
 		const parts = challengeRecord.userId?.split(':') ?? [];
-		if (parts.length < 3 || parts[0] !== 'signup') {
+		if (parts.length < 3 || parts[0] !== 'signup' || !parts[1]) {
 			throw new HTTPException(400, { message: 'Invalid challenge data' });
 		}
+		const userId = parts[1];
 		const username = parts.slice(2).join(':');
 
 		await db.delete(passkeysChallenges).where(eq(passkeysChallenges.id, body.challengeId));
@@ -552,7 +561,6 @@ app.post(
 
 		const { credential: cred } = verification.registrationInfo;
 
-		const userId = genEaidx(Date.now());
 		await db.insert(users).values({ id: userId, username, passwordHash: null, isSuspended: false });
 
 		const passkeyId = genEaidx(Date.now());

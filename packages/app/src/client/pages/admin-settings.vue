@@ -5,17 +5,21 @@ import { authStore } from '../store/auth';
 import { apiPost } from '../utils/api';
 import NirA from '@/components/nira.vue';
 import SettingItem from '@/components/SettingItem.vue';
-import { KNOWN_SETTINGS } from '../../shared/app-settings';
+import { KNOWN_SETTINGS, KnownSettingRecordSchema, type KnownSettingKey } from '../../shared/app-settings';
+
+type SettingValues = {
+	[K in KnownSettingKey]: v.InferOutput<(typeof KNOWN_SETTINGS)[K]>;
+};
 
 // デフォルト値はスキーマの optional() から導出
 const defaults = Object.fromEntries(
-	(Object.entries(KNOWN_SETTINGS) as [string, v.GenericSchema][]).map(([key, schema]) => [
+	(Object.entries(KNOWN_SETTINGS) as [KnownSettingKey, v.GenericSchema<unknown, string>][]).map(([key, schema]) => [
 		key,
-		v.parse(schema, undefined) as string,
+		v.parse(schema, undefined),
 	]),
-);
+) as SettingValues;
 
-const values = ref<Record<string, string>>({});
+const values = ref<SettingValues>({ ...defaults });
 const loading = ref(true);
 const saving = ref<Record<string, boolean>>({});
 const error = ref('');
@@ -29,8 +33,20 @@ async function fetchSettings(): Promise<void> {
 	try {
 		const result = await apiPost('/api/admin/get-settings');
 		if (!result.ok) throw new Error('設定の取得に失敗しました');
-		const map: Record<string, string> = { ...defaults };
-		for (const s of result.data) map[s.key] = s.value;
+		const map: SettingValues = { ...defaults };
+		for (const s of result.data) {
+			switch (s.key) {
+				case 'registration_mode':
+					map.registration_mode = s.value;
+					break;
+				case 'forbidden_usernames':
+					map.forbidden_usernames = s.value;
+					break;
+				case 'forbidden_bucket_names':
+					map.forbidden_bucket_names = s.value;
+					break;
+			}
+		}
 		values.value = map;
 	} catch (e) {
 		error.value = String(e);
@@ -39,12 +55,13 @@ async function fetchSettings(): Promise<void> {
 	}
 }
 
-async function saveSetting(key: string, value: string): Promise<void> {
+async function saveSetting<TKey extends KnownSettingKey>(key: TKey, value: v.InferOutput<(typeof KNOWN_SETTINGS)[TKey]>): Promise<void> {
 	saving.value = { ...saving.value, [key]: true };
 	error.value = '';
 	success.value = '';
 	try {
-		const result = await apiPost('/api/admin/update-setting', { key, value });
+		const payload = { key, value } as Extract<v.InferOutput<typeof KnownSettingRecordSchema>, { key: TKey }> ;
+		const result = await apiPost('/api/admin/update-setting', payload);
 		if (!result.ok) throw new Error('保存に失敗しました');
 		success.value = `"${key}" を保存しました`;
 	} catch (e) {

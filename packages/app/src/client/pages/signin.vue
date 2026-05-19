@@ -5,6 +5,7 @@ import { startAuthentication } from '@simplewebauthn/browser';
 import type { PublicKeyCredentialRequestOptionsJSON } from '@simplewebauthn/browser';
 import { setToken, fetchCurrentUser } from '../store/auth';
 import { apiPost } from '../utils/api';
+import type { ApiReq } from '../../shared/api';
 import { navigateTo } from '../navigate';
 import TurnstileWidget from '../components/turnstile-widget.vue';
 
@@ -67,40 +68,31 @@ async function signinWithPasskey(): Promise<void> {
 	error.value = '';
 	passkeyLoading.value = true;
 	try {
-		const beginRes = await fetch('/api/passkey/authenticate/begin', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-		});
-		if (!beginRes.ok) {
-			const data = (await beginRes.json()) as { error?: string };
-			error.value = data.error ?? 'パスキー認証の開始に失敗しました';
+		const beginResult = await apiPost('/api/passkey/authenticate/begin');
+		if (!beginResult.ok) {
+			error.value = beginResult.data.error || 'パスキー認証の開始に失敗しました';
 			return;
 		}
-		const { challengeId, options } = (await beginRes.json()) as {
-			challengeId: string;
-			options: PublicKeyCredentialRequestOptionsJSON;
-		};
+		const { challengeId, options } = beginResult.data;
 
 		let credential;
 		try {
-			credential = await startAuthentication({ optionsJSON: options });
+			credential = await startAuthentication({ optionsJSON: options as unknown as PublicKeyCredentialRequestOptionsJSON });
 		} catch (e) {
 			error.value = `パスキー認証がキャンセルされました: ${String(e)}`;
 			return;
 		}
 
-		const finishRes = await fetch('/api/passkey/authenticate/finish', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ challengeId, credential }),
+		const finishResult = await apiPost('/api/passkey/authenticate/finish', {
+			challengeId,
+			credential: credential as unknown as ApiReq<'/api/passkey/authenticate/finish'>['credential'],
 		});
-		const finishData = (await finishRes.json()) as { token?: string; error?: string };
-		if (!finishRes.ok) {
-			error.value = finishData.error ?? 'パスキー認証に失敗しました';
+		if (!finishResult.ok) {
+			error.value = finishResult.data.error || 'パスキー認証に失敗しました';
 			return;
 		}
-		if (finishData.token) {
-			setToken(finishData.token);
+		if (finishResult.data.token) {
+			setToken(finishResult.data.token);
 			await fetchCurrentUser();
 			navigateTo('/my/buckets');
 		}
@@ -116,18 +108,16 @@ async function signinWithBackupCode({ valid }: { valid: boolean }): Promise<void
 	backupError.value = '';
 	backupLoading.value = true;
 	try {
-		const res = await fetch('/api/passkey/backup-codes/use', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ username: backupForm.username, code: backupForm.code }),
+		const result = await apiPost('/api/passkey/backup-codes/use', {
+			username: backupForm.username,
+			code: backupForm.code,
 		});
-		const data = (await res.json()) as { token?: string; error?: string };
-		if (!res.ok) {
-			backupError.value = data.error ?? 'バックアップコードの認証に失敗しました';
+		if (!result.ok) {
+			backupError.value = result.data.error || 'バックアップコードの認証に失敗しました';
 			return;
 		}
-		if (data.token) {
-			setToken(data.token);
+		if (result.data.token) {
+			setToken(result.data.token);
 			await fetchCurrentUser();
 			navigateTo('/my/buckets');
 		}
@@ -202,8 +192,7 @@ async function signinWithBackupCode({ valid }: { valid: boolean }): Promise<void
           </button>
           <button
             type="button"
-            :class="[$style.passkeyBtn, 'btn', 'btn-ghost', 'w-full']"
-            style="font-size: 0.875rem; color: var(--color-text-muted)"
+            :class="[$style.passkeyBtn, $style.backupCodeButton, 'btn', 'btn-ghost', 'w-full']"
             @click="showBackupCode = true"
           >
             バックアップコードでサインイン
@@ -237,7 +226,7 @@ async function signinWithBackupCode({ valid }: { valid: boolean }): Promise<void
               required
               autocomplete="off"
               placeholder="XXXXX-XXXXX"
-              style="font-family: monospace; letter-spacing: 0.05em"
+              :class="$style.backupCodeInput"
             >
           </div>
 
@@ -248,8 +237,8 @@ async function signinWithBackupCode({ valid }: { valid: boolean }): Promise<void
           </button>
         </Form>
 
-        <div style="margin-top: 12px; text-align: center">
-          <button type="button" class="btn btn-ghost" style="font-size: 0.875rem" @click="showBackupCode = false">
+        <div :class="$style.backLinkRow">
+          <button type="button" :class="['btn', 'btn-ghost', $style.backLinkButton]" @click="showBackupCode = false">
             ← 通常のサインインに戻る
           </button>
         </div>
@@ -318,6 +307,25 @@ async function signinWithBackupCode({ valid }: { valid: boolean }): Promise<void
 
 .passkeyBtn {
   justify-content: center;
+}
+
+.backupCodeButton {
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+}
+
+.backupCodeInput {
+  font-family: monospace;
+  letter-spacing: 0.05em;
+}
+
+.backLinkRow {
+  margin-top: 12px;
+  text-align: center;
+}
+
+.backLinkButton {
+  font-size: 0.875rem;
 }
 
 .footer {

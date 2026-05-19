@@ -7,7 +7,7 @@ import { getDb } from '../utils/db';
 import { getQuotaForUser, getGlobalQuota } from '../utils/rate-limit';
 import { authMiddleware, adminMiddleware } from '../middleware/auth';
 import * as v from 'valibot';
-import { KNOWN_SETTINGS } from '../../shared/app-settings';
+import { KNOWN_SETTINGS, KnownSettingRecordSchema } from '../../shared/app-settings';
 import { apiDef, getResponseDefWithAuth, type JsonCtx } from '../../shared/api';
 import { omitResAndReq } from '../utils/omit';
 
@@ -250,16 +250,6 @@ app.post(
 		const db = getDb(c.env);
 		const body = c.req.valid('json');
 
-		const schema = KNOWN_SETTINGS[body.key as keyof typeof KNOWN_SETTINGS];
-		if (!schema) {
-			throw new HTTPException(400, { message: `Unknown setting key: ${body.key}` });
-		}
-
-		const parsed = v.safeParse(schema, body.value);
-		if (!parsed.success) {
-			throw new HTTPException(400, { message: `Invalid value for "${body.key}"` });
-		}
-
 		await db
 			.insert(appSettings)
 			.values({
@@ -282,8 +272,11 @@ app.post(
 	describeResponse(async (c: JsonCtx<'/api/admin/get-settings', Env>) => {
 		const db = getDb(c.env);
 		const settings = await db.select().from(appSettings);
+		const knownSettings = settings
+			.filter((setting): setting is typeof settings[number] & { key: keyof typeof KNOWN_SETTINGS } => setting.key in KNOWN_SETTINGS)
+			.map((setting) => v.parse(KnownSettingRecordSchema, setting));
 
-		return c.json(settings, 200);
+		return c.json(knownSettings, 200);
 	}, getResponseDefWithAuth('/api/admin/get-settings')),
 );
 

@@ -23,3 +23,28 @@ export const KNOWN_SETTINGS = {
 
 export type KnownSettingKey = keyof typeof KNOWN_SETTINGS;
 export const KNOWN_SETTING_KEYS = Object.keys(KNOWN_SETTINGS) as KnownSettingKey[];
+export const KnownSettingKeySchema = v.picklist(KNOWN_SETTING_KEYS);
+export type KnownSettingRecord = {
+	[K in KnownSettingKey]: {
+		key: K;
+		value: v.InferOutput<(typeof KNOWN_SETTINGS)[K]>;
+	};
+}[KnownSettingKey];
+
+function isOptionalSettingSchema(
+	schema: v.GenericSchema,
+): schema is v.OptionalSchema<v.BaseSchema<unknown, unknown, v.BaseIssue<unknown>>, unknown> {
+	return (schema as { type?: string }).type === 'optional';
+}
+
+function unwrapSettingSchema<TSchema extends v.GenericSchema>(schema: TSchema) {
+	return isOptionalSettingSchema(schema) ? v.unwrap(schema) : schema;
+}
+
+const knownSettingVariantOptions = Object.entries(KNOWN_SETTINGS).map(([key, schema]) => v.object({
+	key: v.literal(key),
+	value: unwrapSettingSchema(schema),
+})) as unknown as v.VariantOptions<'key'>;
+
+export const KnownSettingRecordSchema = v.variant('key', knownSettingVariantOptions) as v.GenericSchema<unknown, KnownSettingRecord>;
+export const KnownSettingListSchema = v.array(KnownSettingRecordSchema);

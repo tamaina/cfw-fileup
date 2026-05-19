@@ -25,6 +25,18 @@ DeepWikiに問い合わせると、npmパッケージの内容理解に役立つ
 
 @.agents/skills
 
+### Sandbox note for Codex
+
+このリポジトリでは、Codex の sandbox で `git` や `pnpm` が失敗することがある。特に `bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted` が出た場合、コードやパッチ内容の問題ではなく、sandbox 起因の可能性が高い。
+
+その場合は、次のコマンドを sandbox 外へ昇格して再実行してよい。
+
+- `git status`
+- `git diff`
+- `pnpm --filter app run`
+
+差分確認や型チェックの失敗原因を探るときは、まず sandbox 起因かどうかを疑うこと。
+
 ### Codex-oriented workflow
 
 最初に見るコマンドは次の順です。

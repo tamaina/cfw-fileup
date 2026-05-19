@@ -187,28 +187,20 @@ async function submitPassphrase({ valid }: { valid: boolean }): Promise<void> {
 	passphraseError.value = '';
 	passphraseLoading.value = true;
 	try {
-		const body: Record<string, string> = {
+		const result = await apiPost('/api/file-tokens/create-by-passphrase', {
 			bucketName: props.bucketName,
 			filePath: props.filePath,
 			passphrase: passphraseInput.value,
-		};
-		if (turnstileEnabled.value && turnstileToken.value) {
-			body.turnstileToken = turnstileToken.value;
-		}
-		const res = await fetch('/api/file-tokens/create-by-passphrase', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(body),
+			turnstileToken: turnstileEnabled.value && turnstileToken.value ? turnstileToken.value : undefined,
 		});
-		const result = await res.json() as { token?: string; expiresAt?: number | null; error?: string };
-		if (!res.ok) {
-			passphraseError.value = result.error ?? `エラー: ${res.status}`;
+		if (!result.ok) {
+			passphraseError.value = result.data.error || `エラー: ${result.status}`;
 			return;
 		}
-		autoToken.value = result.token ?? null;
-		passphraseTokenExpiresAt.value = result.expiresAt ?? null;
-		saveCachedToken(result.token ?? '', result.expiresAt ?? null);
-		scheduleTokenExpiry(result.expiresAt ?? null);
+		autoToken.value = result.data.token;
+		passphraseTokenExpiresAt.value = result.data.expiresAt;
+		saveCachedToken(result.data.token, result.data.expiresAt);
+		scheduleTokenExpiry(result.data.expiresAt);
 		passphraseInput.value = '';
 		turnstileToken.value = null;
 		await fetchInnerMeta();

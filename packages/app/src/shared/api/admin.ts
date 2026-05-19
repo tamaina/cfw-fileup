@@ -1,6 +1,7 @@
 import * as v from 'valibot';
 import type { ApiEndpointDefinitionRecord } from '../api.types.js';
 import { ErrorResponse } from '../api.schemas.js';
+import { KnownSettingListSchema, KnownSettingRecordSchema } from '../app-settings.js';
 
 const QuotaResponse = v.pipe(
 	v.object({
@@ -74,8 +75,7 @@ export const adminApiDef = {
 		tags: ['admin'],
 		req: v.object({ userId: v.string() }),
 		res: { ...OkResponse, ...AdminErrors, 404: { description: 'User not found', content: { 'application/json': { vSchema: ErrorResponse } } } },
-	},
-	'/api/admin/list-users': {
+	},	'/api/admin/list-users': {
 		summary: 'List all users',
 		tags: ['admin'],
 		req: v.object({}),
@@ -84,13 +84,13 @@ export const adminApiDef = {
 	'/api/admin/update-setting': {
 		summary: 'Update app setting',
 		tags: ['admin'],
-		req: v.object({ key: v.string(), value: v.string() }),
+		req: KnownSettingRecordSchema,
 		res: { ...OkResponse, ...AdminErrors, 400: { description: 'Bad request (unknown setting key or invalid value)', content: { 'application/json': { vSchema: ErrorResponse } } } },
 	},
 	'/api/admin/get-settings': {
 		summary: 'Get all app settings',
 		tags: ['admin'],
 		req: v.object({}),
-		res: { 200: { description: 'Success', content: { 'application/json': { vSchema: v.array(v.object({ key: v.string(), value: v.string() })) } } }, ...AdminErrors },
+		res: { 200: { description: 'Success', content: { 'application/json': { vSchema: KnownSettingListSchema } } }, ...AdminErrors },
 	},
 } as const satisfies ApiEndpointDefinitionRecord;

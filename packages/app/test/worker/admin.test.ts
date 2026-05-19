@@ -186,6 +186,39 @@ describe('POST /api/admin/toggle-registration', () => {
 	});
 });
 
+describe('POST /api/admin/update-setting', () => {
+	test('admin can update a setting with a matching key-value pair', async () => {
+		const { adminToken } = await setupAdminAndUser();
+
+		const res = await app.request('/api/admin/update-setting', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ key: 'registration_mode', value: 'open' }),
+		}, env);
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({ ok: true });
+
+		const settingsRes = await app.request('/api/admin/get-settings', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({}),
+		}, env);
+		expect(settingsRes.status).toBe(200);
+		expect(await settingsRes.json()).toContainEqual({ key: 'registration_mode', value: 'open' });
+	});
+
+	test('invalid key-value pair returns an error', async () => {
+		const { adminToken } = await setupAdminAndUser();
+
+		const res = await app.request('/api/admin/update-setting', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ key: 'registration_mode', value: 'not-a-mode' }),
+		}, env);
+		expect(res.status).toBe(400);
+	});
+});
+
 describe('Quota management', () => {
 	test('admin can set global quota', async () => {
 		const { adminToken } = await setupAdminAndUser();
