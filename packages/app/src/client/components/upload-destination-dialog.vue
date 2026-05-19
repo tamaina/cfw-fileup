@@ -250,6 +250,7 @@ watch(() => props.open, async (val) => {
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
   padding: 0;
   width: min(480px, calc(100vw - 32px));
+  min-height: min(520px, calc(100vh - 64px));
   max-height: 80vh;
   overflow: auto;
 
@@ -264,7 +265,7 @@ watch(() => props.open, async (val) => {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  min-height: 360px;
+  min-height: inherit;
 }
 
 .header {
@@ -307,7 +308,6 @@ watch(() => props.open, async (val) => {
 
 .bucketList {
   max-height: 300px;
-  min-height: 180px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -340,7 +340,6 @@ watch(() => props.open, async (val) => {
 
 .directoryList {
   max-height: 300px;
-  min-height: 180px;
   overflow-y: auto;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
