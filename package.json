@@ -1,5 +1,6 @@
 {
   "name": "cfw-fileup",
+  "version": "0.0.0",
   "type": "module",
   "packageManager": "pnpm@11.1.2",
   "scripts": {
@@ -14,7 +15,6 @@
     "hono": "^4.12.18"
   },
   "devDependencies": {
-    "file-type": "^22.0.1",
     "typescript": "^6.0.3",
     "wrangler": "^4.4.0"
   }

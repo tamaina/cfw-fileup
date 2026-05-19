@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, reactive, computed } from 'vue';
-import { Button } from '@vuetify/v0';
+import { Form } from '@vuetify/v0';
 import { setToken, fetchCurrentUser } from '../store/auth';
+import { apiPost } from '../utils/api';
 import { navigateTo } from '../navigate';
 import TurnstileWidget from '../components/turnstile-widget.vue';
 
@@ -27,30 +28,22 @@ fetchMeta();
 
 const canSubmit = computed(() => !turnstileEnabled.value || turnstileToken.value !== null);
 
-async function submit(): Promise<void> {
-	if (!canSubmit.value) return;
+async function submit({ valid }: { valid: boolean }): Promise<void> {
+	if (!valid || !canSubmit.value) return;
 	error.value = '';
 	loading.value = true;
 	try {
-		const body: Record<string, string> = {
+		const result = await apiPost('/api/signin', {
 			username: form.username,
 			password: form.password,
-		};
-		if (turnstileEnabled.value && turnstileToken.value) {
-			body.turnstileToken = turnstileToken.value;
-		}
-		const res = await fetch('/api/signin', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(body),
+			turnstileToken: turnstileEnabled.value && turnstileToken.value ? turnstileToken.value : undefined,
 		});
-		const data = (await res.json()) as { token?: string; error?: string };
-		if (!res.ok) {
-			error.value = data.error ?? 'エラーが発生しました';
+		if (!result.ok) {
+			error.value = result.data.error;
 			return;
 		}
-		if (data.token) {
-			setToken(data.token);
+		if (result.data.token) {
+			setToken(result.data.token);
 			await fetchCurrentUser();
 			navigateTo('/my/buckets');
 		}
@@ -63,11 +56,11 @@ async function submit(): Promise<void> {
 </script>
 
 <template>
-  <div style="display:flex; justify-content:center; padding-top:48px">
-    <div class="card max-w-sm" style="width:100%">
-      <h2 style="margin-bottom:20px; text-align:center">サインイン</h2>
+  <div :class="$style.root">
+    <div :class="[$style.card, 'card', 'max-w-sm']">
+      <h2 :class="$style.heading">サインイン</h2>
 
-      <form @submit.prevent="submit" style="display:flex; flex-direction:column; gap:14px">
+      <Form :class="$style.form" @submit="submit">
         <div class="form-group">
           <label class="form-label" for="username">ユーザー名</label>
           <input
@@ -102,13 +95,12 @@ async function submit(): Promise<void> {
 
         <div v-if="error" class="alert alert-error">{{ error }}</div>
 
-        <Button.Root type="button" class="btn btn-primary w-full" style="justify-content: center" :loading="loading" :disabled="!canSubmit" @click="submit">
-          <Button.Loading>処理中...</Button.Loading>
-          <Button.Content>サインイン</Button.Content>
-        </Button.Root>
-      </form>
+        <button type="submit" :class="[$style.submitBtn, 'btn', 'btn-primary', 'w-full']" :disabled="!canSubmit || loading">
+          {{ loading ? '処理中...' : turnstileEnabled && !turnstileToken ? '確認中...' : 'サインイン' }}
+        </button>
+      </Form>
 
-      <div style="margin-top:16px; text-align:center; font-size:0.875rem; color:var(--color-text-muted)">
+      <div :class="$style.footer">
         <button type="button" class="btn btn-ghost" @click="navigateTo('/signup')">
           アカウントを作成する
         </button>
@@ -116,3 +108,37 @@ async function submit(): Promise<void> {
     </div>
   </div>
 </template>
+
+<style module lang="scss">
+.root {
+  display: flex;
+  justify-content: center;
+  padding-top: 48px;
+}
+
+.card {
+  width: 100%;
+}
+
+.heading {
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.submitBtn {
+  justify-content: center;
+}
+
+.footer {
+  margin-top: 16px;
+  text-align: center;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+</style>

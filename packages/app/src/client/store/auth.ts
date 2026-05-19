@@ -54,7 +54,9 @@ export async function fetchCurrentUser(): Promise<AuthUser | null> {
 	}
 	try {
 		const res = await fetch('/api/account/me', {
-			headers: authHeaders(),
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json', ...authHeaders() },
+			body: JSON.stringify({}),
 		});
 		if (!res.ok) {
 			clearAuth();
