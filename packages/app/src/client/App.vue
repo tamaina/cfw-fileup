@@ -71,7 +71,7 @@ function toggleTheme(): void {
                 {{ authStore.user.username }}
               </Popover.Activator>
               <Popover.Content class="app-nav-user-menu">
-                <Button.Root class="btn btn-ghost w-full" style="justify-content:flex-start" @click="logout">
+                <Button.Root class="btn btn-ghost w-full" :class="$style.logoutBtn" @click="logout">
                   <Button.Content>ログアウト</Button.Content>
                 </Button.Root>
               </Popover.Content>
@@ -93,3 +93,9 @@ function toggleTheme(): void {
     </main>
   </div>
 </template>
+
+<style module lang="scss">
+.logoutBtn {
+  justify-content: flex-start;
+}
+</style>

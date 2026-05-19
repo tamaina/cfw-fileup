@@ -134,14 +134,13 @@ onMounted(loadBuckets);
       <div class="card mb-4">
         <p class="card-title">新しいバケットを作成</p>
         <Form @submit="createBucket" class="form-row">
-          <div style="display:flex; flex-direction:column; gap:4px">
+          <div :class="$style.inputWrapper">
             <input
               v-model="newBucketName"
-              class="form-input"
+              :class="[$style.nameInput, 'form-input']"
               type="text"
               placeholder="バケット名"
               maxlength="64"
-              style="max-width:280px"
             >
           </div>
           <button type="submit" class="btn btn-primary" :disabled="creating || !!bucketNameFormatError">
@@ -162,7 +161,7 @@ onMounted(loadBuckets);
         <div v-if="buckets.length === 0" class="empty-state">
           <p>バケットがありません。上のフォームから作成してください。</p>
         </div>
-        <div v-else class="card" style="padding:0; overflow:hidden">
+        <div v-else :class="[$style.tableCard, 'card']">
           <div class="table-responsive">
           <table class="data-table">
             <thead>
@@ -175,7 +174,7 @@ onMounted(loadBuckets);
             <tbody>
               <tr v-for="b in tableItems" :key="b.id">
                 <td>
-                  <NirA :to="`/v/${b.name}/`" style="font-weight:500; font-size:0.9375rem">
+                  <NirA :to="`/v/${b.name}/`" :class="$style.bucketLink">
                     {{ b.name }}
                   </NirA>
                 </td>
@@ -207,7 +206,7 @@ onMounted(loadBuckets);
                         …
                       </Popover.Activator>
                       <Popover.Content class="action-menu">
-                        <Button.Root class="btn btn-ghost-danger w-full" style="justify-content:flex-start" @click="requestDelete(b)">
+                        <Button.Root class="btn btn-ghost-danger w-full" :class="$style.menuItem" @click="requestDelete(b)">
                           <Button.Content>削除</Button.Content>
                         </Button.Root>
                       </Popover.Content>
@@ -233,3 +232,29 @@ onMounted(loadBuckets);
     />
   </div>
 </template>
+
+<style module lang="scss">
+.inputWrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nameInput {
+  max-width: 280px;
+}
+
+.tableCard {
+  padding: 0;
+  overflow: hidden;
+}
+
+.bucketLink {
+  font-weight: 500;
+  font-size: 0.9375rem;
+}
+
+.menuItem {
+  justify-content: flex-start;
+}
+</style>

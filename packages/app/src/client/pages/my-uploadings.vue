@@ -114,7 +114,7 @@ onMounted(load);
         <div v-if="entries.length === 0" class="empty-state">
           <p>アップロードはありません。</p>
         </div>
-        <div v-else class="card" style="padding:0; overflow:hidden">
+        <div v-else :class="[$style.tableCard, 'card']">
           <div class="table-responsive">
           <table class="data-table">
             <thead>
@@ -143,7 +143,7 @@ onMounted(load);
                 <td>
                   <span v-if="entry.isClosed" class="badge badge-success">完了</span>
                   <span v-else class="badge badge-warning">アップロード中</span>
-                  <span v-if="entry.isClosed" :class="entry.isPublic ? 'badge badge-success' : 'badge badge-muted'" style="margin-left:4px">
+                  <span v-if="entry.isClosed" :class="[entry.isPublic ? 'badge badge-success' : 'badge badge-muted', $style.statusBadge]">
                     {{ entry.isPublic ? '公開' : '非公開' }}
                   </span>
                 </td>
@@ -152,7 +152,7 @@ onMounted(load);
                     <Button.Root class="btn btn-ghost-danger" @click="requestDelete(entry)">
                       <Button.Content>削除</Button.Content>
                     </Button.Root>
-                    <span v-if="deleteErrors[entry.id]" class="text-danger" style="font-size:0.8rem">{{ deleteErrors[entry.id] }}</span>
+                    <span v-if="deleteErrors[entry.id]" :class="[$style.deleteError, 'text-danger']">{{ deleteErrors[entry.id] }}</span>
                   </div>
                 </td>
               </tr>
@@ -174,3 +174,18 @@ onMounted(load);
     />
   </div>
 </template>
+
+<style module lang="scss">
+.tableCard {
+  padding: 0;
+  overflow: hidden;
+}
+
+.statusBadge {
+  margin-left: 4px;
+}
+
+.deleteError {
+  font-size: 0.8rem;
+}
+</style>

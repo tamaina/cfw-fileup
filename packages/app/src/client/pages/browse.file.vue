@@ -71,7 +71,7 @@ async function executeDelete(): Promise<void> {
       </Button.Root>
     </div>
 
-    <div v-if="isImage" style="margin-top:16px">
+    <div v-if="isImage" :class="$style.imagePreview">
       <img :src="downloadUrl" :alt="filePath" class="file-preview-image">
     </div>
 
@@ -88,3 +88,9 @@ async function executeDelete(): Promise<void> {
     />
   </div>
 </template>
+
+<style module lang="scss">
+.imagePreview {
+  margin-top: 16px;
+}
+</style>

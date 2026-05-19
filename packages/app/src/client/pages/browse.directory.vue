@@ -319,7 +319,7 @@ watch(() => props.entryPath, (newEntryPath) => {
       <Button.Root v-if="authStore.user" class="btn btn-ghost-danger" @click="archiveDeleteDialog = true">
         <Button.Content>削除</Button.Content>
       </Button.Root>
-      <span v-if="deleteError" class="alert alert-error" style="padding:4px 10px; font-size:0.8rem">{{ deleteError }}</span>
+      <span v-if="deleteError" :class="[$style.inlineError, 'alert', 'alert-error']">{{ deleteError }}</span>
     </div>
 
     <!-- 通常ディレクトリ操作 -->
@@ -330,16 +330,15 @@ watch(() => props.entryPath, (newEntryPath) => {
       <Form class="flex gap-2 items-center" @submit="createDirectory">
         <input
           v-model="newDirName"
-          class="form-input form-input-mono"
+          :class="[$style.dirInput, 'form-input', 'form-input-mono']"
           type="text"
           placeholder="新しいフォルダ名"
-          style="width:180px"
         >
         <button type="submit" class="btn btn-secondary" :disabled="!newDirName.trim() || !bucketId">
           フォルダ作成
         </button>
       </Form>
-      <span v-if="mkdirError" class="text-danger" style="font-size:0.8rem">{{ mkdirError }}</span>
+      <span v-if="mkdirError" :class="[$style.mkdirError, 'text-danger']">{{ mkdirError }}</span>
     </div>
 
     <div v-if="loading" class="page-loading">
@@ -357,7 +356,7 @@ watch(() => props.entryPath, (newEntryPath) => {
       >
         <div v-if="isDragOver" class="drop-zone-overlay">ここにドロップしてアップロード</div>
 
-        <div class="card" style="padding:0; overflow:hidden">
+        <div :class="[$style.tableCard, 'card']">
           <div class="table-responsive">
           <table class="data-table">
             <thead>
@@ -372,36 +371,36 @@ watch(() => props.entryPath, (newEntryPath) => {
             <tbody>
               <tr v-if="isArchive && archivePath !== ''">
                 <td :colspan="3">
-                  <button class="text-muted font-mono" style="font-size:0.875rem; background:none; border:none; cursor:pointer; padding:0" @click="navigateArchiveUp">..</button>
+                  <button :class="[$style.upButton, 'text-muted', 'font-mono']" @click="navigateArchiveUp">..</button>
                 </td>
               </tr>
               <tr v-else-if="parentPath()">
                 <td :colspan="!isArchive && authStore.user && bucketId ? 5 : !isArchive && authStore.user ? 4 : 3">
-                  <NirA :to="parentPath()!" class="text-muted font-mono" style="font-size:0.875rem">..</NirA>
+                  <NirA :to="parentPath()!" :class="[$style.upLink, 'text-muted', 'font-mono']">..</NirA>
                 </td>
               </tr>
               <tr v-for="entry in tableItems" :key="entry.key">
-                <td style="width: 50%; min-width: 10em; max-width: 0px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                  <button v-if="isArchive && entry.isDir" style="background:none; border:none; cursor:pointer; padding:0; font-weight:500; font-size:inherit; color:inherit" @click="navigateArchiveDir(entry.fullPath)">
-                    <span style="margin-right:4px">📁</span>{{ entry.name }}
+                <td :class="$style.nameCell">
+                  <button v-if="isArchive && entry.isDir" :class="$style.archiveDirButton" @click="navigateArchiveDir(entry.fullPath)">
+                    <span :class="$style.folderIcon">📁</span>{{ entry.name }}
                   </button>
-                  <NirA v-else-if="isArchive && !entry.isDir" :to="entry.link" style="font-weight:500">{{ entry.name }}</NirA>
-                  <NirA v-else :to="entry.link" style="font-weight:500">
-                    <span v-if="entry.isDir" style="margin-right:4px">📁</span>{{ entry.name }}
+                  <NirA v-else-if="isArchive && !entry.isDir" :to="entry.link" :class="$style.entryLink">{{ entry.name }}</NirA>
+                  <NirA v-else :to="entry.link" :class="$style.entryLink">
+                    <span v-if="entry.isDir" :class="$style.folderIcon">📁</span>{{ entry.name }}
                   </NirA>
                 </td>
-                <td class="col-right col-muted" style="white-space: nowrap;">
+                <td :class="[$style.sizeCell, 'col-right', 'col-muted']">
                   {{ entry.size != null ? formatSize(entry.size) : '' }}
                 </td>
-                <td style="white-space: nowrap;">
+                <td :class="$style.labelCell">
                   <span v-if="entry.label" class="badge badge-muted">{{ entry.label }}</span>
                 </td>
-                <td v-if="!isArchive && authStore.user" style="white-space: nowrap;">
+                <td v-if="!isArchive && authStore.user" :class="$style.publicCell">
                   <span v-if="!entry.isDir && entry.isPublic != null" :class="entry.isPublic ? 'badge badge-success' : 'badge badge-muted'">
                     {{ entry.isPublic ? '公開' : '非公開' }}
                   </span>
                 </td>
-                <td v-if="!isArchive && authStore.user && bucketId" class="col-actions" style="white-space: nowrap;">
+                <td v-if="!isArchive && authStore.user && bucketId" class="col-actions" :class="$style.actionsCell">
                   <Button.Root class="btn btn-ghost-danger" @click="requestDeleteEntry(entry)">
                     <Button.Content>削除</Button.Content>
                   </Button.Root>
@@ -444,3 +443,78 @@ watch(() => props.entryPath, (newEntryPath) => {
     />
   </div>
 </template>
+
+<style module lang="scss">
+.inlineError {
+  padding: 4px 10px;
+  font-size: 0.8rem;
+}
+
+.dirInput {
+  width: 180px;
+}
+
+.mkdirError {
+  font-size: 0.8rem;
+}
+
+.tableCard {
+  padding: 0;
+  overflow: hidden;
+}
+
+.upButton {
+  font-size: 0.875rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.upLink {
+  font-size: 0.875rem;
+}
+
+.nameCell {
+  width: 50%;
+  min-width: 10em;
+  max-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.archiveDirButton {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font-weight: 500;
+  font-size: inherit;
+  color: inherit;
+}
+
+.folderIcon {
+  margin-right: 4px;
+}
+
+.entryLink {
+  font-weight: 500;
+}
+
+.sizeCell {
+  white-space: nowrap;
+}
+
+.labelCell {
+  white-space: nowrap;
+}
+
+.publicCell {
+  white-space: nowrap;
+}
+
+.actionsCell {
+  white-space: nowrap;
+}
+</style>
