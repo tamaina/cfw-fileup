@@ -10,3 +10,8 @@ pnpm install
 ```bash
 pnpm run --filter app dev
 ```
+
+## Local DB Migration
+```bash
+pnpm run --filter app db:migrate:local --yes
+```
