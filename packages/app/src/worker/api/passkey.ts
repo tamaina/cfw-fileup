@@ -12,7 +12,7 @@ import { passkeys, passkeysChallenges, backupCodes, tokens, users } from '../sch
 import { getDb } from '../utils/db';
 import { authMiddleware } from '../middleware/auth';
 import { genEaidx, parseEaidx } from '../../shared/eaid-x';
-import { generateToken } from '../utils/crypto';
+import { generateToken, verifyPassword } from '../utils/crypto';
 import { isValidNameFormat } from '../../shared/name-validation';
 import { apiDef, getResponseDefWithAuth, type JsonCtx } from '../../shared/api';
 import { omitResAndReq } from '../utils/omit';
@@ -423,14 +423,21 @@ app.post(
 	validator('json', apiDef['/api/passkey/backup-codes/use'].req),
 	describeResponse(async (c: JsonCtx<'/api/passkey/backup-codes/use', Env>) => {
 		const db = getDb(c.env);
-		const { username, code } = c.req.valid('json');
+		const { username, password, code } = c.req.valid('json');
 
 		const user = await db.select().from(users).where(eq(users.username, username)).get();
 		if (!user) {
-			throw new HTTPException(401, { message: 'Invalid username or code' });
+			throw new HTTPException(401, { message: 'Invalid credentials or code' });
 		}
 		if (user.isSuspended) {
 			throw new HTTPException(401, { message: 'Account is suspended' });
+		}
+		if (!user.passwordHash) {
+			throw new HTTPException(401, { message: 'Invalid credentials or code' });
+		}
+		const passwordValid = await verifyPassword(password, user.passwordHash);
+		if (!passwordValid) {
+			throw new HTTPException(401, { message: 'Invalid credentials or code' });
 		}
 
 		const codeHash = await hashBackupCode(code.toUpperCase().replace(/\s/g, ''));
@@ -442,7 +449,7 @@ app.post(
 			.get();
 
 		if (!codeRecord || codeRecord.usedAt !== null) {
-			throw new HTTPException(401, { message: 'Invalid username or code' });
+			throw new HTTPException(401, { message: 'Invalid credentials or code' });
 		}
 
 		await db.update(backupCodes).set({ usedAt: Date.now() }).where(eq(backupCodes.id, codeRecord.id));

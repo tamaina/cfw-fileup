@@ -19,7 +19,7 @@ const turnstileToken = ref<string | null>(null);
 
 // Backup code mode
 const showBackupCode = ref(false);
-const backupForm = reactive({ username: '', code: '' });
+const backupForm = reactive({ username: '', password: '', code: '' });
 const backupLoading = ref(false);
 const backupError = ref('');
 
@@ -110,6 +110,7 @@ async function signinWithBackupCode({ valid }: { valid: boolean }): Promise<void
 	try {
 		const result = await apiPost('/api/passkey/backup-codes/use', {
 			username: backupForm.username,
+			password: backupForm.password,
 			code: backupForm.code,
 		});
 		if (!result.ok) {
@@ -227,6 +228,19 @@ async function signinWithBackupCode({ valid }: { valid: boolean }): Promise<void
               autocomplete="off"
               placeholder="XXXXX-XXXXX"
               :class="$style.backupCodeInput"
+            >
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="backup-password">パスワード</label>
+            <input
+              id="backup-password"
+              v-model="backupForm.password"
+              class="form-input"
+              type="password"
+              required
+              autocomplete="current-password"
+              placeholder="••••••••"
             >
           </div>
 

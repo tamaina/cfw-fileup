@@ -184,12 +184,13 @@ export const passkeyApiDef = {
 		tags: ['passkey'],
 		req: v.object({
 			username: v.string(),
+			password: v.string(),
 			code: v.string(),
 		}),
 		res: {
 			200: { description: 'Login successful', content: { 'application/json': { vSchema: v.object({ token: v.string() }) } } },
 			400: { description: 'Bad request', content: { 'application/json': { vSchema: ErrorResponse } } },
-			401: { description: 'Invalid username or code', content: { 'application/json': { vSchema: ErrorResponse } } },
+			401: { description: 'Invalid credentials or code', content: { 'application/json': { vSchema: ErrorResponse } } },
 		},
 	},
 	'/api/passkey/signup/begin': {
