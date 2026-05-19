@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { Button, Popover } from '@vuetify/v0';
+import { Button, Popover, createDataTable } from '@vuetify/v0';
 import { authStore } from '../store/auth';
 import { apiPost } from '../utils/api';
 import NirA from '@/components/nira.vue';
@@ -14,6 +14,18 @@ interface AdminUser {
 }
 
 const userList = ref<AdminUser[]>([]);
+
+const table = createDataTable({
+	items: userList as unknown as import('vue').Ref<(AdminUser & Record<string, unknown>)[]>,
+	columns: [
+		{ key: 'username', title: 'ユーザー名' },
+		{ key: 'isAdmin', title: '権限' },
+		{ key: 'isSuspended', title: '状態' },
+		{ key: 'actions', title: '操作' },
+	],
+});
+const tableItems = table.items as import('vue').Ref<readonly AdminUser[]>;
+
 const loading = ref(true);
 const error = ref('');
 const actionError = ref('');
@@ -90,7 +102,7 @@ async function executeSuspend(): Promise<void> {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="u in userList" :key="u.id">
+            <tr v-for="u in tableItems" :key="u.id">
               <td style="font-weight:500">{{ u.username }}</td>
               <td>
                 <span v-if="u.isAdmin" class="badge badge-admin">管理者</span>

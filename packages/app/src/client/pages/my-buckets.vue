@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-import { Button, Form, Popover } from '@vuetify/v0';
+import { Button, Form, Popover, createDataTable } from '@vuetify/v0';
 import { authStore } from '../store/auth';
 import { apiPost } from '../utils/api';
 import NirA from '@/components/nira.vue';
@@ -14,6 +14,17 @@ interface Bucket {
 }
 
 const buckets = ref<Bucket[]>([]);
+
+const table = createDataTable({
+	items: buckets as unknown as import('vue').Ref<(Bucket & Record<string, unknown>)[]>,
+	columns: [
+		{ key: 'name', title: 'バケット名' },
+		{ key: 'usedBytes', title: '使用量' },
+		{ key: 'actions', title: '' },
+	],
+});
+const tableItems = table.items as import('vue').Ref<readonly Bucket[]>;
+
 const maxBucketSizeBytes = ref<number | null>(null);
 const error = ref('');
 const loading = ref(true);
@@ -162,7 +173,7 @@ onMounted(loadBuckets);
               </tr>
             </thead>
             <tbody>
-              <tr v-for="b in buckets" :key="b.id">
+              <tr v-for="b in tableItems" :key="b.id">
                 <td>
                   <NirA :to="`/v/${b.name}/`" style="font-weight:500; font-size:0.9375rem">
                     {{ b.name }}

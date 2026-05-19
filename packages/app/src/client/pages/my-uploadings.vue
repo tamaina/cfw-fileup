@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { Button } from '@vuetify/v0';
+import { Button, createDataTable } from '@vuetify/v0';
 import NirA from '@/components/nira.vue';
 import { authStore, authHeaders } from '@/store/auth';
 import { apiPost } from '@/utils/api';
@@ -20,6 +20,20 @@ interface UploadEntry {
 }
 
 const entries = ref<UploadEntry[]>([]);
+
+const table = createDataTable({
+	items: entries as unknown as import('vue').Ref<(UploadEntry & Record<string, unknown>)[]>,
+	columns: [
+		{ key: 'bucketName', title: 'バケット' },
+		{ key: 'path', title: 'パス' },
+		{ key: 'size', title: 'サイズ' },
+		{ key: 'type', title: '種類' },
+		{ key: 'status', title: '状態' },
+		{ key: 'actions', title: '' },
+	],
+});
+const tableItems = table.items as import('vue').Ref<readonly UploadEntry[]>;
+
 const loading = ref(true);
 const error = ref('');
 const deleteErrors = ref<Record<string, string>>({});
@@ -114,7 +128,7 @@ onMounted(load);
               </tr>
             </thead>
             <tbody>
-              <tr v-for="entry in entries" :key="entry.id">
+              <tr v-for="entry in tableItems" :key="entry.id">
                 <td class="col-muted">{{ entry.bucketName }}</td>
                 <td>
                   <NirA v-if="entry.isClosed" :to="browseLink(entry)" class="font-mono">{{ entry.path }}</NirA>

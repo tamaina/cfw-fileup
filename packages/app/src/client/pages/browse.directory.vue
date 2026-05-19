@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
-import { Button, Form } from '@vuetify/v0';
+import { Button, Form, createDataTable } from '@vuetify/v0';
 import NirA from '@/components/nira.vue';
 import { authStore, authHeaders } from '@/store/auth';
 import { apiPost } from '@/utils/api';
@@ -40,6 +40,19 @@ const decompressUrl = computed(() => {
 });
 
 const entries = ref<DisplayEntry[]>([]);
+
+const table = createDataTable({
+	items: entries as unknown as import('vue').Ref<(DisplayEntry & Record<string, unknown>)[]>,
+	columns: [
+		{ key: 'name', title: '名前' },
+		{ key: 'size', title: 'サイズ' },
+		{ key: 'label', title: '種類' },
+		{ key: 'isPublic', title: '公開' },
+		{ key: 'actions', title: '' },
+	],
+});
+const tableItems = table.items as import('vue').Ref<readonly DisplayEntry[]>;
+
 const error = ref('');
 const loading = ref(true);
 const isDragOver = ref(false);
@@ -367,7 +380,7 @@ watch(() => props.entryPath, (newEntryPath) => {
                   <NirA :to="parentPath()!" class="text-muted font-mono" style="font-size:0.875rem">..</NirA>
                 </td>
               </tr>
-              <tr v-for="entry in entries" :key="entry.key">
+              <tr v-for="entry in tableItems" :key="entry.key">
                 <td style="width: 50%; min-width: 10em; max-width: 0px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                   <button v-if="isArchive && entry.isDir" style="background:none; border:none; cursor:pointer; padding:0; font-weight:500; font-size:inherit; color:inherit" @click="navigateArchiveDir(entry.fullPath)">
                     <span style="margin-right:4px">📁</span>{{ entry.name }}

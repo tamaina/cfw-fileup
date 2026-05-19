@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { Button, Popover } from '@vuetify/v0';
+import { Button, Popover, createDataTable } from '@vuetify/v0';
 import ConfirmDialog from '@/components/confirm-dialog.vue';
 import { apiPost } from '@/utils/api';
 
@@ -20,6 +20,19 @@ interface FileToken {
 }
 
 const tokens = ref<FileToken[]>([]);
+
+const table = createDataTable({
+	items: tokens as unknown as import('vue').Ref<(FileToken & Record<string, unknown>)[]>,
+	columns: [
+		{ key: 'id', title: 'ID' },
+		{ key: 'createdAt', title: '発行日時' },
+		{ key: 'expiresAt', title: '有効期限' },
+		{ key: 'status', title: '状態' },
+		{ key: 'actions', title: '' },
+	],
+});
+const tableItems = table.items as import('vue').Ref<readonly FileToken[]>;
+
 const loading = ref(false);
 const listError = ref('');
 
@@ -292,7 +305,7 @@ onMounted(loadTokens);
           </tr>
         </thead>
         <tbody>
-          <tr v-for="t in tokens" :key="t.id">
+          <tr v-for="t in tableItems" :key="t.id">
             <td style="max-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">
               <code style="font-size:0.8rem">{{ t.id }}</code>
             </td>
