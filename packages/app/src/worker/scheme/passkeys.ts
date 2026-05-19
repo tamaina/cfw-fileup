@@ -8,6 +8,15 @@ export const passkeys = sqliteTable('passkeys', {
 	publicKey: text('public_key').notNull(),
 	counter: integer('counter').notNull().default(0),
 	transports: text('transports'), // JSON array string
+	name: text('name'),
+	createdAt: integer('created_at').notNull(),
+});
+
+export const backupCodes = sqliteTable('backup_codes', {
+	id: text('id').primaryKey(),
+	userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+	codeHash: text('code_hash').notNull(),
+	usedAt: integer('used_at'), // null = not used
 	createdAt: integer('created_at').notNull(),
 });
 

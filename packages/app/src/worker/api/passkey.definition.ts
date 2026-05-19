@@ -1,4 +1,5 @@
-import type { Schema } from './schema-type';
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Schema = any;
 
 export const passkeyApiSchema = [
 	// Register begin

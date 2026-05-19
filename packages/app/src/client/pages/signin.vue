@@ -16,6 +16,12 @@ const turnstileEnabled = ref(false);
 const turnstileSiteKey = ref('');
 const turnstileToken = ref<string | null>(null);
 
+// Backup code mode
+const showBackupCode = ref(false);
+const backupForm = reactive({ username: '', code: '' });
+const backupLoading = ref(false);
+const backupError = ref('');
+
 async function fetchMeta(): Promise<void> {
 	try {
 		const res = await fetch('/api/meta');
@@ -61,7 +67,6 @@ async function signinWithPasskey(): Promise<void> {
 	error.value = '';
 	passkeyLoading.value = true;
 	try {
-		// Step 1: Begin authentication
 		const beginRes = await fetch('/api/passkey/authenticate/begin', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
@@ -76,7 +81,6 @@ async function signinWithPasskey(): Promise<void> {
 			options: PublicKeyCredentialRequestOptionsJSON;
 		};
 
-		// Step 2: Prompt user
 		let credential;
 		try {
 			credential = await startAuthentication({ optionsJSON: options });
@@ -85,7 +89,6 @@ async function signinWithPasskey(): Promise<void> {
 			return;
 		}
 
-		// Step 3: Finish authentication
 		const finishRes = await fetch('/api/passkey/authenticate/finish', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
@@ -107,6 +110,33 @@ async function signinWithPasskey(): Promise<void> {
 		passkeyLoading.value = false;
 	}
 }
+
+async function signinWithBackupCode({ valid }: { valid: boolean }): Promise<void> {
+	if (!valid) return;
+	backupError.value = '';
+	backupLoading.value = true;
+	try {
+		const res = await fetch('/api/passkey/backup-codes/use', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ username: backupForm.username, code: backupForm.code }),
+		});
+		const data = (await res.json()) as { token?: string; error?: string };
+		if (!res.ok) {
+			backupError.value = data.error ?? 'バックアップコードの認証に失敗しました';
+			return;
+		}
+		if (data.token) {
+			setToken(data.token);
+			await fetchCurrentUser();
+			navigateTo('/my/buckets');
+		}
+	} catch (e) {
+		backupError.value = String(e);
+	} finally {
+		backupLoading.value = false;
+	}
+}
 </script>
 
 <template>
@@ -114,61 +144,116 @@ async function signinWithPasskey(): Promise<void> {
     <div :class="[$style.card, 'card', 'max-w-sm']">
       <h2 :class="$style.heading">サインイン</h2>
 
-      <Form :class="$style.form" @submit="submit">
-        <div class="form-group">
-          <label class="form-label" for="username">ユーザー名</label>
-          <input
-            id="username"
-            v-model="form.username"
-            class="form-input"
-            type="text"
-            required
-            autocomplete="username"
-            placeholder="username"
+      <!-- Password signin -->
+      <template v-if="!showBackupCode">
+        <Form :class="$style.form" @submit="submit">
+          <div class="form-group">
+            <label class="form-label" for="username">ユーザー名</label>
+            <input
+              id="username"
+              v-model="form.username"
+              class="form-input"
+              type="text"
+              required
+              autocomplete="username"
+              placeholder="username"
+            >
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="password">パスワード</label>
+            <input
+              id="password"
+              v-model="form.password"
+              class="form-input"
+              type="password"
+              required
+              autocomplete="current-password"
+              placeholder="••••••••"
+            >
+          </div>
+
+          <TurnstileWidget
+            v-if="turnstileEnabled"
+            :site-key="turnstileSiteKey"
+            @update:token="turnstileToken = $event"
+          />
+
+          <div v-if="error" class="alert alert-error">{{ error }}</div>
+
+          <button type="submit" :class="[$style.submitBtn, 'btn', 'btn-primary', 'w-full']" :disabled="!canSubmit || loading">
+            {{ loading ? '処理中...' : turnstileEnabled && !turnstileToken ? '確認中...' : 'サインイン' }}
+          </button>
+        </Form>
+
+        <div :class="$style.passkeySection">
+          <div :class="$style.divider">
+            <hr :class="$style.dividerLine">
+            <span :class="$style.dividerText">または</span>
+            <hr :class="$style.dividerLine">
+          </div>
+          <button
+            type="button"
+            :class="[$style.passkeyBtn, 'btn', 'btn-ghost', 'w-full']"
+            :disabled="passkeyLoading"
+            @click="signinWithPasskey"
           >
-        </div>
-
-        <div class="form-group">
-          <label class="form-label" for="password">パスワード</label>
-          <input
-            id="password"
-            v-model="form.password"
-            class="form-input"
-            type="password"
-            required
-            autocomplete="current-password"
-            placeholder="••••••••"
+            {{ passkeyLoading ? '認証中...' : 'パスキーでサインイン' }}
+          </button>
+          <button
+            type="button"
+            :class="[$style.passkeyBtn, 'btn', 'btn-ghost', 'w-full']"
+            style="font-size: 0.875rem; color: var(--color-text-muted)"
+            @click="showBackupCode = true"
           >
+            バックアップコードでサインイン
+          </button>
         </div>
+      </template>
 
-        <TurnstileWidget
-          v-if="turnstileEnabled"
-          :site-key="turnstileSiteKey"
-          @update:token="turnstileToken = $event"
-        />
+      <!-- Backup code signin -->
+      <template v-else>
+        <Form :class="$style.form" @submit="signinWithBackupCode">
+          <div class="form-group">
+            <label class="form-label" for="backup-username">ユーザー名</label>
+            <input
+              id="backup-username"
+              v-model="backupForm.username"
+              class="form-input"
+              type="text"
+              required
+              autocomplete="username"
+              placeholder="username"
+            >
+          </div>
 
-        <div v-if="error" class="alert alert-error">{{ error }}</div>
+          <div class="form-group">
+            <label class="form-label" for="backup-code">バックアップコード</label>
+            <input
+              id="backup-code"
+              v-model="backupForm.code"
+              class="form-input"
+              type="text"
+              required
+              autocomplete="off"
+              placeholder="XXXXX-XXXXX"
+              style="font-family: monospace; letter-spacing: 0.05em"
+            >
+          </div>
 
-        <button type="submit" :class="[$style.submitBtn, 'btn', 'btn-primary', 'w-full']" :disabled="!canSubmit || loading">
-          {{ loading ? '処理中...' : turnstileEnabled && !turnstileToken ? '確認中...' : 'サインイン' }}
-        </button>
-      </Form>
+          <div v-if="backupError" class="alert alert-error">{{ backupError }}</div>
 
-      <div :class="$style.passkeySection">
-        <div :class="$style.divider">
-          <hr :class="$style.dividerLine">
-          <span :class="$style.dividerText">または</span>
-          <hr :class="$style.dividerLine">
+          <button type="submit" :class="[$style.submitBtn, 'btn', 'btn-primary', 'w-full']" :disabled="backupLoading">
+            {{ backupLoading ? '処理中...' : 'サインイン' }}
+          </button>
+        </Form>
+
+        <div style="margin-top: 12px; text-align: center">
+          <button type="button" class="btn btn-ghost" style="font-size: 0.875rem" @click="showBackupCode = false">
+            ← 通常のサインインに戻る
+          </button>
         </div>
-        <button
-          type="button"
-          :class="[$style.passkeyBtn, 'btn', 'btn-ghost', 'w-full']"
-          :disabled="passkeyLoading"
-          @click="signinWithPasskey"
-        >
-          {{ passkeyLoading ? '認証中...' : 'パスキーでサインイン' }}
-        </button>
-      </div>
+      </template>
 
       <div :class="$style.footer">
         <button type="button" class="btn btn-ghost" @click="navigateTo('/signup')">

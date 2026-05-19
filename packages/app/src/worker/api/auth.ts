@@ -158,6 +158,9 @@ app.post(
 			throw new HTTPException(401, { message: 'Account is suspended' });
 		}
 
+		if (!user.passwordHash) {
+			throw new HTTPException(401, { message: 'Invalid credentials' });
+		}
 		const passwordValid = await verifyPassword(body.password, user.passwordHash);
 		if (!passwordValid) {
 			throw new HTTPException(401, { message: 'Invalid credentials' });
