@@ -95,6 +95,19 @@ export async function setupDb(): Promise<void> {
 			updated_at integer NOT NULL,
 			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 		)`),
+		env.DB.prepare(`CREATE TABLE IF NOT EXISTS used_usernames (
+			username text PRIMARY KEY NOT NULL
+		)`),
+		env.DB.prepare(`CREATE TABLE IF NOT EXISTS used_bucket_names (
+			bucket_name text PRIMARY KEY NOT NULL
+		)`),
+		env.DB.prepare(`CREATE TABLE IF NOT EXISTS file_access_tokens (
+			id text PRIMARY KEY NOT NULL,
+			file_id text NOT NULL,
+			token text NOT NULL UNIQUE,
+			expires_at integer,
+			FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE
+		)`),
 	]);
 }
 
@@ -104,6 +117,7 @@ export async function clearDb(): Promise<void> {
 		env.DB.prepare('DELETE FROM upload_parts'),
 		env.DB.prepare('DELETE FROM targz_files'),
 		env.DB.prepare('DELETE FROM tar_files'),
+		env.DB.prepare('DELETE FROM file_access_tokens'),
 		env.DB.prepare('DELETE FROM files'),
 		env.DB.prepare('DELETE FROM tokens'),
 		env.DB.prepare('DELETE FROM user_quotas'),
@@ -111,6 +125,8 @@ export async function clearDb(): Promise<void> {
 		env.DB.prepare('DELETE FROM users'),
 		env.DB.prepare('DELETE FROM app_settings'),
 		env.DB.prepare('DELETE FROM global_quotas'),
+		env.DB.prepare('DELETE FROM used_usernames'),
+		env.DB.prepare('DELETE FROM used_bucket_names'),
 	]);
 }
 
@@ -160,13 +176,13 @@ export function authHeaders(token: string): Record<string, string> {
 
 // Create admin user (first signup) and return token
 export async function createAdminUser(): Promise<{ userId: string; token: string }> {
-	const { data } = await signup('admin');
+	const { data } = await signup('firstuser');
 	return { userId: String(data.userId), token: String(data.token) };
 }
 
 // Create a regular second user and return token
 export async function createRegularUser(username = 'user1'): Promise<{ userId: string; token: string }> {
-	await signup('admin');
+	await signup('firstuser');
 	const { data } = await signup(username);
 	return { userId: String(data.userId), token: String(data.token) };
 }
