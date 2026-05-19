@@ -13,7 +13,7 @@ import NirA from '@/components/nira.vue';
       管理者権限が必要です。
     </div>
 
-    <div v-else style="max-width:400px">
+    <div v-else :class="$style.navWrapper">
       <ul class="admin-nav-list">
         <li><NirA to="/admin/settings">アプリ設定</NirA></li>
         <li><NirA to="/admin/global-quota">グローバルクォータ設定</NirA></li>
@@ -22,3 +22,9 @@ import NirA from '@/components/nira.vue';
     </div>
   </div>
 </template>
+
+<style module lang="scss">
+.navWrapper {
+  max-width: 400px;
+}
+</style>

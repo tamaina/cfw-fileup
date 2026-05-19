@@ -1,3 +1,30 @@
+async function readFirstBytes(stream: ReadableStream<Uint8Array>, maxBytes: number): Promise<Uint8Array> {
+	const reader = stream.getReader();
+	const chunks: Uint8Array[] = [];
+	let total = 0;
+	while (total < maxBytes) {
+		const { done, value } = await reader.read();
+		if (done || !value) break;
+		const needed = maxBytes - total;
+		if (value.byteLength <= needed) {
+			chunks.push(value);
+			total += value.byteLength;
+		} else {
+			chunks.push(value.slice(0, needed));
+			total = maxBytes;
+			break;
+		}
+	}
+	await reader.cancel();
+	const result = new Uint8Array(total);
+	let offset = 0;
+	for (const chunk of chunks) {
+		result.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+	return result;
+}
+
 // ---- BGZF detection ----
 
 /** Check BGZF magic: FLG=FEXTRA (0x04), BC subfield (0x42, 0x43) */
@@ -299,14 +326,15 @@ class TarArchiverBase<TIdx> {
 		const now = Date.now();
 		const walked: FileEntry[] = [];
 		for await (const entry of TarArchiverBase.walkDirectory(dir)) walked.push(entry);
-		const { fileTypeFromBlob } = await import('file-type');
+		const { filetypemime } = await import('magic-bytes.js');
 		return Promise.all(
 			walked.map(async ({ path, file }) => {
-				const detected = await fileTypeFromBlob(file);
+				const bytes = await readFirstBytes(file.stream(), 4100);
+				const mimes = filetypemime(bytes);
 				return {
 					path,
 					file,
-					mimeType: detected?.mime ?? file.type,
+					mimeType: mimes[0] ?? file.type,
 					mtime: file.lastModified || now,
 				};
 			}),

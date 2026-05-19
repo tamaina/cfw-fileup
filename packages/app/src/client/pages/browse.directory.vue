@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
-import { Button } from '@vuetify/v0';
+import { Button, Form } from '@vuetify/v0';
 import NirA from '@/components/nira.vue';
 import { authStore, authHeaders } from '@/store/auth';
+import { apiPost } from '@/utils/api';
 import { setPendingUpload } from '@/store/pending-upload';
 import { mainRouter } from '@/router';
 import ConfirmDialog from '@/components/confirm-dialog.vue';
@@ -13,6 +14,7 @@ const props = defineProps<{
 	isTargz: boolean;
 	isTar: boolean;
 	entryPath?: string;
+	token?: string;
 }>();
 
 const isArchive = computed(() => props.isTargz || props.isTar);
@@ -30,8 +32,14 @@ interface DisplayEntry {
 	previewUrl?: string;
 }
 
-const downloadUrl = computed(() => `/d/${props.bucketName}/${props.filePath}`);
-const decompressUrl = computed(() => `/d/${props.bucketName}/${props.filePath}?decompress`);
+const downloadUrl = computed(() => {
+	const base = `/d/${props.bucketName}/${props.filePath}`;
+	return props.token ? `${base}?token=${props.token}` : base;
+});
+const decompressUrl = computed(() => {
+	const base = `/d/${props.bucketName}/${props.filePath}?decompress`;
+	return props.token ? `${base}&token=${props.token}` : base;
+});
 
 const entries = ref<DisplayEntry[]>([]);
 const error = ref('');
@@ -75,29 +83,20 @@ function isImageMime(mime: string): boolean {
 
 async function loadBucketId(): Promise<void> {
 	if (!authStore.user) return;
-	const res = await fetch('/api/buckets/list', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json', ...authHeaders() },
-		body: JSON.stringify({}),
-	});
-	if (!res.ok) return;
-	const data = await res.json() as { buckets: Array<{ id: string; name: string }> };
-	bucketId.value = data.buckets.find(b => b.name === props.bucketName)?.id ?? null;
+	const result = await apiPost('/api/buckets/list');
+	if (!result.ok) return;
+	bucketId.value = result.data.buckets.find(b => b.name === props.bucketName)?.id ?? null;
 }
 
-async function createDirectory(): Promise<void> {
+async function createDirectory({ valid }: { valid: boolean }): Promise<void> {
+	if (!valid) return;
 	const name = newDirName.value.trim();
 	if (!name || !bucketId.value) return;
 	mkdirError.value = '';
 	const path = `${props.filePath}${name}/`;
-	const res = await fetch('/api/directories/create', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json', ...authHeaders() },
-		body: JSON.stringify({ bucketId: bucketId.value, path }),
-	});
-	if (!res.ok) {
-		const err = await res.json() as { error?: string };
-		mkdirError.value = err.error ?? '作成失敗';
+	const dirResult = await apiPost('/api/directories/create', { bucketId: bucketId.value!, path });
+	if (!dirResult.ok) {
+		mkdirError.value = dirResult.data.error;
 		return;
 	}
 	newDirName.value = '';
@@ -117,14 +116,9 @@ async function executeDeleteEntry(): Promise<void> {
 	deleteError.value = '';
 
 	if (entry.isDir) {
-		const res = await fetch('/api/directories/delete', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', ...authHeaders() },
-			body: JSON.stringify({ bucketId: bucketId.value, path: entry.fullPath }),
-		});
-		if (!res.ok) {
-			const err = await res.json() as { error?: string };
-			deleteError.value = err.error ?? '削除失敗';
+		const delResult = await apiPost('/api/directories/delete', { bucketId: bucketId.value!, path: entry.fullPath });
+		if (!delResult.ok) {
+			deleteError.value = delResult.data.error;
 			return;
 		}
 	} else {
@@ -203,7 +197,8 @@ async function load(): Promise<void> {
 	error.value = '';
 	try {
 		if (isArchive.value) {
-			const res = await fetch(`${downloadUrl.value}?list`, { headers: authHeaders() });
+			const listUrl = props.token ? `${downloadUrl.value}&list` : `${downloadUrl.value}?list`;
+			const res = await fetch(listUrl, { headers: authHeaders() });
 			if (!res.ok) { error.value = `取得失敗: ${res.status}`; return; }
 			const raw = await res.json() as RawArchiveEntry[];
 			archivePath.value = props.entryPath ?? '';
@@ -335,7 +330,7 @@ watch(() => props.entryPath, (newEntryPath) => {
       <Button.Root v-if="authStore.user" class="btn btn-ghost-danger" @click="archiveDeleteDialog = true">
         <Button.Content>削除</Button.Content>
       </Button.Root>
-      <span v-if="deleteError" class="alert alert-error" style="padding:4px 10px; font-size:0.8rem">{{ deleteError }}</span>
+      <span v-if="deleteError" :class="[$style.inlineError, 'alert', 'alert-error']">{{ deleteError }}</span>
     </div>
 
     <!-- 通常ディレクトリ操作 -->
@@ -343,19 +338,18 @@ watch(() => props.entryPath, (newEntryPath) => {
       <Button.Root class="btn btn-primary" @click="goUpload">
         <Button.Content>アップロード</Button.Content>
       </Button.Root>
-      <form class="flex gap-2 items-center" @submit.prevent="createDirectory">
+      <Form class="flex gap-2 items-center" @submit="createDirectory">
         <input
           v-model="newDirName"
-          class="form-input form-input-mono"
+          :class="[$style.dirInput, 'form-input', 'form-input-mono']"
           type="text"
           placeholder="新しいフォルダ名"
-          style="width:180px"
         >
-        <Button.Root type="submit" class="btn btn-secondary" :disabled="!newDirName.trim() || !bucketId">
-          <Button.Content>フォルダ作成</Button.Content>
-        </Button.Root>
-      </form>
-      <span v-if="mkdirError" class="text-danger" style="font-size:0.8rem">{{ mkdirError }}</span>
+        <button type="submit" class="btn btn-secondary" :disabled="!newDirName.trim() || !bucketId">
+          フォルダ作成
+        </button>
+      </Form>
+      <span v-if="mkdirError" :class="[$style.mkdirError, 'text-danger']">{{ mkdirError }}</span>
     </div>
 
     <!-- ビュー切り替えボタン -->
@@ -389,7 +383,7 @@ watch(() => props.entryPath, (newEntryPath) => {
 
         <!-- リストビュー -->
         <template v-if="viewMode === 'list'">
-          <div class="card" style="padding:0; overflow:hidden">
+          <div :class="[$style.tableCard, 'card']">
             <div class="table-responsive">
             <table class="data-table">
               <thead>
@@ -404,36 +398,36 @@ watch(() => props.entryPath, (newEntryPath) => {
               <tbody>
                 <tr v-if="isArchive && archivePath !== ''">
                   <td :colspan="3">
-                    <button class="text-muted font-mono" style="font-size:0.875rem; background:none; border:none; cursor:pointer; padding:0" @click="navigateArchiveUp">..</button>
+                    <button :class="[$style.upButton, 'text-muted', 'font-mono']" @click="navigateArchiveUp">..</button>
                   </td>
                 </tr>
                 <tr v-else-if="parentPath()">
                   <td :colspan="!isArchive && authStore.user && bucketId ? 5 : !isArchive && authStore.user ? 4 : 3">
-                    <NirA :to="parentPath()!" class="text-muted font-mono" style="font-size:0.875rem">..</NirA>
+                    <NirA :to="parentPath()!" :class="[$style.upLink, 'text-muted', 'font-mono']">..</NirA>
                   </td>
                 </tr>
                 <tr v-for="entry in entries" :key="entry.key">
-                  <td>
-                    <button v-if="isArchive && entry.isDir" style="background:none; border:none; cursor:pointer; padding:0; font-weight:500; font-size:inherit; color:inherit" @click="navigateArchiveDir(entry.fullPath)">
-                      <span style="margin-right:4px">📁</span>{{ entry.name }}
+                  <td :class="$style.nameCell">
+                    <button v-if="isArchive && entry.isDir" :class="$style.archiveDirButton" @click="navigateArchiveDir(entry.fullPath)">
+                      <span :class="$style.folderIcon">📁</span>{{ entry.name }}
                     </button>
-                    <NirA v-else-if="isArchive && !entry.isDir" :to="entry.link" style="font-weight:500">{{ entry.name }}</NirA>
-                    <NirA v-else :to="entry.link" style="font-weight:500">
-                      <span v-if="entry.isDir" style="margin-right:4px">📁</span>{{ entry.name }}
+                    <NirA v-else-if="isArchive && !entry.isDir" :to="entry.link" :class="$style.entryLink">{{ entry.name }}</NirA>
+                    <NirA v-else :to="entry.link" :class="$style.entryLink">
+                      <span v-if="entry.isDir" :class="$style.folderIcon">📁</span>{{ entry.name }}
                     </NirA>
                   </td>
-                  <td class="col-right col-muted">
+                  <td :class="[$style.sizeCell, 'col-right', 'col-muted']">
                     {{ entry.size != null ? formatSize(entry.size) : '' }}
                   </td>
-                  <td>
+                  <td :class="$style.labelCell">
                     <span v-if="entry.label" class="badge badge-muted">{{ entry.label }}</span>
                   </td>
-                  <td v-if="!isArchive && authStore.user">
+                  <td v-if="!isArchive && authStore.user" :class="$style.publicCell">
                     <span v-if="!entry.isDir && entry.isPublic != null" :class="entry.isPublic ? 'badge badge-success' : 'badge badge-muted'">
                       {{ entry.isPublic ? '公開' : '非公開' }}
                     </span>
                   </td>
-                  <td v-if="!isArchive && authStore.user && bucketId" class="col-actions">
+                  <td v-if="!isArchive && authStore.user && bucketId" class="col-actions" :class="$style.actionsCell">
                     <Button.Root class="btn btn-ghost-danger" @click="requestDeleteEntry(entry)">
                       <Button.Content>削除</Button.Content>
                     </Button.Root>
@@ -456,53 +450,52 @@ watch(() => props.entryPath, (newEntryPath) => {
         <template v-else>
           <!-- 上へ -->
           <div v-if="isArchive && archivePath !== ''" class="mb-2">
-            <button class="text-muted font-mono" style="font-size:0.875rem; background:none; border:none; cursor:pointer; padding:0" @click="navigateArchiveUp">..</button>
+            <button :class="[$style.upButton, 'text-muted', 'font-mono']" @click="navigateArchiveUp">..</button>
           </div>
           <div v-else-if="parentPath()" class="mb-2">
-            <NirA :to="parentPath()!" class="text-muted font-mono" style="font-size:0.875rem">..</NirA>
+            <NirA :to="parentPath()!" :class="[$style.upLink, 'text-muted', 'font-mono']">..</NirA>
           </div>
 
           <div v-if="entries.length === 0" class="empty-state card">
             <p>エントリがありません。</p>
           </div>
-          <div v-else class="grid-view">
+          <div v-else :class="$style.gridView">
             <div
               v-for="entry in entries"
               :key="entry.key"
-              class="grid-card"
+              :class="$style.gridCard"
             >
               <!-- プレビュー / アイコン -->
               <component
                 :is="isArchive && entry.isDir ? 'button' : 'a'"
-                class="grid-card-preview"
+                :class="[$style.gridCardPreview, isArchive && entry.isDir ? $style.gridCardPreviewButton : '']"
                 :href="!(isArchive && entry.isDir) ? entry.link : undefined"
-                :style="isArchive && entry.isDir ? 'background:none; border:none; width:100%; cursor:pointer; display:block; padding:0' : ''"
                 @click="isArchive && entry.isDir ? navigateArchiveDir(entry.fullPath) : undefined"
               >
                 <img
                   v-if="entry.previewUrl"
                   :src="entry.previewUrl"
                   :alt="entry.name"
-                  class="grid-card-image"
+                  :class="$style.gridCardImage"
                   loading="lazy"
                 >
-                <div v-else class="grid-card-icon">
+                <div v-else :class="$style.gridCardIcon">
                   <span v-if="entry.isDir" style="font-size:2.5rem">📁</span>
                   <span v-else style="font-size:2rem; color: var(--color-text-muted)">📄</span>
                 </div>
               </component>
 
               <!-- ファイル情報 -->
-              <div class="grid-card-info">
-                <div class="grid-card-name" :title="entry.name">{{ entry.name }}</div>
-                <div class="grid-card-meta">
-                  <span v-if="entry.size != null" class="grid-card-size">{{ formatSize(entry.size) }}</span>
-                  <span v-if="!entry.isDir && entry.isPublic != null && !isArchive" :class="entry.isPublic ? 'badge badge-success' : 'badge badge-muted'" style="font-size:0.65rem">
+              <div :class="$style.gridCardInfo">
+                <div :class="$style.gridCardName" :title="entry.name">{{ entry.name }}</div>
+                <div :class="$style.gridCardMeta">
+                  <span v-if="entry.size != null" :class="$style.gridCardSize">{{ formatSize(entry.size) }}</span>
+                  <span v-if="!entry.isDir && entry.isPublic != null && !isArchive" :class="[entry.isPublic ? 'badge badge-success' : 'badge badge-muted', $style.gridCardBadge]">
                     {{ entry.isPublic ? '公開' : '非公開' }}
                   </span>
                 </div>
-                <div v-if="!isArchive && authStore.user && bucketId" class="grid-card-actions">
-                  <Button.Root class="btn btn-ghost-danger" style="font-size:0.75rem; padding:2px 8px" @click="requestDeleteEntry(entry)">
+                <div v-if="!isArchive && authStore.user && bucketId" :class="$style.gridCardActions">
+                  <Button.Root :class="[$style.gridCardDeleteBtn, 'btn', 'btn-ghost-danger']" @click="requestDeleteEntry(entry)">
                     <Button.Content>削除</Button.Content>
                   </Button.Root>
                 </div>
@@ -537,15 +530,88 @@ watch(() => props.entryPath, (newEntryPath) => {
   </div>
 </template>
 
-<style scoped>
+<style module lang="scss">
+.inlineError {
+  padding: 4px 10px;
+  font-size: 0.8rem;
+}
+
+.dirInput {
+  width: 180px;
+}
+
+.mkdirError {
+  font-size: 0.8rem;
+}
+
+.tableCard {
+  padding: 0;
+  overflow: hidden;
+}
+
+.upButton {
+  font-size: 0.875rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.upLink {
+  font-size: 0.875rem;
+}
+
+.nameCell {
+  width: 50%;
+  min-width: 10em;
+  max-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.archiveDirButton {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font-weight: 500;
+  font-size: inherit;
+  color: inherit;
+}
+
+.folderIcon {
+  margin-right: 4px;
+}
+
+.entryLink {
+  font-weight: 500;
+}
+
+.sizeCell {
+  white-space: nowrap;
+}
+
+.labelCell {
+  white-space: nowrap;
+}
+
+.publicCell {
+  white-space: nowrap;
+}
+
+.actionsCell {
+  white-space: nowrap;
+}
+
 /* グリッドビュー */
-.grid-view {
+.gridView {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: 12px;
 }
 
-.grid-card {
+.gridCard {
   border: 1px solid var(--color-border, #e0e0e0);
   border-radius: 8px;
   overflow: hidden;
@@ -554,7 +620,7 @@ watch(() => props.entryPath, (newEntryPath) => {
   flex-direction: column;
 }
 
-.grid-card-preview {
+.gridCardPreview {
   display: block;
   width: 100%;
   aspect-ratio: 1;
@@ -563,14 +629,21 @@ watch(() => props.entryPath, (newEntryPath) => {
   text-decoration: none;
 }
 
-.grid-card-image {
+.gridCardPreviewButton {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.gridCardImage {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
 }
 
-.grid-card-icon {
+.gridCardIcon {
   width: 100%;
   height: 100%;
   display: flex;
@@ -578,14 +651,14 @@ watch(() => props.entryPath, (newEntryPath) => {
   justify-content: center;
 }
 
-.grid-card-info {
+.gridCardInfo {
   padding: 6px 8px;
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.grid-card-name {
+.gridCardName {
   font-size: 0.8rem;
   font-weight: 500;
   overflow: hidden;
@@ -593,25 +666,28 @@ watch(() => props.entryPath, (newEntryPath) => {
   white-space: nowrap;
 }
 
-.grid-card-meta {
+.gridCardMeta {
   display: flex;
   align-items: center;
   gap: 4px;
   flex-wrap: wrap;
 }
 
-.grid-card-size {
+.gridCardSize {
   font-size: 0.7rem;
   color: var(--color-text-muted, #888);
 }
 
-.grid-card-actions {
+.gridCardBadge {
+  font-size: 0.65rem;
+}
+
+.gridCardActions {
   margin-top: 2px;
 }
 
-/* ビュー切り替えボタン */
-.btn-sm {
-  padding: 4px 10px;
-  font-size: 0.8rem;
+.gridCardDeleteBtn {
+  font-size: 0.75rem;
+  padding: 2px 8px;
 }
 </style>
