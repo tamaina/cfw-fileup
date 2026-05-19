@@ -13,5 +13,5 @@ pnpm run --filter app dev
 
 ## Local DB Migration
 ```bash
-pnpm run --filter app db:migrate:local --yes
+pnpm run --filter app db:migrate:local
 ```
