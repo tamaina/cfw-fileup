@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
+import type { FileVisibility } from '../../shared/file-visibility';
 import { Button } from '@vuetify/v0';
 import NirA from '@/components/nira.vue';
-import { authStore, authHeaders } from '@/store/auth';
+import { authStore } from '@/store/auth';
 import { apiPost } from '@/utils/api';
 import ConfirmDialog from '@/components/confirm-dialog.vue';
 
@@ -13,7 +14,7 @@ interface UploadEntry {
 	path: string;
 	size: number | null;
 	isClosed: boolean;
-	isPublic: boolean;
+	visibility: FileVisibility;
 	uploadExpiresAt: number;
 	isTargz: boolean;
 	isTar: boolean;
@@ -69,13 +70,9 @@ async function executeDelete(): Promise<void> {
 	deleteTarget.value = null;
 	delete deleteErrors.value[entry.id];
 
-	const res = await fetch(`/d/${entry.bucketName}/${entry.path}`, {
-		method: 'DELETE',
-		headers: authHeaders(),
-	});
-	if (!res.ok) {
-		const err = await res.json().catch(() => ({})) as { error?: string };
-		deleteErrors.value[entry.id] = err.error ?? '削除失敗';
+	const result = await apiPost('/api/files/delete', { bucketId: entry.bucketId, path: entry.path });
+	if (!result.ok) {
+		deleteErrors.value[entry.id] = result.data.error ?? '削除失敗';
 		return;
 	}
 	await load();
@@ -129,8 +126,8 @@ onMounted(load);
                 <td>
                   <span v-if="entry.isClosed" class="badge badge-success">完了</span>
                   <span v-else class="badge badge-warning">アップロード中</span>
-                  <span v-if="entry.isClosed" :class="[entry.isPublic ? 'badge badge-success' : 'badge badge-muted', $style.statusBadge]">
-                    {{ entry.isPublic ? '公開' : '非公開' }}
+                  <span v-if="entry.isClosed" :class="[entry.visibility === 'public' ? 'badge badge-success' : entry.visibility === 'passphrase' ? 'badge badge-warning' : 'badge badge-muted', $style.statusBadge]">
+                    {{ entry.visibility === 'public' ? '公開' : entry.visibility === 'passphrase' ? '合言葉' : '非公開' }}
                   </span>
                 </td>
                 <td class="col-actions">

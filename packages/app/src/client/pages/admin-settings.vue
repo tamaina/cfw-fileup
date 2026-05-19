@@ -1,12 +1,25 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { Button } from '@vuetify/v0';
+import * as v from 'valibot';
 import { authStore } from '../store/auth';
 import { apiPost } from '../utils/api';
 import NirA from '@/components/nira.vue';
-import { KNOWN_SETTINGS, type SettingDef } from '../../shared/app-settings';
+import SettingItem from '@/components/SettingItem.vue';
+import { KNOWN_SETTINGS, KnownSettingRecordSchema, type KnownSettingKey } from '../../shared/app-settings';
 
-const values = ref<Record<string, string>>({});
+type SettingValues = {
+	[K in KnownSettingKey]: v.InferOutput<(typeof KNOWN_SETTINGS)[K]>;
+};
+
+// デフォルト値はスキーマの optional() から導出
+const defaults = Object.fromEntries(
+	(Object.entries(KNOWN_SETTINGS) as [KnownSettingKey, v.GenericSchema<unknown, string>][]).map(([key, schema]) => [
+		key,
+		v.parse(schema, undefined),
+	]),
+) as SettingValues;
+
+const values = ref<SettingValues>({ ...defaults });
 const loading = ref(true);
 const saving = ref<Record<string, boolean>>({});
 const error = ref('');
@@ -20,10 +33,19 @@ async function fetchSettings(): Promise<void> {
 	try {
 		const result = await apiPost('/api/admin/get-settings');
 		if (!result.ok) throw new Error('設定の取得に失敗しました');
-		const map: Record<string, string> = {};
-		for (const s of result.data) map[s.key] = s.value;
-		for (const s of KNOWN_SETTINGS) {
-			map[s.key] ??= s.defaultValue;
+		const map: SettingValues = { ...defaults };
+		for (const s of result.data) {
+			switch (s.key) {
+				case 'registration_mode':
+					map.registration_mode = s.value;
+					break;
+				case 'forbidden_usernames':
+					map.forbidden_usernames = s.value;
+					break;
+				case 'forbidden_bucket_names':
+					map.forbidden_bucket_names = s.value;
+					break;
+			}
 		}
 		values.value = map;
 	} catch (e) {
@@ -33,12 +55,13 @@ async function fetchSettings(): Promise<void> {
 	}
 }
 
-async function saveSetting(key: string): Promise<void> {
+async function saveSetting<TKey extends KnownSettingKey>(key: TKey, value: v.InferOutput<(typeof KNOWN_SETTINGS)[TKey]>): Promise<void> {
 	saving.value = { ...saving.value, [key]: true };
 	error.value = '';
 	success.value = '';
 	try {
-		const result = await apiPost('/api/admin/update-setting', { key, value: values.value[key] });
+		const payload = { key, value } as Extract<v.InferOutput<typeof KnownSettingRecordSchema>, { key: TKey }> ;
+		const result = await apiPost('/api/admin/update-setting', payload);
 		if (!result.ok) throw new Error('保存に失敗しました');
 		success.value = `"${key}" を保存しました`;
 	} catch (e) {
@@ -46,11 +69,6 @@ async function saveSetting(key: string): Promise<void> {
 	} finally {
 		saving.value = { ...saving.value, [key]: false };
 	}
-}
-
-function onCheckboxChange(key: string, checked: boolean): void {
-	values.value = { ...values.value, [key]: checked ? 'true' : 'false' };
-	void saveSetting(key);
 }
 </script>
 
@@ -74,114 +92,49 @@ function onCheckboxChange(key: string, checked: boolean): void {
         <span class="spinner" />読み込み中...
       </div>
 
-      <div v-else class="settings-grid">
-        <div
-          v-for="setting in (KNOWN_SETTINGS as readonly SettingDef[])"
-          :key="setting.key"
-          class="setting-row"
-          :class="{ 'setting-row--multiline': setting.type === 'textarea' }"
+      <div v-else :class="$style.settingsGrid">
+        <SettingItem
+          v-model="values['registration_mode']"
+          :schema="KNOWN_SETTINGS['registration_mode']"
+          title="登録モード"
+          :saving="saving['registration_mode']"
+          :option-labels="{ closed: '非公開', passphrase: 'パスフレーズ必須', open: '公開' }"
+          @save="saveSetting('registration_mode', $event)"
         >
-          <template v-if="setting.type === 'textarea'">
-            <div :class="$style.textareaHeader">
-              <div class="setting-row-info">
-                <label :for="`setting-${setting.key}`" :class="[$style.cursorPointer, 'setting-row-label']">
-                  {{ setting.label }}
-                </label>
-                <div class="setting-row-key">{{ setting.key }}</div>
-              </div>
-              <Button.Root
-                type="button"
-                class="btn btn-primary"
-                :disabled="saving[setting.key]"
-                :loading="saving[setting.key]"
-                @click="saveSetting(setting.key)"
-              >
-                <Button.Loading>保存中</Button.Loading>
-                <Button.Content>保存</Button.Content>
-              </Button.Root>
-            </div>
-            <textarea
-              :id="`setting-${setting.key}`"
-              v-model="values[setting.key]"
-              :class="[$style.textarea, 'form-input']"
-              rows="4"
-            />
-          </template>
+          非公開: 新規登録を受け付けません。パスフレーズ必須: 環境変数 <code>SIGNUP_PASSPHRASE</code> を知るユーザーのみ登録できます。公開: 誰でも登録できます。
+        </SettingItem>
 
-          <template v-else>
-            <div class="setting-row-info">
-              <label :for="`setting-${setting.key}`" :class="[$style.cursorPointer, 'setting-row-label']">
-                {{ setting.label }}
-              </label>
-              <div class="setting-row-key">{{ setting.key }}</div>
-            </div>
+        <SettingItem
+          v-model="values['forbidden_usernames']"
+          :schema="KNOWN_SETTINGS['forbidden_usernames']"
+          title="禁止ユーザー名"
+          :saving="saving['forbidden_usernames']"
+          multiline
+          @save="saveSetting('forbidden_usernames', $event)"
+        >
+          カンマ区切りで禁止するユーザー名を指定します（大文字小文字を区別しない）。
+        </SettingItem>
 
-            <div class="setting-row-control">
-              <template v-if="setting.type === 'boolean'">
-                <input
-                  :id="`setting-${setting.key}`"
-                  type="checkbox"
-                  :checked="values[setting.key] === 'true'"
-                  :disabled="saving[setting.key]"
-                  :class="$style.checkbox"
-                  @change="onCheckboxChange(setting.key, ($event.target as HTMLInputElement).checked)"
-                >
-              </template>
-
-              <template v-else>
-              <div class="flex gap-2">
-                <input
-                  :id="`setting-${setting.key}`"
-                  v-model="values[setting.key]"
-                  :class="[$style.textInput, 'form-input']"
-                  type="text"
-                >
-                <Button.Root
-                  type="button"
-                  class="btn btn-primary"
-                  :disabled="saving[setting.key]"
-                  :loading="saving[setting.key]"
-                  @click="saveSetting(setting.key)"
-                >
-                  <Button.Loading>保存中</Button.Loading>
-                  <Button.Content>保存</Button.Content>
-                </Button.Root>
-              </div>
-              </template>
-            </div>
-          </template>
-        </div>
+        <SettingItem
+          v-model="values['forbidden_bucket_names']"
+          :schema="KNOWN_SETTINGS['forbidden_bucket_names']"
+          title="禁止バケット名"
+          :saving="saving['forbidden_bucket_names']"
+          multiline
+          @save="saveSetting('forbidden_bucket_names', $event)"
+        >
+          カンマ区切りで禁止するバケット名を指定します（大文字小文字を区別しない）。
+        </SettingItem>
       </div>
     </template>
   </div>
 </template>
 
 <style module lang="scss">
-.textareaHeader {
+.settingsGrid {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  width: 100%;
-}
-
-.cursorPointer {
-  cursor: pointer;
-}
-
-.textarea {
-  width: 100%;
-  resize: vertical;
-  font-family: monospace;
-}
-
-.checkbox {
-  width: 18px;
-  height: 18px;
-  cursor: pointer;
-  accent-color: var(--color-primary);
-}
-
-.textInput {
-  width: 160px;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 700px;
 }
 </style>

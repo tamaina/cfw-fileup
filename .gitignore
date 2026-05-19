@@ -1,5 +1,8 @@
 # prod
 dist/
+packages/app/dist/
+dev-dist/
+packages/app/dev-dist/
 
 # temp
 temp/
@@ -41,4 +44,4 @@ packages/app/test-results/
 
 # claude
 .claude/settings.local.json
-.claude/agent-memory
+.claude/agent-memory/

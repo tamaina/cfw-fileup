@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeAll, beforeEach, vi } from 'vitest';
+import type { FileVisibility } from '../../src/shared/file-visibility';
 import { env, app, setupDb, clearDb, signup, authHeaders } from './helpers';
 
 beforeAll(async () => {
@@ -22,13 +23,12 @@ async function setupUserAndBucket(username = 'user1') {
 	const { bucketId } = await res.json() as { bucketId: string };
 	return { token, bucketId, bucketName: `${username}_bucket` };
 }
-
 async function createClosedFile(
 	token: string,
 	bucketId: string,
 	bucketName: string,
 	path: string,
-	opts: { isPublic?: boolean; passphrase?: string } = {},
+	opts: { visibility?: FileVisibility; passphrase?: string } = {},
 ) {
 	const openRes = await app.request('/api/files/create/open', {
 		method: 'POST',
@@ -37,7 +37,7 @@ async function createClosedFile(
 	}, env);
 	const { fileId } = await openRes.json() as { fileId: string };
 	await env.R2.put(`${bucketId}/${path}`, 'content');
-	const closeBody: Record<string, unknown> = { fileId, isPublic: opts.isPublic ?? false };
+	const closeBody: Record<string, unknown> = { fileId, visibility: opts.visibility ?? 'private' };
 	if (opts.passphrase !== undefined) closeBody.passphrase = opts.passphrase;
 	await app.request('/api/files/create/close', {
 		method: 'POST',
@@ -129,7 +129,7 @@ describe('POST /api/file-tokens/create', () => {
 
 	test('public file returns 400', async () => {
 		const { token, bucketId, bucketName } = await setupUserAndBucket();
-		await createClosedFile(token, bucketId, bucketName, 'public.txt', { isPublic: true });
+		await createClosedFile(token, bucketId, bucketName, 'public.txt', { visibility: 'public' });
 
 		const res = await app.request('/api/file-tokens/create', {
 			method: 'POST',
@@ -290,7 +290,7 @@ describe('POST /api/file-tokens/delete', () => {
 describe('POST /api/file-tokens/create-by-passphrase', () => {
 	test('correct passphrase returns id, token, expiresAt', async () => {
 		const { token, bucketId, bucketName } = await setupUserAndBucket();
-		await createClosedFile(token, bucketId, bucketName, 'secret.txt', { passphrase: 'hunter2' });
+		await createClosedFile(token, bucketId, bucketName, 'secret.txt', { visibility: 'passphrase', passphrase: 'hunter2' });
 
 		const res = await app.request('/api/file-tokens/create-by-passphrase', {
 			method: 'POST',
@@ -306,7 +306,7 @@ describe('POST /api/file-tokens/create-by-passphrase', () => {
 
 	test('wrong passphrase returns 403', async () => {
 		const { token, bucketId, bucketName } = await setupUserAndBucket();
-		await createClosedFile(token, bucketId, bucketName, 'secret.txt', { passphrase: 'hunter2' });
+		await createClosedFile(token, bucketId, bucketName, 'secret.txt', { visibility: 'passphrase', passphrase: 'hunter2' });
 
 		const res = await app.request('/api/file-tokens/create-by-passphrase', {
 			method: 'POST',
@@ -328,16 +328,16 @@ describe('POST /api/file-tokens/create-by-passphrase', () => {
 		expect(res.status).toBe(403);
 	});
 
-	test('public file returns 400', async () => {
+	test('public file returns 403', async () => {
 		const { token, bucketId, bucketName } = await setupUserAndBucket();
-		await createClosedFile(token, bucketId, bucketName, 'public.txt', { isPublic: true });
+		await createClosedFile(token, bucketId, bucketName, 'public.txt', { visibility: 'public' });
 
 		const res = await app.request('/api/file-tokens/create-by-passphrase', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ bucketName, filePath: 'public.txt', passphrase: 'any' }),
 		}, env);
-		expect(res.status).toBe(400);
+		expect(res.status).toBe(403);
 	});
 
 	test('nonexistent bucket returns 404', async () => {
@@ -362,7 +362,7 @@ describe('POST /api/file-tokens/create-by-passphrase', () => {
 
 	test('Turnstile enabled: missing turnstileToken returns 400', async () => {
 		const { token, bucketId, bucketName } = await setupUserAndBucket();
-		await createClosedFile(token, bucketId, bucketName, 'secret.txt', { passphrase: 'hunter2' });
+		await createClosedFile(token, bucketId, bucketName, 'secret.txt', { visibility: 'passphrase', passphrase: 'hunter2' });
 		const customEnv = Object.assign({}, env, { TURNSTILE_SECRET: 'secret' });
 
 		const res = await app.request('/api/file-tokens/create-by-passphrase', {
@@ -375,7 +375,7 @@ describe('POST /api/file-tokens/create-by-passphrase', () => {
 
 	test('Turnstile enabled: failed verification returns 400', async () => {
 		const { token, bucketId, bucketName } = await setupUserAndBucket();
-		await createClosedFile(token, bucketId, bucketName, 'secret.txt', { passphrase: 'hunter2' });
+		await createClosedFile(token, bucketId, bucketName, 'secret.txt', { visibility: 'passphrase', passphrase: 'hunter2' });
 		const customEnv = Object.assign({}, env, { TURNSTILE_SECRET: 'secret' });
 
 		vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
@@ -394,7 +394,7 @@ describe('POST /api/file-tokens/create-by-passphrase', () => {
 
 	test('Turnstile enabled: passed verification returns 200', async () => {
 		const { token, bucketId, bucketName } = await setupUserAndBucket();
-		await createClosedFile(token, bucketId, bucketName, 'secret.txt', { passphrase: 'hunter2' });
+		await createClosedFile(token, bucketId, bucketName, 'secret.txt', { visibility: 'passphrase', passphrase: 'hunter2' });
 		const customEnv = Object.assign({}, env, { TURNSTILE_SECRET: 'secret' });
 
 		vi.stubGlobal('fetch', vi.fn().mockResolvedValue({

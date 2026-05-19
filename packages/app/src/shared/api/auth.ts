@@ -1,13 +1,14 @@
 import * as v from 'valibot';
 import type { ApiEndpointDefinitionRecord } from '../api.types.js';
 import { ErrorResponse } from '../api.schemas.js';
+import { nameFormatValidation } from '../name-validation.js';
 
 export const authApiDef = {
 	'/api/signup': {
 		summary: 'Sign up',
 		tags: ['auth'],
 		req: v.object({
-			username: v.pipe(v.string(), v.minLength(1), v.maxLength(32)),
+			username: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(32), nameFormatValidation),
 			password: v.pipe(v.string(), v.minLength(8)),
 			passphrase: v.optional(v.string()),
 			turnstileToken: v.optional(v.string()),
@@ -25,6 +26,7 @@ export const authApiDef = {
 		req: v.object({
 			username: v.string(),
 			password: v.string(),
+			backupCode: v.optional(v.string()),
 			turnstileToken: v.optional(v.string()),
 		}),
 		res: {

@@ -10,7 +10,7 @@ export const files = sqliteTable('files', {
 	r2Key: text('r2_key').notNull().unique(),
 	size: integer('size'),
 	mimeType: text('mime_type'),
-	isPublic: integer('is_public', { mode: 'boolean' }).notNull().default(true),
+	visibility: text('visibility', { enum: ['public', 'private', 'passphrase'] }).notNull().default('public'),
 	passphrase: text('passphrase'),
 	uploadExpiresAt: integer('upload_expires_at').notNull(),
 	isClosed: integer('is_closed', { mode: 'boolean' }).notNull().default(false),

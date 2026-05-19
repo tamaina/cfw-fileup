@@ -20,12 +20,24 @@ export default [
 	},
 	{
 		files: ['**/*.ts', '**/*.tsx'],
-		ignores: ['src/client/**'],
+		ignores: ['src/client/**', 'src/sw/**', 'test/worker/**'],
 		languageOptions: {
 			parserOptions: {
 				ecmaVersion: 'latest',
 				parser: tsParser,
 				project: ['./tsconfig.json'],
+				sourceType: 'module',
+				tsconfigRootDir: import.meta.dirname,
+			},
+		},
+	},
+	{
+		files: ['src/sw/**/*.ts', 'src/sw/**/*.tsx'],
+		languageOptions: {
+			parserOptions: {
+				ecmaVersion: 'latest',
+				parser: tsParser,
+				project: ['./src/sw/tsconfig.json'],
 				sourceType: 'module',
 				tsconfigRootDir: import.meta.dirname,
 			},
@@ -38,6 +50,18 @@ export default [
 				ecmaVersion: 'latest',
 				parser: tsParser,
 				project: ['./src/worker/tsconfig.json'],
+				sourceType: 'module',
+				tsconfigRootDir: import.meta.dirname,
+			},
+		},
+	},
+	{
+		files: ['test/worker/**/*.ts', 'test/worker/**/*.tsx'],
+		languageOptions: {
+			parserOptions: {
+				ecmaVersion: 'latest',
+				parser: tsParser,
+				project: ['./test/worker/tsconfig.json'],
 				sourceType: 'module',
 				tsconfigRootDir: import.meta.dirname,
 			},

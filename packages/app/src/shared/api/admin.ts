@@ -1,6 +1,7 @@
 import * as v from 'valibot';
 import type { ApiEndpointDefinitionRecord } from '../api.types.js';
 import { ErrorResponse } from '../api.schemas.js';
+import { KnownSettingListSchema, KnownSettingRecordSchema } from '../app-settings.js';
 
 const QuotaResponse = v.pipe(
 	v.object({
@@ -18,6 +19,18 @@ const AdminErrors = {};
 export const adminApiDef = {
 	'/api/admin/suspend-user': {
 		summary: 'Suspend a user',
+		tags: ['admin'],
+		req: v.object({ userId: v.string() }),
+		res: { ...OkResponse, ...AdminErrors, 400: { description: 'Bad request (missing userId)', content: { 'application/json': { vSchema: ErrorResponse } } }, 404: { description: 'User not found', content: { 'application/json': { vSchema: ErrorResponse } } } },
+	},
+	'/api/admin/unsuspend-user': {
+		summary: 'Unsuspend a user',
+		tags: ['admin'],
+		req: v.object({ userId: v.string() }),
+		res: { ...OkResponse, ...AdminErrors, 400: { description: 'Bad request (missing userId)', content: { 'application/json': { vSchema: ErrorResponse } } }, 404: { description: 'User not found', content: { 'application/json': { vSchema: ErrorResponse } } } },
+	},
+	'/api/admin/make-admin': {
+		summary: 'Make a user an admin',
 		tags: ['admin'],
 		req: v.object({ userId: v.string() }),
 		res: { ...OkResponse, ...AdminErrors, 400: { description: 'Bad request (missing userId)', content: { 'application/json': { vSchema: ErrorResponse } } }, 404: { description: 'User not found', content: { 'application/json': { vSchema: ErrorResponse } } } },
@@ -81,22 +94,16 @@ export const adminApiDef = {
 		req: v.object({}),
 		res: { 200: { description: 'Success', content: { 'application/json': { vSchema: v.array(v.object({ id: v.string(), username: v.string(), isAdmin: v.boolean(), isSuspended: v.boolean() })) } } }, ...AdminErrors },
 	},
-	'/api/admin/toggle-registration': {
-		summary: 'Toggle user registration',
-		tags: ['admin'],
-		req: v.object({ enabled: v.boolean() }),
-		res: { ...OkResponse, ...AdminErrors },
-	},
 	'/api/admin/update-setting': {
 		summary: 'Update app setting',
 		tags: ['admin'],
-		req: v.object({ key: v.string(), value: v.string() }),
+		req: KnownSettingRecordSchema,
 		res: { ...OkResponse, ...AdminErrors, 400: { description: 'Bad request (unknown setting key or invalid value)', content: { 'application/json': { vSchema: ErrorResponse } } } },
 	},
 	'/api/admin/get-settings': {
 		summary: 'Get all app settings',
 		tags: ['admin'],
 		req: v.object({}),
-		res: { 200: { description: 'Success', content: { 'application/json': { vSchema: v.array(v.object({ key: v.string(), value: v.string() })) } } }, ...AdminErrors },
+		res: { 200: { description: 'Success', content: { 'application/json': { vSchema: KnownSettingListSchema } } }, ...AdminErrors },
 	},
 } as const satisfies ApiEndpointDefinitionRecord;

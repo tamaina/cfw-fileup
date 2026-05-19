@@ -78,7 +78,7 @@ describe('POST /api/files/create/open', () => {
 		await app.request('/api/files/create/close', {
 			method: 'POST',
 			headers: authHeaders(token),
-			body: JSON.stringify({ fileId, isPublic: true }),
+			body: JSON.stringify({ fileId, visibility: 'public' }),
 		}, env);
 
 		// Try to create the same path again
@@ -100,6 +100,33 @@ describe('POST /api/files/create/open', () => {
 			body: JSON.stringify({ path: 'hello.txt' }),
 		}, env);
 		expect(res.status).toBe(400);
+	});
+});
+
+describe('POST /api/files/ls', () => {
+	test('owner listing includes access key for files', async () => {
+		const { token, bucketId } = await setupUserAndBucket();
+		const openRes = await app.request('/api/files/create/open', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ bucketId, path: 'hello.txt' }),
+		}, env);
+		const { fileId } = await openRes.json() as { fileId: string };
+		await env.R2.put(fileId, 'Hello World');
+		await app.request('/api/files/create/close', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ fileId, visibility: 'public' }),
+		}, env);
+
+		const res = await app.request('/api/files/ls', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ bucketName: 'test_bucket', path: '' }),
+		}, env);
+		expect(res.status).toBe(200);
+		const body = await res.json() as { entries: Array<{ name: string; fileId?: string }> };
+		expect(body.entries).toContainEqual(expect.objectContaining({ name: 'hello.txt', fileId }));
 	});
 });
 
@@ -171,7 +198,7 @@ describe('POST /api/files/create/close', () => {
 		const closeRes = await app.request('/api/files/create/close', {
 			method: 'POST',
 			headers: authHeaders(token),
-			body: JSON.stringify({ fileId, isPublic: true }),
+			body: JSON.stringify({ fileId, visibility: 'public' }),
 		}, env);
 		expect(closeRes.status).toBe(200);
 		const body = await closeRes.json() as Record<string, unknown>;
@@ -191,7 +218,7 @@ describe('POST /api/files/create/close', () => {
 		const closeRes = await app.request('/api/files/create/close', {
 			method: 'POST',
 			headers: authHeaders(token),
-			body: JSON.stringify({ fileId, isPublic: true }),
+			body: JSON.stringify({ fileId, visibility: 'public' }),
 		}, env);
 		expect(closeRes.status).toBe(400);
 	});
@@ -211,7 +238,7 @@ describe('POST /api/files/create/close', () => {
 		const closeRes = await app.request('/api/files/create/close', {
 			method: 'POST',
 			headers: authHeaders(token),
-			body: JSON.stringify({ fileId, isPublic: false, passphrase: 'mypassphrase' }),
+			body: JSON.stringify({ fileId, visibility: 'passphrase', passphrase: 'mypassphrase' }),
 		}, env);
 		expect(closeRes.status).toBe(200);
 	});
@@ -309,6 +336,69 @@ describe('POST /api/files/create/status', () => {
 	});
 });
 
+describe('POST /api/files/update', () => {
+	test('cannot make a public file private', async () => {
+		const { token, bucketId } = await setupUserAndBucket();
+
+		const openRes = await app.request('/api/files/create/open', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ bucketId, path: 'public.txt' }),
+		}, env);
+		const { fileId } = await openRes.json() as { fileId: string };
+
+		await env.R2.put(`${bucketId}/public.txt`, 'Public Content');
+		await app.request('/api/files/create/close', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ fileId, visibility: 'public' }),
+		}, env);
+
+		const updateRes = await app.request('/api/files/update', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ bucketName: 'test_bucket', filePath: 'public.txt', visibility: 'passphrase', passphrase: 'secret' }),
+		}, env);
+		expect(updateRes.status).toBe(400);
+		const body = await updateRes.json() as { error: string };
+		expect(body.error).toBe('Public files cannot change visibility');
+
+		const metaRes = await app.request('/api/files/meta?bucketName=test_bucket&path=public.txt', {}, env);
+		expect(metaRes.status).toBe(200);
+		const meta = await metaRes.json() as { visibility: string };
+		expect(meta.visibility).toBe('public');
+	});
+
+	test('can make a private file public', async () => {
+		const { token, bucketId } = await setupUserAndBucket();
+
+		const openRes = await app.request('/api/files/create/open', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ bucketId, path: 'private.txt' }),
+		}, env);
+		const { fileId } = await openRes.json() as { fileId: string };
+
+		await env.R2.put(`${bucketId}/private.txt`, 'Private Content');
+		await app.request('/api/files/create/close', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ fileId, visibility: 'passphrase', passphrase: 'secret' }),
+		}, env);
+
+		const updateRes = await app.request('/api/files/update', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ bucketName: 'test_bucket', filePath: 'private.txt', visibility: 'public' }),
+		}, env);
+		expect(updateRes.status).toBe(200);
+
+		const downloadRes = await app.request(`/d/${fileId}`, {}, env);
+		expect(downloadRes.status).toBe(200);
+		expect(await downloadRes.text()).toBe('Private Content');
+	});
+});
+
 describe('POST /api/files/delete', () => {
 	test('owner can delete own file', async () => {
 		const { token, bucketId } = await setupUserAndBucket();
@@ -325,7 +415,7 @@ describe('POST /api/files/delete', () => {
 		await app.request('/api/files/create/close', {
 			method: 'POST',
 			headers: authHeaders(token),
-			body: JSON.stringify({ fileId: _, isPublic: true }),
+			body: JSON.stringify({ fileId: _, visibility: 'public' }),
 		}, env);
 
 		const deleteRes = await app.request('/api/files/delete', {
@@ -353,7 +443,7 @@ describe('POST /api/files/delete', () => {
 		await app.request('/api/files/create/close', {
 			method: 'POST',
 			headers: authHeaders(token),
-			body: JSON.stringify({ fileId, isPublic: true }),
+			body: JSON.stringify({ fileId, visibility: 'public' }),
 		}, env);
 
 		const deleteRes = await app.request('/api/files/delete', {
