@@ -287,8 +287,9 @@ watch(() => props.open, async (val) => {
   font-family: monospace;
   font-size: 0.875rem;
   background: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  padding: 6px 10px;
+  padding: 8px 10px;
   margin: 0;
   word-break: break-all;
 }
@@ -305,10 +306,9 @@ watch(() => props.open, async (val) => {
 .list {
   max-height: 300px;
   overflow-y: auto;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
   display: flex;
   flex-direction: column;
+  gap: 6px;
 }
 
 .listItem {
@@ -318,15 +318,12 @@ watch(() => props.open, async (val) => {
   padding: 8px 12px;
   cursor: pointer;
   font-size: 0.875rem;
-  border: none;
-  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
   text-align: left;
   width: 100%;
   color: var(--color-text);
-
-  &:not(:last-child) {
-    border-bottom: 1px solid var(--color-border);
-  }
 
   &:hover {
     background: var(--color-surface-hover, rgba(0, 0, 0, 0.04));
@@ -335,6 +332,7 @@ watch(() => props.open, async (val) => {
 
 .listItemSelected {
   background: var(--color-primary-surface, rgba(var(--color-primary-rgb, 0, 100, 200), 0.08));
+  border-color: var(--color-primary);
 }
 
 .upItem {
@@ -347,6 +345,9 @@ watch(() => props.open, async (val) => {
   font-size: 0.875rem;
   color: var(--color-text-muted);
   text-align: center;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
 }
 
 .radio {
@@ -365,6 +366,10 @@ watch(() => props.open, async (val) => {
   gap: 6px;
   align-items: center;
   flex-wrap: wrap;
+
+  :global(.form-input) {
+    border-radius: var(--radius-md);
+  }
 }
 
 .mkdirError {
