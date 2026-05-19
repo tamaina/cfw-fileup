@@ -1,19 +1,23 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { Button } from '@vuetify/v0';
-import { authStore, authHeaders } from '@/store/auth';
+import { authStore } from '@/store/auth';
+import { apiPost } from '@/utils/api';
 import { mainRouter } from '@/router';
 import ConfirmDialog from '@/components/confirm-dialog.vue';
 
 const props = defineProps<{
 	bucketName: string;
 	filePath: string;
+	fileId: string;
+	bucketId: string | null;
 	token?: string;
 }>();
 
 
 const downloadUrl = computed(() => {
-	const base = `/d/${props.bucketName}/${props.filePath}`;
+	if (!props.fileId) return '';
+	const base = `/d/${props.fileId}`;
 	return props.token ? `${base}?token=${props.token}` : base;
 });
 const isGz = computed(() => {
@@ -21,7 +25,8 @@ const isGz = computed(() => {
 	return lower.endsWith('.gz') && !lower.endsWith('.tar.gz');
 });
 const decompressUrl = computed(() => {
-	const base = `/d/${props.bucketName}/${props.filePath}?decompress`;
+	if (!props.fileId) return '';
+	const base = `/d/${props.fileId}?decompress`;
 	return props.token ? `${base}&token=${props.token}` : base;
 });
 const isImage = computed(() => {
@@ -47,13 +52,13 @@ const parentPath = computed(() => {
 async function executeDelete(): Promise<void> {
 	deleteDialog.value = false;
 	deleteError.value = '';
-	const res = await fetch(`/d/${props.bucketName}/${props.filePath}`, {
-		method: 'DELETE',
-		headers: authHeaders(),
-	});
-	if (!res.ok) {
-		const err = await res.json().catch(() => ({})) as { error?: string };
-		deleteError.value = err.error ?? '削除失敗';
+	if (!props.bucketId) {
+		deleteError.value = '削除できません（バケットIDが不明）';
+		return;
+	}
+	const result = await apiPost('/api/files/delete', { bucketId: props.bucketId, path: props.filePath });
+	if (!result.ok) {
+		deleteError.value = result.data.error ?? '削除失敗';
 		return;
 	}
 	mainRouter.pushByPath(parentPath.value);

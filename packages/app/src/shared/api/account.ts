@@ -1,6 +1,7 @@
 import * as v from 'valibot';
 import type { ApiEndpointDefinitionRecord } from '../api.types.js';
 import { ErrorResponse } from '../api.schemas.js';
+import { nameFormatValidation } from '../name-validation.js';
 
 export const accountApiDef = {
 	'/api/account/me': {
@@ -15,7 +16,7 @@ export const accountApiDef = {
     summary: 'Update account info',
     tags: ['account'],
 		req: v.object({
-			username: v.optional(v.pipe(v.string(), v.minLength(1), v.maxLength(32))),
+			username: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(32), nameFormatValidation)),
 			newPassword: v.optional(v.pipe(v.string(), v.minLength(8))),
 			currentPassword: v.string(),
 		}),

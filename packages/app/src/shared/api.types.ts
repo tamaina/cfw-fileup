@@ -1,7 +1,7 @@
 import type { describeRoute, describeResponse } from 'hono-openapi';
 import type * as v from 'valibot';
 
-export type ApiEndpointRequestType = ReturnType<typeof v['object']>;
+export type ApiEndpointRequestType = v.GenericSchema;
 export type ApiEndpointResponseType = Parameters<typeof describeResponse>[1];
 
 export type ApiEndpointDefinition = {

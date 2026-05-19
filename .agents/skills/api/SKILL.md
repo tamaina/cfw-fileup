@@ -1,24 +1,30 @@
 ---
 name: api
-description: "APIのプロトコルとソースの場所。"
+description: "APIのプロトコル、定義の書き方、実装の書き方、クライアントでの利用の仕方。"
 tags: [api, typescript, hono, schema, openapi]
 ---
 
-## 概要
+## APIの設計, プロトコル
+エンドポイントは`/api/`以下。
+
+### Prefer POST to GET
+- apiリクエストはなんでもかんでもPOSTにしたい
+- ただ、次のようなものはGETにする。その理由により、要求本文はクエリストリングにする
+  * 全ユーザーに対してキャッシュを効かせられる
+    * 短期間 - `/api/meta`
+    * 長期間
+    * etagを利用
+
+### Prefer JSON body
+- 要求のJSON
+- パスパラメータにしない。 anti pattern...`/api/an/endpoint/:userId`
+
+## 定義と実装のパス
 
 - `packages/app/src/shared/api.schemas.ts` - 共有エラーレスポンススキーマ
 - `packages/app/src/shared/api/index.ts` - APIスキーマ定義ファイルのインデックス
 - `packages/app/src/shared/api/*.ts` - APIスキーマ定義ファイル
 - `packages/app/src/worker/api/*.ts` - API実装ファイル ハンドラ
-
-## プロトコル
-- エンドポイントは`/api/`以下。
-- apiリクエストはなんでもかんでも`application/json`をbodyにした`POST`にしたい  
-  ただ、次のような場面ではGETにする。性質上、要求はクエリ文字列にする
-  * 全ユーザーに対してキャッシュを効かせられる
-    * 短期間 - `/api/meta`
-    * 長期間
-    * etagを利用
 
 ---
 
@@ -172,3 +178,9 @@ describeResponse(async (c: JsonCtx<'/api/endpoint', Env>) => { ... }, res)
 ### 3. `getResponseDefWithAuth` の 401 競合
 
 endpoint の `res` に `401` が定義されていると `authErrorResponses` の `401` と交差して `description: never` になる場合があった（修正済み）。`getResponseDefWithAuth` は endpoint の `res` でauth側を上書きする型になっている。
+
+## クライアント
+
+POST JSON body タイプのAPIでは、 `apiPost` を利用できる。
+
+`import { apiPost } from '../utils/api';`

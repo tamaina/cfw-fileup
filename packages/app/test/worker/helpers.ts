@@ -1,114 +1,63 @@
 import { env } from 'cloudflare:workers';
 import app from '../../src/worker/index';
+import migration0000 from '../../migrations/0000_bizarre_thunderbolt_ross.sql?raw';
+import migration0001 from '../../migrations/0001_classy_lockheed.sql?raw';
+import migration0002 from '../../migrations/0002_nappy_black_queen.sql?raw';
+import migration0003 from '../../migrations/0003_classy_zeigeist.sql?raw';
 
 export { env, app };
 
-// Create all DB tables (idempotent)
+const migrations = [
+	migration0000,
+	migration0001,
+	migration0002,
+	migration0003,
+] as const;
+
+const tables = [
+	'upload_parts',
+	'targz_files',
+	'tar_files',
+	'file_access_tokens',
+	'passkeys_challenges',
+	'backup_codes',
+	'passkeys',
+	'files',
+	'directories',
+	'tokens',
+	'user_quotas',
+	'buckets',
+	'users',
+	'app_settings',
+	'global_quotas',
+	'used_usernames',
+	'used_bucket_names',
+] as const;
+
+async function executeSql(sql: string): Promise<void> {
+	const statements = sql
+		.split('--> statement-breakpoint')
+		.map((statement) => statement.trim())
+		.filter((statement) => statement.length > 0);
+
+	for (const statement of statements) {
+		await env.DB.prepare(statement).run();
+	}
+}
+
+// Recreate the test database from the same Drizzle migrations used by D1.
 export async function setupDb(): Promise<void> {
-	await env.DB.batch([
-		env.DB.prepare(`CREATE TABLE IF NOT EXISTS users (
-			id text PRIMARY KEY NOT NULL,
-			username text NOT NULL UNIQUE,
-			password_hash text NOT NULL,
-			is_admin integer DEFAULT false NOT NULL,
-			is_suspended integer DEFAULT false NOT NULL
-		)`),
-		env.DB.prepare(`CREATE TABLE IF NOT EXISTS tokens (
-			id text PRIMARY KEY NOT NULL,
-			user_id text NOT NULL,
-			token text NOT NULL UNIQUE,
-			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-		)`),
-		env.DB.prepare(`CREATE TABLE IF NOT EXISTS buckets (
-			id text PRIMARY KEY NOT NULL,
-			user_id text NOT NULL,
-			name text NOT NULL UNIQUE,
-			used_bytes integer NOT NULL DEFAULT 0,
-			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-		)`),
-		env.DB.prepare(`CREATE TABLE IF NOT EXISTS files (
-			id text PRIMARY KEY NOT NULL,
-			bucket_id text NOT NULL,
-			user_id text NOT NULL,
-			path text NOT NULL,
-			r2_key text NOT NULL UNIQUE,
-			size integer,
-			mime_type text,
-			is_public integer DEFAULT true NOT NULL,
-			passphrase text,
-			upload_expires_at integer NOT NULL,
-			is_closed integer DEFAULT false NOT NULL,
-			is_targz integer DEFAULT false NOT NULL,
-			is_tar integer DEFAULT false NOT NULL,
-			upload_id text,
-			part_size integer NOT NULL DEFAULT 33554432,
-			FOREIGN KEY (bucket_id) REFERENCES buckets(id) ON DELETE CASCADE,
-			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-		)`),
-		env.DB.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS files_bucket_path_idx ON files (bucket_id, path)`),
-		env.DB.prepare(`CREATE TABLE IF NOT EXISTS targz_files (
-			id text PRIMARY KEY NOT NULL,
-			file_id text NOT NULL,
-			path text NOT NULL,
-			mime_type text NOT NULL,
-			a_start integer NOT NULL,
-			a_first_end integer NOT NULL DEFAULT 0,
-			a_final_start integer NOT NULL,
-			a_end integer NOT NULL,
-			r_start_offset integer NOT NULL,
-			r_end_offset integer NOT NULL,
-			FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE
-		)`),
-		env.DB.prepare(`CREATE TABLE IF NOT EXISTS tar_files (
-			id text PRIMARY KEY NOT NULL,
-			file_id text NOT NULL,
-			path text NOT NULL,
-			mime_type text NOT NULL,
-			offset integer NOT NULL,
-			size integer NOT NULL,
-			FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE
-		)`),
-		env.DB.prepare(`CREATE TABLE IF NOT EXISTS upload_parts (
-			id text PRIMARY KEY NOT NULL,
-			file_id text NOT NULL,
-			part_number integer NOT NULL,
-			etag text NOT NULL,
-			FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE
-		)`),
-		env.DB.prepare(`CREATE TABLE IF NOT EXISTS app_settings (
-			key text PRIMARY KEY NOT NULL,
-			value text NOT NULL
-		)`),
-		env.DB.prepare(`CREATE TABLE IF NOT EXISTS global_quotas (
-			key text PRIMARY KEY NOT NULL,
-			max_buckets integer,
-			max_bucket_size_bytes integer,
-			max_files_per_bucket integer,
-			max_daily_uploads integer
-		)`),
-		env.DB.prepare(`CREATE TABLE IF NOT EXISTS user_quotas (
-			user_id text PRIMARY KEY NOT NULL,
-			max_buckets integer,
-			max_bucket_size_bytes integer,
-			max_files_per_bucket integer,
-			max_daily_uploads integer,
-			updated_at integer NOT NULL,
-			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-		)`),
-		env.DB.prepare(`CREATE TABLE IF NOT EXISTS used_usernames (
-			username text PRIMARY KEY NOT NULL
-		)`),
-		env.DB.prepare(`CREATE TABLE IF NOT EXISTS used_bucket_names (
-			bucket_name text PRIMARY KEY NOT NULL
-		)`),
-		env.DB.prepare(`CREATE TABLE IF NOT EXISTS file_access_tokens (
-			id text PRIMARY KEY NOT NULL,
-			file_id text NOT NULL,
-			token text NOT NULL UNIQUE,
-			expires_at integer,
-			FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE
-		)`),
-	]);
+	await env.DB.prepare('PRAGMA foreign_keys=OFF').run();
+	for (const table of tables) {
+		await env.DB.prepare(`DROP TABLE IF EXISTS ${table}`).run();
+	}
+	await env.DB.prepare('PRAGMA foreign_keys=ON').run();
+
+	for (const migration of migrations) {
+		await executeSql(migration);
+	}
+
+	await env.DB.prepare("UPDATE app_settings SET value = 'open' WHERE key = 'registration_mode'").run();
 }
 
 // Clear all data between tests (delete in dependency order)
@@ -118,7 +67,11 @@ export async function clearDb(): Promise<void> {
 		env.DB.prepare('DELETE FROM targz_files'),
 		env.DB.prepare('DELETE FROM tar_files'),
 		env.DB.prepare('DELETE FROM file_access_tokens'),
+		env.DB.prepare('DELETE FROM passkeys_challenges'),
+		env.DB.prepare('DELETE FROM backup_codes'),
+		env.DB.prepare('DELETE FROM passkeys'),
 		env.DB.prepare('DELETE FROM files'),
+		env.DB.prepare('DELETE FROM directories'),
 		env.DB.prepare('DELETE FROM tokens'),
 		env.DB.prepare('DELETE FROM user_quotas'),
 		env.DB.prepare('DELETE FROM buckets'),
@@ -128,6 +81,7 @@ export async function clearDb(): Promise<void> {
 		env.DB.prepare('DELETE FROM used_usernames'),
 		env.DB.prepare('DELETE FROM used_bucket_names'),
 	]);
+	await env.DB.prepare("INSERT INTO app_settings (key, value) VALUES ('registration_mode', 'open')").run();
 }
 
 // Sign up a user and return status + response data

@@ -38,7 +38,7 @@ app.post(
 			.get();
 		if (!file) throw new HTTPException(404, { message: 'File not found' });
 		if (!file.isClosed) throw new HTTPException(400, { message: 'File is not closed' });
-		if (file.isPublic) throw new HTTPException(400, { message: 'Cannot create token for public file' });
+		if (file.visibility === 'public') throw new HTTPException(400, { message: 'Cannot create token for public file' });
 
 		const id = genEaidx(Date.now());
 		const token = generateToken();
@@ -146,8 +146,7 @@ app.post(
 			.get();
 		if (!file) throw new HTTPException(404, { message: 'File not found' });
 		if (!file.isClosed) throw new HTTPException(400, { message: 'File is not closed' });
-		if (file.isPublic) throw new HTTPException(400, { message: 'File is public' });
-		if (file.passphrase === null) throw new HTTPException(403, { message: 'No passphrase set for this file' });
+		if (file.visibility !== 'passphrase') throw new HTTPException(403, { message: 'No passphrase set for this file' });
 		if (body.passphrase !== file.passphrase) throw new HTTPException(403, { message: 'Invalid passphrase' });
 
 		const id = genEaidx(Date.now());
@@ -156,7 +155,7 @@ app.post(
 
 		await db.insert(fileAccessTokens).values({ id, fileId: file.id, token, expiresAt });
 
-		return c.json({ id, token, expiresAt }, 200);
+		return c.json({ id, token, expiresAt, fileId: file.id }, 200);
 	}, apiDef['/api/file-tokens/create-by-passphrase'].res),
 );
 

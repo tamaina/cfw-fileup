@@ -8,6 +8,7 @@ import { filesApiDef } from './files.js';
 import { fileTokensApiDef } from './file-tokens.js';
 import { adminApiDef } from './admin.js';
 import { directoriesApiDef } from './directories.js';
+import { passkeyApiDef } from './passkey.js';
 import type { ApiEndpointResponseType } from '../api.types.js';
 
 export * from './auth.js';
@@ -17,6 +18,7 @@ export * from './files.js';
 export * from './file-tokens.js';
 export * from './admin.js';
 export * from './directories.js';
+export * from './passkey.js';
 
 export const apiDef = {
 	...authApiDef,
@@ -26,6 +28,7 @@ export const apiDef = {
 	...fileTokensApiDef,
 	...adminApiDef,
 	...directoriesApiDef,
+	...passkeyApiDef,
 };
 
 export type ApiDef = typeof apiDef;

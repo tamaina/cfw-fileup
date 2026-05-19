@@ -1,18 +1,25 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { Form } from '@vuetify/v0';
+import * as v from 'valibot';
 import { authStore } from '../store/auth';
 import { apiPost } from '../utils/api';
 import NirA from '@/components/nira.vue';
+import SettingItem from '@/components/SettingItem.vue';
 
 interface QuotaForm {
-	maxBuckets: string;
-	maxBucketSizeBytes: string;
-	maxFilesPerBucket: string;
-	maxDailyUploads: string;
+	maxBuckets: number | null;
+	maxBucketSizeBytes: number | null;
+	maxFilesPerBucket: number | null;
+	maxDailyUploads: number | null;
 }
 
-const quota = ref<QuotaForm>({ maxBuckets: '', maxBucketSizeBytes: '', maxFilesPerBucket: '', maxDailyUploads: '' });
+const quotaValueSchema = v.nullable(v.pipe(
+	v.number(),
+	v.integer('整数を入力してください'),
+	v.minValue(0, '0以上の数値を入力してください'),
+));
+
+const quota = ref<QuotaForm>({ maxBuckets: null, maxBucketSizeBytes: null, maxFilesPerBucket: null, maxDailyUploads: null });
 const loading = ref(true);
 const saving = ref(false);
 const error = ref('');
@@ -27,10 +34,10 @@ async function fetchQuota(): Promise<void> {
 		const result = await apiPost('/api/admin/get-global-quota');
 		if (!result.ok) throw new Error('グローバルクォータの取得に失敗しました');
 		quota.value = {
-			maxBuckets: result.data.maxBuckets != null ? String(result.data.maxBuckets) : '',
-			maxBucketSizeBytes: result.data.maxBucketSizeBytes != null ? String(result.data.maxBucketSizeBytes) : '',
-			maxFilesPerBucket: result.data.maxFilesPerBucket != null ? String(result.data.maxFilesPerBucket) : '',
-			maxDailyUploads: result.data.maxDailyUploads != null ? String(result.data.maxDailyUploads) : '',
+			maxBuckets: result.data.maxBuckets ?? null,
+			maxBucketSizeBytes: result.data.maxBucketSizeBytes ?? null,
+			maxFilesPerBucket: result.data.maxFilesPerBucket ?? null,
+			maxDailyUploads: result.data.maxDailyUploads ?? null,
 		};
 	} catch (e) {
 		error.value = String(e);
@@ -39,19 +46,12 @@ async function fetchQuota(): Promise<void> {
 	}
 }
 
-async function saveQuota({ valid }: { valid: boolean }): Promise<void> {
-	if (!valid) return;
+async function saveQuota(): Promise<void> {
 	saving.value = true;
 	error.value = '';
 	success.value = '';
 	try {
-		const body = {
-			maxBuckets: quota.value.maxBuckets !== '' ? Number(quota.value.maxBuckets) : null,
-			maxBucketSizeBytes: quota.value.maxBucketSizeBytes !== '' ? Number(quota.value.maxBucketSizeBytes) : null,
-			maxFilesPerBucket: quota.value.maxFilesPerBucket !== '' ? Number(quota.value.maxFilesPerBucket) : null,
-			maxDailyUploads: quota.value.maxDailyUploads !== '' ? Number(quota.value.maxDailyUploads) : null,
-		};
-		const result = await apiPost('/api/admin/set-global-quota', body);
+		const result = await apiPost('/api/admin/set-global-quota', { ...quota.value });
 		if (!result.ok) throw new Error('保存に失敗しました');
 		success.value = 'グローバルクォータを保存しました';
 	} catch (e) {
@@ -85,29 +85,36 @@ async function saveQuota({ valid }: { valid: boolean }): Promise<void> {
       <div v-if="loading" class="page-loading">
         <span class="spinner" />読み込み中...
       </div>
-      <Form v-else :class="$style.form" @submit="saveQuota">
-        <div class="form-group">
-          <label class="form-label">バケット数上限</label>
-          <input v-model="quota.maxBuckets" class="form-input" type="number" min="0" placeholder="無制限">
-        </div>
-        <div class="form-group">
-          <label class="form-label">バケットサイズ上限 (bytes)</label>
-          <input v-model="quota.maxBucketSizeBytes" class="form-input" type="number" min="0" placeholder="無制限">
-        </div>
-        <div class="form-group">
-          <label class="form-label">バケットあたりファイル数上限</label>
-          <input v-model="quota.maxFilesPerBucket" class="form-input" type="number" min="0" placeholder="無制限">
-        </div>
-        <div class="form-group">
-          <label class="form-label">1日あたりアップロード数上限</label>
-          <input v-model="quota.maxDailyUploads" class="form-input" type="number" min="0" placeholder="無制限">
-        </div>
-        <div>
-          <button type="submit" class="btn btn-primary" :disabled="saving">
-            {{ saving ? '保存中...' : '保存する' }}
-          </button>
-        </div>
-      </Form>
+      <div v-else :class="$style.settingsGrid">
+        <SettingItem
+          v-model="quota.maxBuckets"
+          :schema="quotaValueSchema"
+          title="バケット数上限"
+          :saving="saving"
+          @save="saveQuota"
+        />
+        <SettingItem
+          v-model="quota.maxBucketSizeBytes"
+          :schema="quotaValueSchema"
+          title="バケットサイズ上限 (bytes)"
+          :saving="saving"
+          @save="saveQuota"
+        />
+        <SettingItem
+          v-model="quota.maxFilesPerBucket"
+          :schema="quotaValueSchema"
+          title="バケットあたりファイル数上限"
+          :saving="saving"
+          @save="saveQuota"
+        />
+        <SettingItem
+          v-model="quota.maxDailyUploads"
+          :schema="quotaValueSchema"
+          title="1日あたりアップロード数上限"
+          :saving="saving"
+          @save="saveQuota"
+        />
+      </div>
     </template>
   </div>
 </template>
@@ -117,10 +124,10 @@ async function saveQuota({ valid }: { valid: boolean }): Promise<void> {
   font-size: 0.875rem;
 }
 
-.form {
+.settingsGrid {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  max-width: 400px;
+  max-width: 700px;
 }
 </style>
