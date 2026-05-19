@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import { Dialog } from '@vuetify/v0';
-import { authHeaders } from '../store/auth';
 import { apiPost } from '../utils/api';
 
 const props = defineProps<{
@@ -57,21 +56,16 @@ async function loadBuckets(): Promise<void> {
 async function loadDirectory(): Promise<void> {
 	loadingDir.value = true;
 	dirError.value = '';
-	try {
-		const res = await fetch(`/d/${selectedBucketName.value}/${currentPath.value}`, {
-			headers: authHeaders(),
-		});
-		if (!res.ok) {
-			dirError.value = `取得失敗: ${res.status}`;
-			return;
-		}
-		const data = await res.json() as { entries: DirectoryEntry[] };
-		dirEntries.value = data.entries.filter(e => e.type === 'dir');
-	} catch (e) {
-		dirError.value = String(e);
-	} finally {
-		loadingDir.value = false;
+	const result = await apiPost('/api/files/ls', {
+		bucketName: selectedBucketName.value,
+		path: currentPath.value,
+	});
+	loadingDir.value = false;
+	if (!result.ok) {
+		dirError.value = result.data.error;
+		return;
 	}
+	dirEntries.value = result.data.entries.filter(e => e.type === 'dir');
 }
 
 function selectBucket(bucket: Bucket): void {
