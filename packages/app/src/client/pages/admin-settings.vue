@@ -82,9 +82,9 @@ function onCheckboxChange(key: string, checked: boolean): void {
           :class="{ 'setting-row--multiline': setting.type === 'textarea' }"
         >
           <template v-if="setting.type === 'textarea'">
-            <div style="display:flex; justify-content:space-between; align-items:center; width:100%">
+            <div :class="$style.textareaHeader">
               <div class="setting-row-info">
-                <label :for="`setting-${setting.key}`" class="setting-row-label" style="cursor:pointer">
+                <label :for="`setting-${setting.key}`" :class="[$style.cursorPointer, 'setting-row-label']">
                   {{ setting.label }}
                 </label>
                 <div class="setting-row-key">{{ setting.key }}</div>
@@ -103,15 +103,14 @@ function onCheckboxChange(key: string, checked: boolean): void {
             <textarea
               :id="`setting-${setting.key}`"
               v-model="values[setting.key]"
-              class="form-input"
+              :class="[$style.textarea, 'form-input']"
               rows="4"
-              style="width:100%; resize:vertical; font-family:monospace;"
             />
           </template>
 
           <template v-else>
             <div class="setting-row-info">
-              <label :for="`setting-${setting.key}`" class="setting-row-label" style="cursor:pointer">
+              <label :for="`setting-${setting.key}`" :class="[$style.cursorPointer, 'setting-row-label']">
                 {{ setting.label }}
               </label>
               <div class="setting-row-key">{{ setting.key }}</div>
@@ -124,7 +123,7 @@ function onCheckboxChange(key: string, checked: boolean): void {
                   type="checkbox"
                   :checked="values[setting.key] === 'true'"
                   :disabled="saving[setting.key]"
-                  style="width:18px; height:18px; cursor:pointer; accent-color:var(--color-primary)"
+                  :class="$style.checkbox"
                   @change="onCheckboxChange(setting.key, ($event.target as HTMLInputElement).checked)"
                 >
               </template>
@@ -134,9 +133,8 @@ function onCheckboxChange(key: string, checked: boolean): void {
                 <input
                   :id="`setting-${setting.key}`"
                   v-model="values[setting.key]"
-                  class="form-input"
+                  :class="[$style.textInput, 'form-input']"
                   type="text"
-                  style="width:160px"
                 >
                 <Button.Root
                   type="button"
@@ -157,3 +155,33 @@ function onCheckboxChange(key: string, checked: boolean): void {
     </template>
   </div>
 </template>
+
+<style module lang="scss">
+.textareaHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.cursorPointer {
+  cursor: pointer;
+}
+
+.textarea {
+  width: 100%;
+  resize: vertical;
+  font-family: monospace;
+}
+
+.checkbox {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--color-primary);
+}
+
+.textInput {
+  width: 160px;
+}
+</style>

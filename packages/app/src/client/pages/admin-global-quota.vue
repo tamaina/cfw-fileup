@@ -75,7 +75,7 @@ async function saveQuota({ valid }: { valid: boolean }): Promise<void> {
     </div>
 
     <template v-else>
-      <p class="text-muted mb-4" style="font-size:0.875rem">
+      <p :class="[$style.description, 'text-muted', 'mb-4']">
         全ユーザーに適用されるデフォルト値です。ユーザー個別設定がある場合はそちらが優先されます。空欄は無制限。
       </p>
 
@@ -85,7 +85,7 @@ async function saveQuota({ valid }: { valid: boolean }): Promise<void> {
       <div v-if="loading" class="page-loading">
         <span class="spinner" />読み込み中...
       </div>
-      <Form v-else @submit="saveQuota" style="display:flex; flex-direction:column; gap:12px; max-width:400px">
+      <Form v-else :class="$style.form" @submit="saveQuota">
         <div class="form-group">
           <label class="form-label">バケット数上限</label>
           <input v-model="quota.maxBuckets" class="form-input" type="number" min="0" placeholder="無制限">
@@ -111,3 +111,16 @@ async function saveQuota({ valid }: { valid: boolean }): Promise<void> {
     </template>
   </div>
 </template>
+
+<style module lang="scss">
+.description {
+  font-size: 0.875rem;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 400px;
+}
+</style>

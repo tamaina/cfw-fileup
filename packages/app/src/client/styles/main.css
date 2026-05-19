@@ -421,38 +421,6 @@ code { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.9em; 
 .breadcrumbs-sep { color: var(--color-text-subtle); }
 .breadcrumbs-current { color: var(--color-text); font-weight: 600; }
 
-/* ===== Dialog (AlertDialog) ===== */
-dialog.confirm-dialog {
-  color: var(--color-text);
-  background: var(--color-bg);
-  border: none;
-  border-radius: var(--radius-lg);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
-  padding: 0;
-  width: min(420px, calc(100vw - 32px));
-  max-height: 90vh;
-  overflow: auto;
-}
-dialog.confirm-dialog::backdrop {
-  background: rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(2px);
-}
-.confirm-dialog-inner { padding: 24px; }
-.confirm-dialog-title {
-  font-size: 1.1rem;
-  font-weight: 600;
-  margin: 0 0 8px;
-}
-.confirm-dialog-desc {
-  font-size: 0.875rem;
-  color: var(--color-text-muted);
-  margin: 0 0 20px;
-}
-.confirm-dialog-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
 
 /* ===== Page-level states ===== */
 .page-loading {

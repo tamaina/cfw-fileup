@@ -78,7 +78,7 @@ async function executeSuspend(): Promise<void> {
         <span class="spinner" />読み込み中...
       </div>
 
-      <div v-else class="card" style="padding:0; overflow:hidden">
+      <div v-else :class="[$style.tableCard, 'card']">
         <div class="table-responsive">
         <table class="data-table">
           <thead>
@@ -91,7 +91,7 @@ async function executeSuspend(): Promise<void> {
           </thead>
           <tbody>
             <tr v-for="u in userList" :key="u.id">
-              <td style="font-weight:500">{{ u.username }}</td>
+              <td :class="$style.usernameCell">{{ u.username }}</td>
               <td>
                 <span v-if="u.isAdmin" class="badge badge-admin">管理者</span>
                 <span v-else class="badge badge-muted">一般</span>
@@ -108,7 +108,7 @@ async function executeSuspend(): Promise<void> {
                       …
                     </Popover.Activator>
                     <Popover.Content class="action-menu">
-                      <Button.Root class="btn btn-ghost-danger w-full" style="justify-content:flex-start" @click="requestSuspend(u)">
+                      <Button.Root class="btn btn-ghost-danger w-full" :class="$style.menuItem" @click="requestSuspend(u)">
                         <Button.Content>停止</Button.Content>
                       </Button.Root>
                     </Popover.Content>
@@ -133,3 +133,18 @@ async function executeSuspend(): Promise<void> {
     />
   </div>
 </template>
+
+<style module lang="scss">
+.tableCard {
+  padding: 0;
+  overflow: hidden;
+}
+
+.usernameCell {
+  font-weight: 500;
+}
+
+.menuItem {
+  justify-content: flex-start;
+}
+</style>
