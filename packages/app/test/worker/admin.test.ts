@@ -27,9 +27,11 @@ describe('Admin access control', () => {
 
 		const endpoints = [
 			{ path: '/api/admin/suspend-user', body: { userId: 'x' } },
+			{ path: '/api/admin/unsuspend-user', body: { userId: 'x' } },
+			{ path: '/api/admin/make-admin', body: { userId: 'x' } },
 			{ path: '/api/admin/delete-file', body: { fileId: 'x' } },
 			{ path: '/api/admin/delete-bucket', body: { bucketId: 'x' } },
-			{ path: '/api/admin/toggle-registration', body: { enabled: false } },
+			{ path: '/api/admin/update-setting', body: { key: 'registration_mode', value: 'closed' } },
 		];
 
 		for (const { path, body } of endpoints) {
@@ -71,6 +73,85 @@ describe('POST /api/admin/suspend-user', () => {
 	});
 });
 
+describe('POST /api/admin/unsuspend-user', () => {
+	test('admin can unsuspend a user', async () => {
+		const { adminToken, userId } = await setupAdminAndUser();
+
+		await app.request('/api/admin/suspend-user', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ userId }),
+		}, env);
+
+		const res = await app.request('/api/admin/unsuspend-user', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ userId }),
+		}, env);
+		expect(res.status).toBe(200);
+
+		const listRes = await app.request('/api/admin/list-users', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({}),
+		}, env);
+		expect(listRes.status).toBe(200);
+		const users = await listRes.json() as Array<{ id: string; isSuspended: boolean }>;
+		expect(users.find((user) => user.id === userId)?.isSuspended).toBe(false);
+	});
+
+	test('nonexistent user returns 404', async () => {
+		const { adminToken } = await setupAdminAndUser();
+
+		const res = await app.request('/api/admin/unsuspend-user', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ userId: 'nonexistent' }),
+		}, env);
+		expect(res.status).toBe(404);
+	});
+});
+
+describe('POST /api/admin/make-admin', () => {
+	test('admin can make another user an admin', async () => {
+		const { adminToken, userToken, userId } = await setupAdminAndUser();
+
+		const res = await app.request('/api/admin/make-admin', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ userId }),
+		}, env);
+		expect(res.status).toBe(200);
+
+		const listRes = await app.request('/api/admin/list-users', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({}),
+		}, env);
+		expect(listRes.status).toBe(200);
+		const users = await listRes.json() as Array<{ id: string; isAdmin: boolean }>;
+		expect(users.find((user) => user.id === userId)?.isAdmin).toBe(true);
+
+		const promotedAdminRes = await app.request('/api/admin/get-global-quota', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({}),
+		}, env);
+		expect(promotedAdminRes.status).toBe(200);
+	});
+
+	test('nonexistent user returns 404', async () => {
+		const { adminToken } = await setupAdminAndUser();
+
+		const res = await app.request('/api/admin/make-admin', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ userId: 'nonexistent' }),
+		}, env);
+		expect(res.status).toBe(404);
+	});
+});
+
 describe('POST /api/admin/delete-file', () => {
 	test('admin can delete any file', async () => {
 		const { adminToken, userToken } = await setupAdminAndUser();
@@ -93,7 +174,7 @@ describe('POST /api/admin/delete-file', () => {
 		await app.request('/api/files/create/close', {
 			method: 'POST',
 			headers: authHeaders(userToken),
-			body: JSON.stringify({ fileId, isPublic: true }),
+			body: JSON.stringify({ fileId, visibility: 'public' }),
 		}, env);
 
 		const deleteRes = await app.request('/api/admin/delete-file', {
@@ -147,14 +228,14 @@ describe('POST /api/admin/delete-bucket', () => {
 	});
 });
 
-describe('POST /api/admin/toggle-registration', () => {
+describe('POST /api/admin/update-setting registration_mode', () => {
 	test('admin can disable registration', async () => {
 		const { adminToken } = await setupAdminAndUser();
 
-		const res = await app.request('/api/admin/toggle-registration', {
+		const res = await app.request('/api/admin/update-setting', {
 			method: 'POST',
 			headers: authHeaders(adminToken),
-			body: JSON.stringify({ enabled: false }),
+			body: JSON.stringify({ key: 'registration_mode', value: 'closed' }),
 		}, env);
 		expect(res.status).toBe(200);
 
@@ -167,22 +248,55 @@ describe('POST /api/admin/toggle-registration', () => {
 		const { adminToken } = await setupAdminAndUser();
 
 		// Disable
-		await app.request('/api/admin/toggle-registration', {
+		await app.request('/api/admin/update-setting', {
 			method: 'POST',
 			headers: authHeaders(adminToken),
-			body: JSON.stringify({ enabled: false }),
+			body: JSON.stringify({ key: 'registration_mode', value: 'closed' }),
 		}, env);
 
 		// Re-enable
-		await app.request('/api/admin/toggle-registration', {
+		await app.request('/api/admin/update-setting', {
 			method: 'POST',
 			headers: authHeaders(adminToken),
-			body: JSON.stringify({ enabled: true }),
+			body: JSON.stringify({ key: 'registration_mode', value: 'open' }),
 		}, env);
 
 		// New signup should succeed
 		const { status } = await signup('user3');
 		expect(status).toBe(200);
+	});
+});
+
+describe('POST /api/admin/update-setting', () => {
+	test('admin can update a setting with a matching key-value pair', async () => {
+		const { adminToken } = await setupAdminAndUser();
+
+		const res = await app.request('/api/admin/update-setting', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ key: 'registration_mode', value: 'open' }),
+		}, env);
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({ ok: true });
+
+		const settingsRes = await app.request('/api/admin/get-settings', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({}),
+		}, env);
+		expect(settingsRes.status).toBe(200);
+		expect(await settingsRes.json()).toContainEqual({ key: 'registration_mode', value: 'open' });
+	});
+
+	test('invalid key-value pair returns an error', async () => {
+		const { adminToken } = await setupAdminAndUser();
+
+		const res = await app.request('/api/admin/update-setting', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ key: 'registration_mode', value: 'not-a-mode' }),
+		}, env);
+		expect(res.status).toBe(400);
 	});
 });
 

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
+import type { FileVisibility } from '../../shared/file-visibility';
 import { Button, Form } from '@vuetify/v0';
 import NirA from '@/components/nira.vue';
 import { authStore, authHeaders } from '@/store/auth';
@@ -14,6 +15,7 @@ const props = defineProps<{
 	isTargz: boolean;
 	isTar: boolean;
 	entryPath?: string;
+	fileId?: string;
 	token?: string;
 }>();
 
@@ -27,15 +29,17 @@ interface DisplayEntry {
 	fullPath: string;
 	size?: number;
 	label: string;
-	isPublic?: boolean;
+	visibility?: FileVisibility;
 }
 
 const downloadUrl = computed(() => {
-	const base = `/d/${props.bucketName}/${props.filePath}`;
+	if (!props.fileId) return '';
+	const base = `/d/${props.fileId}`;
 	return props.token ? `${base}?token=${props.token}` : base;
 });
 const decompressUrl = computed(() => {
-	const base = `/d/${props.bucketName}/${props.filePath}?decompress`;
+	if (!props.fileId) return '';
+	const base = `/d/${props.fileId}?decompress`;
 	return props.token ? `${base}&token=${props.token}` : base;
 });
 
@@ -142,13 +146,13 @@ async function executeDeleteEntry(): Promise<void> {
 			return;
 		}
 	} else {
-		const res = await fetch(`/d/${props.bucketName}/${entry.fullPath}`, {
-			method: 'DELETE',
-			headers: authHeaders(),
-		});
-		if (!res.ok) {
-			const err = await res.json().catch(() => ({})) as { error?: string };
-			deleteError.value = err.error ?? '削除失敗';
+		if (!bucketId.value) {
+			deleteError.value = '削除できません（バケットIDが不明）';
+			return;
+		}
+		const delResult = await apiPost('/api/files/delete', { bucketId: bucketId.value, path: entry.fullPath });
+		if (!delResult.ok) {
+			deleteError.value = delResult.data.error ?? '削除失敗';
 			return;
 		}
 	}
@@ -252,12 +256,13 @@ async function load(): Promise<void> {
 			allArchiveEntries.value = raw;
 			buildArchiveEntries();
 		} else {
-			const res = await fetch(downloadUrl.value, { headers: authHeaders() });
+			const lsUrl = `/api/files/ls?bucketName=${encodeURIComponent(props.bucketName)}&path=${encodeURIComponent(props.filePath)}`;
+			const res = await fetch(lsUrl, { headers: authHeaders() });
 			if (!res.ok) { error.value = `取得失敗: ${res.status}`; return; }
 			const data = await res.json() as {
 				entries: Array<{
 					type: 'dir' | 'file'; name: string; path?: string;
-					size?: number; mimeType?: string; isTargz?: boolean; isTar?: boolean; isPublic?: boolean;
+					size?: number; mimeType?: string; isTargz?: boolean; isTar?: boolean; visibility?: FileVisibility;
 				}>;
 			};
 			entries.value = data.entries.map(e => e.type === 'dir'
@@ -277,7 +282,7 @@ async function load(): Promise<void> {
 					fullPath: e.path ?? e.name,
 					size: e.size,
 					label: e.isTargz ? 'tar.gz' : e.isTar ? 'tar' : (e.mimeType ?? ''),
-					isPublic: e.isPublic,
+					visibility: e.visibility,
 				});
 		}
 	} catch (e) {
@@ -307,8 +312,8 @@ function parentPath(): string | null {
 }
 
 function goUpload(): void {
-	setPendingUpload([], props.filePath);
-	mainRouter.pushByPath(`/my/buckets/${props.bucketName}/upload`);
+	setPendingUpload([], props.bucketName, props.filePath);
+	mainRouter.pushByPath('/uploader');
 }
 
 function onDragOver(e: DragEvent): void {
@@ -327,20 +332,20 @@ function onDrop(e: DragEvent): void {
 	e.preventDefault();
 	const droppedFiles = Array.from(e.dataTransfer?.files ?? []);
 	if (droppedFiles.length === 0) return;
-	setPendingUpload(droppedFiles, props.filePath);
-	mainRouter.pushByPath(`/my/buckets/${props.bucketName}/upload`);
+	setPendingUpload(droppedFiles, props.bucketName, props.filePath);
+	mainRouter.pushByPath('/uploader');
 }
 
 async function executeDeleteArchive(): Promise<void> {
 	archiveDeleteDialog.value = false;
 	deleteError.value = '';
-	const res = await fetch(`/d/${props.bucketName}/${props.filePath}`, {
-		method: 'DELETE',
-		headers: authHeaders(),
-	});
-	if (!res.ok) {
-		const err = await res.json().catch(() => ({})) as { error?: string };
-		deleteError.value = err.error ?? '削除失敗';
+	if (!bucketId.value) {
+		deleteError.value = '削除できません（バケットIDが不明）';
+		return;
+	}
+	const delResult = await apiPost('/api/files/delete', { bucketId: bucketId.value, path: props.filePath });
+	if (!delResult.ok) {
+		deleteError.value = delResult.data.error ?? '削除失敗';
 		return;
 	}
 	const parts = props.filePath.split('/');
@@ -474,8 +479,8 @@ watch(() => props.entryPath, (newEntryPath) => {
                   <span v-if="entry.label" class="badge badge-muted">{{ entry.label }}</span>
                 </td>
                 <td v-if="!isArchive && authStore.user" :class="$style.publicCell">
-                  <span v-if="!entry.isDir && entry.isPublic != null" :class="entry.isPublic ? 'badge badge-success' : 'badge badge-muted'">
-                    {{ entry.isPublic ? '公開' : '非公開' }}
+                  <span v-if="!entry.isDir && entry.visibility != null" :class="entry.visibility === 'public' ? 'badge badge-success' : entry.visibility === 'passphrase' ? 'badge badge-warning' : 'badge badge-muted'">
+                    {{ entry.visibility === 'public' ? '公開' : entry.visibility === 'passphrase' ? '合言葉' : '非公開' }}
                   </span>
                 </td>
                 <td v-if="!isArchive && authStore.user && bucketId" class="col-actions" :class="$style.actionsCell">

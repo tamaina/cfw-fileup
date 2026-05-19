@@ -20,6 +20,10 @@ const actionError = ref('');
 
 const suspendDialog = ref(false);
 const suspendTarget = ref<AdminUser | null>(null);
+const unsuspendDialog = ref(false);
+const unsuspendTarget = ref<AdminUser | null>(null);
+const makeAdminDialog = ref(false);
+const makeAdminTarget = ref<AdminUser | null>(null);
 
 onMounted(fetchUsers);
 
@@ -42,6 +46,16 @@ function requestSuspend(user: AdminUser): void {
 	suspendDialog.value = true;
 }
 
+function requestUnsuspend(user: AdminUser): void {
+	unsuspendTarget.value = user;
+	unsuspendDialog.value = true;
+}
+
+function requestMakeAdmin(user: AdminUser): void {
+	makeAdminTarget.value = user;
+	makeAdminDialog.value = true;
+}
+
 async function executeSuspend(): Promise<void> {
 	if (!suspendTarget.value) return;
 	const userId = suspendTarget.value.id;
@@ -51,6 +65,36 @@ async function executeSuspend(): Promise<void> {
 	try {
 		const result = await apiPost('/api/admin/suspend-user', { userId });
 		if (!result.ok) throw new Error('停止に失敗しました');
+		await fetchUsers();
+	} catch (e) {
+		actionError.value = String(e);
+	}
+}
+
+async function executeUnsuspend(): Promise<void> {
+	if (!unsuspendTarget.value) return;
+	const userId = unsuspendTarget.value.id;
+	unsuspendDialog.value = false;
+	unsuspendTarget.value = null;
+	actionError.value = '';
+	try {
+		const result = await apiPost('/api/admin/unsuspend-user', { userId });
+		if (!result.ok) throw new Error('停止解除に失敗しました');
+		await fetchUsers();
+	} catch (e) {
+		actionError.value = String(e);
+	}
+}
+
+async function executeMakeAdmin(): Promise<void> {
+	if (!makeAdminTarget.value) return;
+	const userId = makeAdminTarget.value.id;
+	makeAdminDialog.value = false;
+	makeAdminTarget.value = null;
+	actionError.value = '';
+	try {
+		const result = await apiPost('/api/admin/make-admin', { userId });
+		if (!result.ok) throw new Error('管理者への変更に失敗しました');
 		await fetchUsers();
 	} catch (e) {
 		actionError.value = String(e);
@@ -103,14 +147,22 @@ async function executeSuspend(): Promise<void> {
               <td class="col-actions">
                 <div class="flex gap-2 items-center">
                   <NirA :to="`/admin/users/${u.id}`" class="btn btn-secondary">クォータ設定</NirA>
-                  <Popover.Root v-if="!u.isSuspended && u.id !== authStore.user?.id">
+                  <Popover.Root v-if="u.id !== authStore.user?.id">
                     <Popover.Activator class="btn btn-ghost btn-icon" aria-label="操作メニュー">
                       …
                     </Popover.Activator>
                     <Popover.Content class="action-menu">
-                      <Button.Root class="btn btn-ghost-danger w-full" :class="$style.menuItem" @click="requestSuspend(u)">
-                        <Button.Content>停止</Button.Content>
-                      </Button.Root>
+                      <div class="action-menu-inner">
+                        <Button.Root v-if="!u.isAdmin" class="btn btn-ghost w-full" :class="$style.menuItem" @click="requestMakeAdmin(u)">
+                          <Button.Content>管理者にする</Button.Content>
+                        </Button.Root>
+                        <Button.Root v-if="!u.isSuspended" class="btn btn-ghost-danger w-full" :class="$style.menuItem" @click="requestSuspend(u)">
+                          <Button.Content>停止</Button.Content>
+                        </Button.Root>
+                        <Button.Root v-else class="btn btn-ghost w-full" :class="$style.menuItem" @click="requestUnsuspend(u)">
+                          <Button.Content>停止解除</Button.Content>
+                        </Button.Root>
+                      </div>
                     </Popover.Content>
                   </Popover.Root>
                 </div>
@@ -130,6 +182,22 @@ async function executeSuspend(): Promise<void> {
       :danger="true"
       @confirm="executeSuspend"
       @cancel="suspendDialog = false"
+    />
+    <ConfirmDialog
+      v-model:open="unsuspendDialog"
+      title="ユーザーの停止を解除"
+      :message="unsuspendTarget ? `ユーザー「${unsuspendTarget.username}」の停止を解除しますか？` : ''"
+      confirm-label="解除する"
+      @confirm="executeUnsuspend"
+      @cancel="unsuspendDialog = false"
+    />
+    <ConfirmDialog
+      v-model:open="makeAdminDialog"
+      title="管理者にする"
+      :message="makeAdminTarget ? `ユーザー「${makeAdminTarget.username}」を管理者にしますか？` : ''"
+      confirm-label="管理者にする"
+      @confirm="executeMakeAdmin"
+      @cancel="makeAdminDialog = false"
     />
   </div>
 </template>

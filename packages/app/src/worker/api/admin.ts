@@ -6,7 +6,8 @@ import { users, tokens, files, buckets, appSettings, userQuotas, globalQuotas } 
 import { getDb } from '../utils/db';
 import { getQuotaForUser, getGlobalQuota } from '../utils/rate-limit';
 import { authMiddleware, adminMiddleware } from '../middleware/auth';
-import { KNOWN_SETTINGS, KNOWN_SETTING_KEYS } from '../../shared/app-settings';
+import * as v from 'valibot';
+import { KNOWN_SETTINGS, KnownSettingRecordSchema } from '../../shared/app-settings';
 import { apiDef, getResponseDefWithAuth, type JsonCtx } from '../../shared/api';
 import { omitResAndReq } from '../utils/omit';
 
@@ -38,6 +39,54 @@ app.post(
 
 		return c.json({ ok: true }, 200);
 	}, getResponseDefWithAuth('/api/admin/suspend-user')),
+);
+
+app.post(
+	'/unsuspend-user',
+	describeRoute(omitResAndReq(apiDef['/api/admin/unsuspend-user'])),
+	validator('json', apiDef['/api/admin/unsuspend-user'].req),
+	describeResponse(async (c: JsonCtx<'/api/admin/unsuspend-user', Env>) => {
+		const db = getDb(c.env);
+		const body = c.req.valid('json');
+
+		if (!body.userId) {
+			throw new HTTPException(400, { message: 'userId is required' });
+		}
+
+		const user = await db.select().from(users).where(eq(users.id, body.userId)).get();
+
+		if (!user) {
+			throw new HTTPException(404, { message: 'User not found' });
+		}
+
+		await db.update(users).set({ isSuspended: false }).where(eq(users.id, body.userId));
+
+		return c.json({ ok: true }, 200);
+	}, getResponseDefWithAuth('/api/admin/unsuspend-user')),
+);
+
+app.post(
+	'/make-admin',
+	describeRoute(omitResAndReq(apiDef['/api/admin/make-admin'])),
+	validator('json', apiDef['/api/admin/make-admin'].req),
+	describeResponse(async (c: JsonCtx<'/api/admin/make-admin', Env>) => {
+		const db = getDb(c.env);
+		const body = c.req.valid('json');
+
+		if (!body.userId) {
+			throw new HTTPException(400, { message: 'userId is required' });
+		}
+
+		const user = await db.select().from(users).where(eq(users.id, body.userId)).get();
+
+		if (!user) {
+			throw new HTTPException(404, { message: 'User not found' });
+		}
+
+		await db.update(users).set({ isAdmin: true }).where(eq(users.id, body.userId));
+
+		return c.json({ ok: true }, 200);
+	}, getResponseDefWithAuth('/api/admin/make-admin')),
 );
 
 app.post(
@@ -242,48 +291,12 @@ app.post(
 );
 
 app.post(
-	'/toggle-registration',
-	describeRoute(omitResAndReq(apiDef['/api/admin/toggle-registration'])),
-	validator('json', apiDef['/api/admin/toggle-registration'].req),
-	describeResponse(async (c: JsonCtx<'/api/admin/toggle-registration', Env>) => {
-		const db = getDb(c.env);
-		const body = c.req.valid('json');
-
-		const value = body.enabled ? 'true' : 'false';
-
-		await db
-			.insert(appSettings)
-			.values({
-				key: 'registration_enabled',
-				value,
-			})
-			.onConflictDoUpdate({
-				target: appSettings.key,
-				set: { value },
-			});
-
-		return c.json({ ok: true }, 200);
-	}, getResponseDefWithAuth('/api/admin/toggle-registration')),
-);
-
-app.post(
 	'/update-setting',
 	describeRoute(omitResAndReq(apiDef['/api/admin/update-setting'])),
 	validator('json', apiDef['/api/admin/update-setting'].req),
 	describeResponse(async (c: JsonCtx<'/api/admin/update-setting', Env>) => {
 		const db = getDb(c.env);
 		const body = c.req.valid('json');
-
-		if (!KNOWN_SETTING_KEYS.includes(body.key)) {
-			throw new HTTPException(400, { message: `Unknown setting key: ${body.key}` });
-		}
-
-		// eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-		const settingDef = KNOWN_SETTINGS.find((s) => s.key === body.key)!;
-
-		if (settingDef.type === 'boolean' && body.value !== 'true' && body.value !== 'false') {
-			throw new HTTPException(400, { message: `Value for "${body.key}" must be "true" or "false"` });
-		}
 
 		await db
 			.insert(appSettings)
@@ -307,8 +320,11 @@ app.post(
 	describeResponse(async (c: JsonCtx<'/api/admin/get-settings', Env>) => {
 		const db = getDb(c.env);
 		const settings = await db.select().from(appSettings);
+		const knownSettings = settings
+			.filter((setting): setting is typeof settings[number] & { key: keyof typeof KNOWN_SETTINGS } => setting.key in KNOWN_SETTINGS)
+			.map((setting) => v.parse(KnownSettingRecordSchema, setting));
 
-		return c.json(settings, 200);
+		return c.json(knownSettings, 200);
 	}, getResponseDefWithAuth('/api/admin/get-settings')),
 );
 

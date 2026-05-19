@@ -9,31 +9,24 @@ app.get('/meta', async (c) => {
 	const db = getDb(c.env);
 
 	try {
-		const registrationEnabledSetting = await db
+		const registrationModeSetting = await db
 			.select()
 			.from(appSettings)
-			.where(eq(appSettings.key, 'registration_enabled'))
+			.where(eq(appSettings.key, 'registration_mode'))
 			.get();
 
-		const requireSignupPassphraseSetting = await db
-			.select()
-			.from(appSettings)
-			.where(eq(appSettings.key, 'require_signup_passphrase'))
-			.get();
-
-		const requireSignupPassphrase = requireSignupPassphraseSetting?.value === 'true';
-		const passphraseRequired = requireSignupPassphrase;
+		const mode = registrationModeSetting?.value ?? 'passphrase';
 
 		return c.json({
-			registrationEnabled: registrationEnabledSetting?.value !== 'false',
-			passphraseRequired: !!passphraseRequired,
+			registrationEnabled: mode !== 'closed',
+			passphraseRequired: mode === 'passphrase',
 			turnstileEnabled: (c.env.TURNSTILE_SECRET as string) !== '',
 			turnstileSiteKey: c.env.TURNSTILE_SITE_KEY,
 		});
 	} catch {
 		return c.json({
 			registrationEnabled: true,
-			passphraseRequired: false,
+			passphraseRequired: true,
 			turnstileEnabled: false,
 			turnstileSiteKey: '',
 		});

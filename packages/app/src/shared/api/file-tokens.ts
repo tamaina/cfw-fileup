@@ -54,7 +54,7 @@ export const fileTokensApiDef = {
 			turnstileToken: v.optional(v.string()),
 		}),
 		res: {
-			200: { description: 'Success', content: { 'application/json': { vSchema: v.object({ id: v.string(), token: v.string(), expiresAt: v.number() }) } } },
+			200: { description: 'Success', content: { 'application/json': { vSchema: v.object({ id: v.string(), token: v.string(), expiresAt: v.number(), fileId: v.string() }) } } },
 			400: { description: 'Bad request (missing fields, Turnstile verification failed, file not closed, or file is public)', content: { 'application/json': { vSchema: ErrorResponse } } },
 			403: { description: 'Forbidden (no passphrase set or invalid passphrase)', content: { 'application/json': { vSchema: ErrorResponse } } },
 			404: { description: 'Bucket or file not found', content: { 'application/json': { vSchema: ErrorResponse } } },

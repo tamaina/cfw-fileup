@@ -1,22 +1,13 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import { eq, and, like, sql } from 'drizzle-orm';
+import { eq, and, like } from 'drizzle-orm';
 import { createBgzfBlock } from 'bgzf';
-import { buckets, files, targzFiles, tarFiles, directories, tokens, users, fileAccessTokens } from '../scheme/index';
+import { buckets, files, targzFiles, tarFiles, tokens, users, fileAccessTokens } from '../scheme/index';
 import { getDb } from '../utils/db';
-import { abortUpload } from '../utils/abort-upload';
-import { authMiddleware } from '../middleware/auth';
+import { DownloadContext, downloadCacheInternalHeaders } from '../utils/download-context';
 
 const app = new Hono<{ Bindings: Env }>();
-
-function getContentDisposition(filename: string, acceptsGzip: boolean): string {
-	const displayName = acceptsGzip ? filename : `${filename}.gz`;
-	return `attachment; filename="${displayName}"`;
-}
-
-function getETag(baseETag: string, acceptsGzip: boolean): string {
-	return acceptsGzip ? baseETag : `${baseETag}-gz`;
-}
+const downloadCacheName = 'download';
 
 async function decompressGzipChunk(data: Uint8Array): Promise<Uint8Array> {
 	const decompressor = new DecompressionStream('gzip');
@@ -56,135 +47,17 @@ async function decompressGzipChunk(data: Uint8Array): Promise<Uint8Array> {
 	return result;
 }
 
-app.get('/d/:bucketName/*', async (c) => {
+app.get('/d/:fileId', async (c) => {
 	const db = getDb(c.env);
-	const bucketName = c.req.param('bucketName');
-	const filePath = c.req.path.replace(`/d/${bucketName}/`, '');
-	const acceptEncoding = c.req.header('Accept-Encoding') ?? '';
-	const acceptsGzip = acceptEncoding.includes('gzip');
+	const fileId = c.req.param('fileId');
+	const file = await db.select().from(files).where(eq(files.id, fileId)).get();
+	if (!file) throw new HTTPException(404, { message: 'File not found' });
+	const bucket = await db.select().from(buckets).where(eq(buckets.id, file.bucketId)).get();
+	if (!bucket) throw new HTTPException(404, { message: 'Bucket not found' });
 
-	const bucket = await db.select().from(buckets).where(eq(buckets.name, bucketName)).get();
+	const download = new DownloadContext(file, c.req.raw);
 
-	if (!bucket) {
-		throw new HTTPException(404, { message: 'Bucket not found' });
-	}
-
-	const isDirectory = filePath === '' || filePath.endsWith('/');
-
-	if (isDirectory) {
-		// Check if requester is bucket owner or admin to show non-public files
-		let isOwnerOrAdmin = false;
-		const authorization = c.req.header('Authorization');
-		if (authorization?.startsWith('Bearer ')) {
-			const token = authorization.slice(7);
-			const tokenRecord = await db
-				.select({ userId: tokens.userId, isAdmin: users.isAdmin, isSuspended: users.isSuspended })
-				.from(tokens)
-				.innerJoin(users, eq(tokens.userId, users.id))
-				.where(eq(tokens.token, token))
-				.get();
-			if (tokenRecord && !tokenRecord.isSuspended) {
-				isOwnerOrAdmin = tokenRecord.isAdmin || tokenRecord.userId === bucket.userId;
-			}
-		}
-
-		if (filePath !== '') {
-			const dirExists = await db.select({ id: directories.id })
-				.from(directories)
-				.where(and(eq(directories.bucketId, bucket.id), eq(directories.path, filePath)))
-				.get();
-			if (!dirExists) {
-				const hasFileCondition = isOwnerOrAdmin
-					? and(eq(files.bucketId, bucket.id), like(files.path, `${filePath}%`), eq(files.isClosed, true))
-					: and(eq(files.bucketId, bucket.id), like(files.path, `${filePath}%`), eq(files.isClosed, true), eq(files.isPublic, true));
-				const hasFile = await db.select({ path: files.path })
-					.from(files)
-					.where(hasFileCondition)
-					.get();
-				if (!hasFile) throw new HTTPException(404, { message: 'Directory not found' });
-			}
-		}
-
-		const fileCondition = isOwnerOrAdmin
-			? and(eq(files.bucketId, bucket.id), eq(files.isClosed, true))
-			: and(eq(files.bucketId, bucket.id), eq(files.isClosed, true), eq(files.isPublic, true));
-
-		const allFiles = await db
-			.select({
-				path: files.path,
-				size: files.size,
-				mimeType: files.mimeType,
-				isTargz: files.isTargz,
-				isTar: files.isTar,
-				isPublic: files.isPublic,
-			})
-			.from(files)
-			.where(fileCondition);
-
-		const entries: Array<{
-			type: 'dir' | 'file';
-			name: string;
-			path?: string;
-			size?: number;
-			mimeType?: string;
-			isTargz?: boolean;
-			isTar?: boolean;
-			isPublic?: boolean;
-		}> = [];
-		const seenDirs = new Set<string>();
-
-		const allDirs = await db
-			.select({ path: directories.path })
-			.from(directories)
-			.where(eq(directories.bucketId, bucket.id));
-
-		for (const d of allDirs) {
-			if (!d.path.startsWith(filePath)) continue;
-			const rest = d.path.slice(filePath.length);
-			const slashIdx = rest.indexOf('/');
-			if (slashIdx !== -1) {
-				const dirName = rest.slice(0, slashIdx);
-				if (!seenDirs.has(dirName)) {
-					seenDirs.add(dirName);
-					entries.push({ type: 'dir', name: dirName });
-				}
-			}
-		}
-
-		for (const f of allFiles) {
-			if (!f.path.startsWith(filePath)) continue;
-			const rest = f.path.slice(filePath.length);
-			const slashIdx = rest.indexOf('/');
-			if (slashIdx === -1) {
-				entries.push({ type: 'file', name: rest, path: f.path, size: f.size ?? undefined, mimeType: f.mimeType ?? undefined, isTargz: f.isTargz, isTar: f.isTar, isPublic: f.isPublic });
-			} else {
-				const dirName = rest.slice(0, slashIdx);
-				if (!seenDirs.has(dirName)) {
-					seenDirs.add(dirName);
-					entries.push({ type: 'dir', name: dirName });
-				}
-			}
-		}
-
-		entries.sort((a, b) => {
-			if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
-			return a.name.localeCompare(b.name);
-		});
-
-		return c.json({ type: 'directory', entries });
-	}
-
-	const file = await db
-		.select()
-		.from(files)
-		.where(and(eq(files.bucketId, bucket.id), eq(files.path, filePath)))
-		.get();
-
-	if (!file) {
-		throw new HTTPException(404, { message: 'File not found' });
-	}
-
-	if (c.req.query('meta') !== undefined) {
+	if (download.isMetaMode) {
 		return c.json({
 			type: 'file',
 			path: file.path,
@@ -192,30 +65,86 @@ app.get('/d/:bucketName/*', async (c) => {
 			mimeType: file.mimeType,
 			isTargz: file.isTargz,
 			isTar: file.isTar,
-			isPublic: file.isPublic,
+			visibility: file.visibility,
 		});
 	}
 
-	if (!file.isPublic) {
-		const passphrase = c.req.query('passphrase');
-		const fileToken = c.req.query('token');
+	async function matchDownloadCache(
+		mode: Parameters<DownloadContext['getCacheRequest']>[0],
+		entryPath?: string,
+	): Promise<Response | null> {
+		const cacheRequest = download.getCacheRequest(mode, entryPath);
+		if (cacheRequest === null) return null;
+		const cache = await caches.open(downloadCacheName);
+		const cached = await cache.match(cacheRequest);
+		if (cached === undefined) return null;
 
-		if (passphrase && passphrase === file.passphrase) {
-			// passphrase OK
-		} else if (fileToken) {
+		const expires = cached.headers.get('Expires');
+		if (expires !== null) {
+			const expiresAt = Date.parse(expires);
+			if (!Number.isNaN(expiresAt) && expiresAt <= Date.now()) {
+				await cache.delete(cacheRequest);
+				return null;
+			}
+		}
+
+		return download.stripInternalCacheHeaders(cached);
+	}
+
+	function putDownloadCache(
+		response: Response,
+		mode: Parameters<DownloadContext['getCacheRequest']>[0],
+		entryPath?: string,
+	): void {
+		const cacheRequest = download.getCacheRequest(mode, entryPath);
+		if (cacheRequest === null) return;
+		const putPromise = (async () => {
+			const cache = await caches.open(downloadCacheName);
+			const cacheResponse = response.clone();
+			const headers = new Headers(cacheResponse.headers);
+			headers.set('Cache-Control', download.getInternalCacheControl());
+			headers.set(downloadCacheInternalHeaders.status, String(cacheResponse.status));
+			headers.set(downloadCacheInternalHeaders.statusText, cacheResponse.statusText);
+			await cache.put(cacheRequest, new Response(cacheResponse.body, {
+				status: 200,
+				statusText: 'OK',
+				headers,
+			}));
+		})();
+
+		try {
+			c.executionCtx.waitUntil(putPromise);
+		} catch {
+			void putPromise.catch((error: unknown) => {
+				console.error('Failed to put download response into cache:', error);
+			});
+		}
+	}
+
+	if (file.visibility !== 'public') {
+		const fileToken = c.req.query('token');
+		if (fileToken) {
 			const fileTokenRecord = await db
 				.select()
 				.from(fileAccessTokens)
 				.where(and(eq(fileAccessTokens.token, fileToken), eq(fileAccessTokens.fileId, file.id)))
 				.get();
-			if (!fileTokenRecord || (fileTokenRecord.expiresAt !== null && fileTokenRecord.expiresAt < Date.now())) {
-				throw new HTTPException(403, { message: 'Forbidden' });
+			if (!fileTokenRecord) throw new HTTPException(403, { message: 'Forbidden' });
+			if (fileTokenRecord.expiresAt !== null && fileTokenRecord.expiresAt < Date.now()) {
+				download.useExpiredFileToken(fileTokenRecord);
+				const cacheTarget = download.cacheTarget;
+				if (cacheTarget !== null) {
+					const cached = await matchDownloadCache(cacheTarget.mode, cacheTarget.entryPath);
+					if (cached !== null) return cached;
+				}
+				const response = new Response('Forbidden', { status: 403 });
+				if (cacheTarget !== null) putDownloadCache(response, cacheTarget.mode, cacheTarget.entryPath);
+				return response;
 			}
+			download.useFileToken(fileTokenRecord);
 		} else {
 			const authorization = c.req.header('Authorization');
-			if (!authorization?.startsWith('Bearer ')) {
-				throw new HTTPException(403, { message: 'Forbidden' });
-			}
+			if (!authorization?.startsWith('Bearer ')) throw new HTTPException(403, { message: 'Forbidden' });
 			const token = authorization.slice(7);
 			const tokenRecord = await db
 				.select({ userId: tokens.userId, isAdmin: users.isAdmin, isSuspended: users.isSuspended })
@@ -229,7 +158,13 @@ app.get('/d/:bucketName/*', async (c) => {
 		}
 	}
 
-	if ((file.isTargz || file.isTar) && c.req.query('list') !== undefined) {
+	const cacheTarget = download.cacheTarget;
+	if (cacheTarget !== null) {
+		const cached = await matchDownloadCache(cacheTarget.mode, cacheTarget.entryPath);
+		if (cached !== null) return cached;
+	}
+
+	if ((file.isTargz || file.isTar) && download.isListMode) {
 		const listPath = c.req.query('list');
 		if (file.isTargz) {
 			const index = await db.select().from(targzFiles).where(
@@ -248,8 +183,8 @@ app.get('/d/:bucketName/*', async (c) => {
 		}
 	}
 
-	const fileQuery = c.req.query('file');
-	if (file.isTar && fileQuery && typeof fileQuery === 'string') {
+	const fileQuery = download.fileQuery;
+	if (download.isTarFileEntry && fileQuery !== null) {
 		const indexEntry = await db
 			.select()
 			.from(tarFiles)
@@ -267,16 +202,18 @@ app.get('/d/:bucketName/*', async (c) => {
 			throw new HTTPException(500, { message: 'Failed to retrieve file' });
 		}
 
-		return new Response(rangeData.body, {
-			headers: {
+		const response = new Response(rangeData.body, {
+			headers: download.withDownloadHeaders({
 				'Content-Type': indexEntry.mimeType,
 				'Content-Disposition': `attachment; filename="${indexEntry.path.split('/').pop()}"`,
 				'Content-Length': String(indexEntry.size),
-			},
+			}),
 		});
+		putDownloadCache(response, 'tar-entry', fileQuery);
+		return response;
 	}
 
-	if (file.isTargz && fileQuery && typeof fileQuery === 'string') {
+	if (download.isTargzFileEntry && fileQuery !== null) {
 		const indexEntry = await db
 			.select()
 			.from(targzFiles)
@@ -290,7 +227,6 @@ app.get('/d/:bucketName/*', async (c) => {
 		try {
 			const isSingleBlock = indexEntry.aStart === indexEntry.aFinalStart;
 
-			// First block: [aStart, aFirstEnd)
 			const firstBlockData = await c.env.R2.get(file.r2Key, {
 				range: {
 					offset: indexEntry.aStart,
@@ -308,13 +244,10 @@ app.get('/d/:bucketName/*', async (c) => {
 				: firstDecompressed.slice(indexEntry.rStartOffset);
 			const firstBgzfBlock = await createBgzfBlock(firstTrimmed);
 
-			// Create combined stream
 			const combinedStream = new ReadableStream<Uint8Array>({
 				async start(controller) {
-					// Send first block
 					controller.enqueue(firstBgzfBlock);
 
-					// Send intermediate blocks as-is (stream directly)
 					if (!isSingleBlock && indexEntry.aFirstEnd < indexEntry.aFinalStart) {
 						const intermediateData = await c.env.R2.get(file.r2Key, {
 							range: {
@@ -337,7 +270,6 @@ app.get('/d/:bucketName/*', async (c) => {
 						}
 					}
 
-					// Send last block if multi-block
 					if (!isSingleBlock && indexEntry.aFinalStart < indexEntry.aEnd) {
 						const lastBlockData = await c.env.R2.get(file.r2Key, {
 							range: {
@@ -358,14 +290,16 @@ app.get('/d/:bucketName/*', async (c) => {
 				},
 			});
 
-			return new Response(combinedStream, {
-				headers: {
+			const response = new Response(combinedStream, {
+				headers: download.withDownloadHeaders({
 					'Content-Type': indexEntry.mimeType,
 					'Content-Encoding': 'gzip',
-					'Content-Disposition': getContentDisposition(indexEntry.path, acceptsGzip),
-					'ETag': getETag(`"${file.id}-${indexEntry.path}"`, acceptsGzip),
-				},
+					'Content-Disposition': download.getContentDisposition(indexEntry.path),
+					'ETag': download.getETag(indexEntry.path),
+				}),
 			});
+			putDownloadCache(response, 'targz-entry', fileQuery);
+			return response;
 		} catch (error) {
 			console.error('Failed to fetch from R2:', error);
 			throw new HTTPException(500, { message: 'Internal server error' });
@@ -378,50 +312,14 @@ app.get('/d/:bucketName/*', async (c) => {
 		throw new HTTPException(404, { message: 'File not found in storage' });
 	}
 
-	return new Response(r2Object.body, {
-		headers: {
+	const response = new Response(r2Object.body, {
+		headers: download.withDownloadHeaders({
 			'Content-Type': file.mimeType ?? 'application/octet-stream',
 			'Content-Length': String(file.size ?? 0),
-		},
+		}),
 	});
-});
-
-app.delete('/d/:bucketName/*', authMiddleware, async (c) => {
-	const db = getDb(c.env);
-	const user = c.get('user');
-	const bucketName = c.req.param('bucketName');
-	const filePath = c.req.path.replace(`/d/${bucketName}/`, '');
-
-	const bucket = await db.select().from(buckets).where(eq(buckets.name, bucketName)).get();
-
-	if (!bucket) {
-		throw new HTTPException(404, { message: 'Bucket not found' });
-	}
-
-	if (bucket.userId !== user.id && !user.isAdmin) {
-		throw new HTTPException(403, { message: 'Forbidden' });
-	}
-
-	const file = await db
-		.select()
-		.from(files)
-		.where(and(eq(files.bucketId, bucket.id), eq(files.path, filePath)))
-		.get();
-
-	if (!file) {
-		throw new HTTPException(404, { message: 'File not found' });
-	}
-
-	await abortUpload(file, c.env);
-
-	if (file.isClosed && file.size) {
-		await db
-			.update(buckets)
-			.set({ usedBytes: sql`MAX(0, ${buckets.usedBytes} - ${file.size})` })
-			.where(eq(buckets.id, bucket.id));
-	}
-
-	return c.json({ ok: true });
+	putDownloadCache(response, 'plain');
+	return response;
 });
 
 export const downloadRoutes = app;

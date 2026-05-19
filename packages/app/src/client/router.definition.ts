@@ -25,12 +25,12 @@ export const ROUTE_DEF = [
 	{
 		path: '/signin',
 		name: 'signin',
-		component: page(() => import('@/pages/signin.vue')),
+		component: page(() => import('@/pages/auth.vue')),
 	},
 	{
 		path: '/signup',
 		name: 'signup',
-		component: page(() => import('@/pages/signup.vue')),
+		component: page(() => import('@/pages/auth.vue')),
 	},
 	{
 		path: '/my/buckets',
@@ -43,7 +43,12 @@ export const ROUTE_DEF = [
 		component: page(() => import('@/pages/my-uploadings.vue')),
 	},
 	{
-		path: '/my/buckets/:bucketName/upload',
+		path: '/my/passkeys',
+		name: 'my-passkeys',
+		component: page(() => import('@/pages/my-passkeys.vue')),
+	},
+	{
+		path: '/uploader',
 		name: 'upload',
 		component: page(() => import('@/pages/upload.vue')),
 	},

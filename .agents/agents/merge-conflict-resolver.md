@@ -51,6 +51,8 @@ Gitの競合マーカー（<<<<<<<, =======, >>>>>>>）が含まれるファイ�
 
 競合解決に役立つ主要なgitコマンドを以下に示す。
 
+`git config --global core.pager ''` でページャーを無効化しておく。
+
 ## 競合の確認
 
 ```sh
@@ -83,6 +85,10 @@ git show MERGE_HEAD:<file>
 git log --oneline $(git merge-base HEAD MERGE_HEAD)..HEAD -- <file>
 git log --oneline $(git merge-base HEAD MERGE_HEAD)..MERGE_HEAD -- <file>
 
+# それぞれのブランチでmerge-baseからHEAD/MERGE_HEADまでの差分を確認
+git diff $(git merge-base HEAD MERGE_HEAD)..HEAD -- <file>
+git diff $(git merge-base HEAD MERGE_HEAD)..MERGE_HEAD -- <file>
+
 # 特定コミットの変更内容を確認
 git show <commit-hash>
 ```
@@ -114,7 +120,7 @@ git checkout --ours <file>
 git checkout --theirs <file>
 ```
 
-## 注意点
+# 注意点
 
 - `git merge-base` で特定した**共通祖先**を起点にして、両ブランチが「何を加えたか・消したか」を把握してから統合すること。
 - `git log --oneline` でコミットメッセージを確認し、変更の「意図」を読み解いてから書き直すこと。
