@@ -8,8 +8,16 @@ tags: [eslint, typescript, lint]
 ## 概要
 コード品質に関わるコマンドをまとめます。
 
-### 主なコマンド
-- ESLint チェック: `pnpm --filter app eslint src/worker/`
-- 自動修正: `pnpm --filter app eslint src/worker/ --fix`
-- TypeScript 型チェック（全体）: `npx tsc --noEmit`
-- Worker のみ型チェック: `npx tsc --noEmit src/worker/`
+### ESLint
+`eslint` スクリプトは `src/worker/` を対象にしています。
+
+- ESLint チェック: `pnpm --filter app run eslint`
+- 自動修正: `pnpm --filter app run eslint:fix`
+
+### TypeScript 型チェック
+スコープごとにスクリプトが分かれています。
+
+- 全体: `pnpm --filter app run typecheck`
+- Worker のみ: `pnpm --filter app run typecheck:worker`
+- Client のみ: `pnpm --filter app run typecheck:client`
+- Service Worker のみ: `pnpm --filter app run typecheck:sw`

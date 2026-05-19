@@ -162,7 +162,7 @@ async function signinWithPasskey(): Promise<void> {
         </div>
         <button
           type="button"
-          :class="[$style.submitBtn, 'btn', 'btn-ghost', 'w-full']"
+          :class="[$style.passkeyBtn, 'btn', 'btn-ghost', 'w-full']"
           :disabled="passkeyLoading"
           @click="signinWithPasskey"
         >
@@ -229,6 +229,10 @@ async function signinWithPasskey(): Promise<void> {
 .dividerText {
   font-size: 0.75rem;
   color: var(--color-text-subtle);
+}
+
+.passkeyBtn {
+  justify-content: center;
 }
 
 .footer {
