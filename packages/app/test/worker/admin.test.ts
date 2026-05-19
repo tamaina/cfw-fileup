@@ -31,7 +31,7 @@ describe('Admin access control', () => {
 			{ path: '/api/admin/make-admin', body: { userId: 'x' } },
 			{ path: '/api/admin/delete-file', body: { fileId: 'x' } },
 			{ path: '/api/admin/delete-bucket', body: { bucketId: 'x' } },
-			{ path: '/api/admin/toggle-registration', body: { enabled: false } },
+			{ path: '/api/admin/update-setting', body: { key: 'registration_mode', value: 'closed' } },
 		];
 
 		for (const { path, body } of endpoints) {
@@ -228,14 +228,14 @@ describe('POST /api/admin/delete-bucket', () => {
 	});
 });
 
-describe('POST /api/admin/toggle-registration', () => {
+describe('POST /api/admin/update-setting registration_mode', () => {
 	test('admin can disable registration', async () => {
 		const { adminToken } = await setupAdminAndUser();
 
-		const res = await app.request('/api/admin/toggle-registration', {
+		const res = await app.request('/api/admin/update-setting', {
 			method: 'POST',
 			headers: authHeaders(adminToken),
-			body: JSON.stringify({ enabled: false }),
+			body: JSON.stringify({ key: 'registration_mode', value: 'closed' }),
 		}, env);
 		expect(res.status).toBe(200);
 
@@ -248,17 +248,17 @@ describe('POST /api/admin/toggle-registration', () => {
 		const { adminToken } = await setupAdminAndUser();
 
 		// Disable
-		await app.request('/api/admin/toggle-registration', {
+		await app.request('/api/admin/update-setting', {
 			method: 'POST',
 			headers: authHeaders(adminToken),
-			body: JSON.stringify({ enabled: false }),
+			body: JSON.stringify({ key: 'registration_mode', value: 'closed' }),
 		}, env);
 
 		// Re-enable
-		await app.request('/api/admin/toggle-registration', {
+		await app.request('/api/admin/update-setting', {
 			method: 'POST',
 			headers: authHeaders(adminToken),
-			body: JSON.stringify({ enabled: true }),
+			body: JSON.stringify({ key: 'registration_mode', value: 'open' }),
 		}, env);
 
 		// New signup should succeed

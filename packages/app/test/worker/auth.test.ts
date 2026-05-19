@@ -64,6 +64,7 @@ describe('POST /api/signup', () => {
 
 	test('with SIGNUP_PASSPHRASE set: second user without passphrase returns 403', async () => {
 		const customEnv = Object.assign({}, env, { SIGNUP_PASSPHRASE: 'secret' });
+		await env.DB.prepare("UPDATE app_settings SET value = 'passphrase' WHERE key = 'registration_mode'").run();
 		await app.request('/api/signup', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
@@ -79,6 +80,7 @@ describe('POST /api/signup', () => {
 
 	test('with SIGNUP_PASSPHRASE set: correct passphrase allows signup', async () => {
 		const customEnv = Object.assign({}, env, { SIGNUP_PASSPHRASE: 'secret' });
+		await env.DB.prepare("UPDATE app_settings SET value = 'passphrase' WHERE key = 'registration_mode'").run();
 		await app.request('/api/signup', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
@@ -96,10 +98,10 @@ describe('POST /api/signup', () => {
 		const { data } = await signup('firstuser');
 		const adminToken = String(data.token);
 
-		await app.request('/api/admin/toggle-registration', {
+		await app.request('/api/admin/update-setting', {
 			method: 'POST',
 			headers: authHeaders(adminToken),
-			body: JSON.stringify({ enabled: false }),
+			body: JSON.stringify({ key: 'registration_mode', value: 'closed' }),
 		}, env);
 
 		const { status } = await signup('user2');
@@ -143,6 +145,7 @@ describe('POST /api/signup', () => {
 	});
 
 	test('forbidden username returns 400', async () => {
+		await signup('firstuser');
 		const res = await app.request('/api/signup', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
