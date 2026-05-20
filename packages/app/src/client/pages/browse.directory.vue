@@ -71,31 +71,60 @@ const archiveDeleteDialog = ref(false);
 // 一括選択・削除用の状態
 const selectedPaths = ref<Set<string>>(new Set());
 const bulkDeleteDialog = ref(false);
+const excludedPaths = ref<Set<string>>(new Set());
+const selectAllMode = ref(false);
 
-/** 選択可能なファイル（ディレクトリは除く）の一覧 */
-const selectableFiles = computed(() => entries.value.filter(e => !e.isDir));
+/** 選択可能なエントリ */
+const selectableEntries = computed(() => entries.value);
 
-/** 全ファイル選択チェックボックスの状態 */
+const selectedCount = computed(() => {
+	if (selectAllMode.value) return Math.max(0, selectableEntries.value.length - excludedPaths.value.size);
+	return selectedPaths.value.size;
+});
+
+const selectionLabel = computed(() => {
+	if (selectAllMode.value) {
+		return excludedPaths.value.size === 0 ? '全て選択中' : `全て選択中 ${excludedPaths.value.size} 件除外`;
+	}
+	return `${selectedCount.value} 件選択中`;
+});
+
+/** 全選択チェックボックスの状態 */
 const isAllSelected = computed(() => {
-	if (selectableFiles.value.length === 0) return false;
-	return selectableFiles.value.every(e => selectedPaths.value.has(e.fullPath));
+	if (selectableEntries.value.length === 0) return false;
+	return selectAllMode.value && excludedPaths.value.size === 0;
 });
 
 /** 一部選択状態（indeterminate） */
 const isPartiallySelected = computed(() => {
-	const count = selectedPaths.value.size;
-	return count > 0 && count < selectableFiles.value.length;
+	const count = selectedCount.value;
+	return count > 0 && count < selectableEntries.value.length;
 });
 
 function toggleSelectAll(): void {
 	if (isAllSelected.value) {
 		selectedPaths.value = new Set();
+		excludedPaths.value = new Set();
+		selectAllMode.value = false;
 	} else {
-		selectedPaths.value = new Set(selectableFiles.value.map(e => e.fullPath));
+		selectedPaths.value = new Set();
+		excludedPaths.value = new Set();
+		selectAllMode.value = true;
 	}
 }
 
 function toggleSelect(path: string): void {
+	if (selectAllMode.value) {
+		const next = new Set(excludedPaths.value);
+		if (next.has(path)) {
+			next.delete(path);
+		} else {
+			next.add(path);
+		}
+		excludedPaths.value = next;
+		return;
+	}
+
 	const next = new Set(selectedPaths.value);
 	if (next.has(path)) {
 		next.delete(path);
@@ -103,6 +132,10 @@ function toggleSelect(path: string): void {
 		next.add(path);
 	}
 	selectedPaths.value = next;
+}
+
+function isEntrySelected(entry: DisplayEntry): boolean {
+	return selectAllMode.value ? !excludedPaths.value.has(entry.fullPath) : selectedPaths.value.has(entry.fullPath);
 }
 
 async function loadBucketId(): Promise<void> {
@@ -140,7 +173,7 @@ async function executeDeleteEntry(): Promise<void> {
 	deleteError.value = '';
 
 	if (entry.isDir) {
-		const delResult = await apiPost('/api/directories/delete', { bucketId: bucketId.value!, path: entry.fullPath });
+		const delResult = await apiPost('/api/files/delete', { bucketId: bucketId.value!, targets: [{ type: 'directory', path: entry.fullPath }] });
 		if (!delResult.ok) {
 			deleteError.value = delResult.data.error;
 			return;
@@ -162,23 +195,26 @@ async function executeDeleteEntry(): Promise<void> {
 async function executeBulkDelete(): Promise<void> {
 	bulkDeleteDialog.value = false;
 	deleteError.value = '';
-	const paths = Array.from(selectedPaths.value);
-	const failed: string[] = [];
-
-	for (const path of paths) {
-		const res = await fetch(`/d/${props.bucketName}/${path}`, {
-			method: 'DELETE',
-			headers: authHeaders(),
-		});
-		if (!res.ok) {
-			failed.push(path);
-		}
+	if (!bucketId.value) {
+		deleteError.value = '削除できません（バケットIDが不明）';
+		return;
 	}
 
-	selectedPaths.value = new Set();
+	const targets = selectAllMode.value
+		? [{ type: 'directory' as const, path: props.filePath, excludePaths: Array.from(excludedPaths.value) }]
+		: Array.from(selectedPaths.value).map((path) => {
+			const entry = entries.value.find(e => e.fullPath === path);
+			return { type: entry?.isDir ? 'directory' as const : 'file' as const, path };
+		});
 
-	if (failed.length > 0) {
-		deleteError.value = `${failed.length} 件の削除に失敗しました: ${failed.join(', ')}`;
+	const result = await apiPost('/api/files/delete', { bucketId: bucketId.value, targets });
+	selectedPaths.value = new Set();
+	excludedPaths.value = new Set();
+	selectAllMode.value = false;
+
+	if (!result.ok) {
+		deleteError.value = result.data.error ?? '削除失敗';
+		return;
 	}
 
 	await load();
@@ -246,6 +282,8 @@ async function load(): Promise<void> {
 	error.value = '';
 	// ロード時に選択状態をリセット
 	selectedPaths.value = new Set();
+	excludedPaths.value = new Set();
+	selectAllMode.value = false;
 	try {
 		if (isArchive.value) {
 			const listUrl = props.token ? `${downloadUrl.value}&list` : `${downloadUrl.value}?list`;
@@ -397,8 +435,8 @@ watch(() => props.entryPath, (newEntryPath) => {
       <span v-if="mkdirError" :class="[$style.mkdirError, 'text-danger']">{{ mkdirError }}</span>
 
       <!-- 一括削除ボタン -->
-      <template v-if="selectedPaths.size > 0">
-        <span class="badge badge-info">{{ selectedPaths.size }} 件選択中</span>
+      <template v-if="selectedCount > 0">
+        <span class="badge badge-info">{{ selectionLabel }}</span>
         <button class="btn btn-ghost-danger" @click="bulkDeleteDialog = true">まとめて削除</button>
       </template>
     </div>
@@ -424,13 +462,13 @@ watch(() => props.entryPath, (newEntryPath) => {
             <thead>
               <tr>
                 <!-- チェックボックス列 (ログイン中の通常ディレクトリのみ) -->
-                <th v-if="!isArchive && authStore.user && bucketId" class="col-checkbox">
+                <th v-if="!isArchive && authStore.user && bucketId" :class="$style.checkboxCell">
                   <input
                     type="checkbox"
+                    :class="$style.checkbox"
                     :checked="isAllSelected"
                     :indeterminate="isPartiallySelected"
-                    :disabled="selectableFiles.length === 0"
-                    style="cursor:pointer"
+                    :disabled="selectableEntries.length === 0"
                     @change="toggleSelectAll"
                   >
                 </th>
@@ -453,13 +491,12 @@ watch(() => props.entryPath, (newEntryPath) => {
                 </td>
               </tr>
               <tr v-for="entry in entries" :key="entry.key">
-                <!-- チェックボックスセル (ファイルのみ選択可) -->
-                <td v-if="!isArchive && authStore.user && bucketId" class="col-checkbox">
+                <!-- チェックボックスセル -->
+                <td v-if="!isArchive && authStore.user && bucketId" :class="$style.checkboxCell">
                   <input
-                    v-if="!entry.isDir"
                     type="checkbox"
-                    :checked="selectedPaths.has(entry.fullPath)"
-                    style="cursor:pointer"
+                    :class="$style.checkbox"
+                    :checked="isEntrySelected(entry)"
                     @change="toggleSelect(entry.fullPath)"
                   >
                 </td>
@@ -517,8 +554,8 @@ watch(() => props.entryPath, (newEntryPath) => {
     <!-- 一括削除確認ダイアログ -->
     <ConfirmDialog
       v-model:open="bulkDeleteDialog"
-      title="複数ファイルを削除"
-      :message="`選択した ${selectedPaths.size} 件のファイルを削除しますか？`"
+      title="複数エントリを削除"
+      :message="selectAllMode ? `このフォルダの中身を削除しますか？${excludedPaths.size > 0 ? `（${excludedPaths.size} 件を除外）` : ''}` : `選択した ${selectedCount} 件のエントリを削除しますか？`"
       confirm-label="削除する"
       :danger="true"
       @confirm="executeBulkDelete"
@@ -555,6 +592,20 @@ watch(() => props.entryPath, (newEntryPath) => {
 .tableCard {
   padding: 0;
   overflow: hidden;
+}
+
+.checkboxCell {
+  width: 1em;
+  padding-right: 6px !important;
+  padding-left: 6px !important;
+  text-align: center !important;
+}
+
+.checkbox {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--color-primary);
 }
 
 .upButton {

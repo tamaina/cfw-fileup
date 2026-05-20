@@ -160,11 +160,16 @@ export const filesApiDef = {
 		},
 	},
 	'/api/files/delete': {
-		summary: 'Delete a file',
+		summary: 'Delete files and directories',
 		tags: ['files'],
 		req: v.object({
 			bucketId: v.string(),
-			path: v.string(),
+			path: v.optional(v.string()),
+			targets: v.optional(v.array(v.object({
+				type: v.union([v.literal('file'), v.literal('directory')]),
+				path: v.string(),
+				excludePaths: v.optional(v.array(v.string())),
+			}))),
 		}),
 		res: {
 			200: { description: 'Success', content: { 'application/json': { vSchema: v.object({ ok: v.literal(true) }) } } },

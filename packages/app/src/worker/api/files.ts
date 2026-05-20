@@ -568,8 +568,8 @@ app.post(
 		const user = c.get('user');
 		const body = c.req.valid('json');
 
-		if (!body.bucketId || !body.path) {
-			throw new HTTPException(400, { message: 'bucketId and path are required' });
+		if (!body.bucketId) {
+			throw new HTTPException(400, { message: 'bucketId is required' });
 		}
 
 		const bucket = await db.select().from(buckets).where(eq(buckets.id, body.bucketId)).get();
@@ -582,29 +582,84 @@ app.post(
 			throw new HTTPException(403, { message: 'Forbidden' });
 		}
 
-		const file = await db
-			.select()
-			.from(files)
-			.where(and(eq(files.bucketId, bucket.id), eq(files.path, body.path)))
-			.get();
-
-		if (!file) {
-			throw new HTTPException(404, { message: 'File not found' });
+		const targets = body.targets ?? (body.path ? [{ type: 'file' as const, path: body.path }] : []);
+		if (targets.length === 0) {
+			throw new HTTPException(400, { message: 'path or targets are required' });
 		}
 
-		try {
-			await c.env.R2.delete(file.r2Key);
-		} catch (error) {
-			console.error('Failed to delete R2 object:', file.r2Key, error);
+		const filesToDelete = new Map<string, {
+			id: string;
+			r2Key: string;
+			isClosed: boolean;
+			size: number | null;
+		}>();
+		const directoryPrefixes = new Set<string>();
+
+		for (const target of targets) {
+			if (target.type === 'file') {
+				const file = await db
+					.select()
+					.from(files)
+					.where(and(eq(files.bucketId, bucket.id), eq(files.path, target.path)))
+					.get();
+				if (!file) throw new HTTPException(404, { message: `File not found: ${target.path}` });
+				filesToDelete.set(file.id, file);
+				continue;
+			}
+
+			const prefix = target.path === '' ? '' : target.path.endsWith('/') ? target.path : `${target.path}/`;
+			const excludePaths = target.excludePaths ?? [];
+			const childFiles = await db
+				.select({ id: files.id, r2Key: files.r2Key, isClosed: files.isClosed, size: files.size, path: files.path })
+				.from(files)
+				.where(and(eq(files.bucketId, bucket.id), like(files.path, `${prefix}%`)));
+
+			for (const file of childFiles) {
+				if (excludePaths.some((excludePath) => {
+					if (excludePath.endsWith('/')) return file.path.startsWith(excludePath);
+					return file.path === excludePath;
+				})) continue;
+				filesToDelete.set(file.id, file);
+			}
+
+			if (excludePaths.length === 0) {
+				directoryPrefixes.add(prefix);
+			}
+			const childDirectories = await db
+				.select({ path: directories.path })
+				.from(directories)
+				.where(and(eq(directories.bucketId, bucket.id), like(directories.path, `${prefix}%`)));
+			for (const dir of childDirectories) {
+				if (excludePaths.some((excludePath) => {
+					const normalizedExcludePath = excludePath.endsWith('/') ? excludePath : `${excludePath}/`;
+					return dir.path === normalizedExcludePath || dir.path.startsWith(normalizedExcludePath) || normalizedExcludePath.startsWith(dir.path);
+				})) continue;
+				directoryPrefixes.add(dir.path);
+			}
 		}
 
-		await db.delete(files).where(eq(files.id, file.id));
+		for (const file of filesToDelete.values()) {
+			try {
+				await c.env.R2.delete(file.r2Key);
+			} catch (error) {
+				console.error('Failed to delete R2 object:', file.r2Key, error);
+			}
+		}
 
-		if (file.isClosed && file.size) {
+		for (const file of filesToDelete.values()) {
+			await db.delete(files).where(eq(files.id, file.id));
+		}
+
+		const sizeToDecrement = Array.from(filesToDelete.values()).reduce((sum, file) => sum + (file.isClosed && file.size ? file.size : 0), 0);
+		if (sizeToDecrement > 0) {
 			await db
 				.update(buckets)
-				.set({ usedBytes: sql`MAX(0, ${buckets.usedBytes} - ${file.size})` })
+				.set({ usedBytes: sql`MAX(0, ${buckets.usedBytes} - ${sizeToDecrement})` })
 				.where(eq(buckets.id, bucket.id));
+		}
+
+		for (const prefix of directoryPrefixes) {
+			await db.delete(directories).where(and(eq(directories.bucketId, bucket.id), like(directories.path, `${prefix}%`)));
 		}
 
 		return c.json({ ok: true }, 200);
