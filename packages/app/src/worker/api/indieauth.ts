@@ -7,6 +7,34 @@ import { generateToken } from '../utils/crypto';
 import { genEaidx } from '../../shared/eaid-x';
 
 const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const MISSKEY_OAUTH_SCOPE = 'read:account';
+
+interface OAuthAuthorizationServerMetadata {
+	issuer?: string;
+	authorization_endpoint?: string;
+	token_endpoint?: string;
+	code_challenge_methods_supported?: string[];
+}
+
+interface OAuthDiscoveryResult {
+	authorizationEndpoint: string;
+	tokenEndpoint: string | null;
+	issuer: string;
+}
+
+interface MisskeyTokenResponse {
+	access_token?: string;
+	token_type?: string;
+	scope?: string;
+	me?: string;
+	profile?: { name?: string; url?: string };
+}
+
+interface MisskeyAccount {
+	id?: string;
+	username?: string;
+	name?: string | null;
+}
 
 /**
  * Generate a PKCE code_verifier (43-128 chars, URL-safe base64url without padding)
@@ -32,11 +60,54 @@ async function generateCodeChallenge(verifier: string): Promise<string> {
 		.replace(/=/g, '');
 }
 
+function getOrigin(urlString: string): string | null {
+	try {
+		return new URL(urlString).origin;
+	} catch {
+		return null;
+	}
+}
+
+async function discoverOAuthMetadata(profileUrl: string): Promise<OAuthDiscoveryResult | null> {
+	const origin = getOrigin(profileUrl);
+	if (!origin) return null;
+
+	let res: Response;
+	try {
+		res = await fetch(`${origin}/.well-known/oauth-authorization-server`, {
+			headers: { Accept: 'application/json' },
+		});
+	} catch {
+		return null;
+	}
+
+	if (!res.ok) return null;
+
+	let metadata: OAuthAuthorizationServerMetadata;
+	try {
+		metadata = await res.json() as OAuthAuthorizationServerMetadata;
+	} catch {
+		return null;
+	}
+
+	if (!metadata.authorization_endpoint || !metadata.token_endpoint) return null;
+
+	return {
+		authorizationEndpoint: new URL(metadata.authorization_endpoint, origin).toString(),
+		tokenEndpoint: new URL(metadata.token_endpoint, origin).toString(),
+		issuer: metadata.issuer ?? origin,
+	};
+}
+
 /**
- * Discover IndieAuth authorization_endpoint from a profile URL.
- * Checks HTTP Link header first, then HTML <link rel="authorization_endpoint">.
+ * Discover IndieAuth/OAuth authorization endpoint from a profile URL.
+ * Misskey exposes OAuth Authorization Server Metadata; older IndieAuth-style
+ * pages may expose rel=authorization_endpoint and rel=token_endpoint.
  */
-async function discoverAuthorizationEndpoint(profileUrl: string): Promise<string | null> {
+async function discoverAuthorizationServer(profileUrl: string): Promise<OAuthDiscoveryResult | null> {
+	const metadata = await discoverOAuthMetadata(profileUrl);
+	if (metadata) return metadata;
+
 	let res: Response;
 	try {
 		res = await fetch(profileUrl, {
@@ -49,19 +120,27 @@ async function discoverAuthorizationEndpoint(profileUrl: string): Promise<string
 
 	if (!res.ok) return null;
 
+	let authorizationEndpoint: string | null = null;
+	let tokenEndpoint: string | null = null;
+
 	// Check Link header first (RFC 5988)
 	const linkHeader = res.headers.get('Link');
 	if (linkHeader) {
-		const match = linkHeader.match(/<([^>]+)>\s*;\s*rel="authorization_endpoint"/i)
+		const authMatch = linkHeader.match(/<([^>]+)>\s*;\s*rel="authorization_endpoint"/i)
 			?? linkHeader.match(/<([^>]+)>\s*;\s*rel=authorization_endpoint/i);
-		if (match?.[1]) {
-			return new URL(match[1], profileUrl).toString();
+		if (authMatch?.[1]) {
+			authorizationEndpoint = new URL(authMatch[1], profileUrl).toString();
+		}
+
+		const tokenMatch = linkHeader.match(/<([^>]+)>\s*;\s*rel="token_endpoint"/i)
+			?? linkHeader.match(/<([^>]+)>\s*;\s*rel=token_endpoint/i);
+		if (tokenMatch?.[1]) {
+			tokenEndpoint = new URL(tokenMatch[1], profileUrl).toString();
 		}
 	}
 
-	// Parse HTML for <link rel="authorization_endpoint" href="...">
+	// Parse HTML for rel=authorization_endpoint and rel=token_endpoint.
 	const html = await res.text();
-	// Simple regex to find link tags with rel=authorization_endpoint
 	const linkTagPattern = /<link[^>]+>/gi;
 	let linkMatch: RegExpExecArray | null;
 	while ((linkMatch = linkTagPattern.exec(html)) !== null) {
@@ -69,12 +148,24 @@ async function discoverAuthorizationEndpoint(profileUrl: string): Promise<string
 		if (/rel=["']?authorization_endpoint["']?/i.test(tag)) {
 			const hrefMatch = /href=["']([^"']+)["']/i.exec(tag);
 			if (hrefMatch?.[1]) {
-				return new URL(hrefMatch[1], profileUrl).toString();
+				authorizationEndpoint = new URL(hrefMatch[1], profileUrl).toString();
+			}
+		}
+		if (/rel=["']?token_endpoint["']?/i.test(tag)) {
+			const hrefMatch = /href=["']([^"']+)["']/i.exec(tag);
+			if (hrefMatch?.[1]) {
+				tokenEndpoint = new URL(hrefMatch[1], profileUrl).toString();
 			}
 		}
 	}
 
-	return null;
+	if (!authorizationEndpoint) return null;
+
+	return {
+		authorizationEndpoint,
+		tokenEndpoint,
+		issuer: getOrigin(profileUrl) ?? profileUrl,
+	};
 }
 
 /**
@@ -136,11 +227,56 @@ async function isServerBlocked(env: Env, profileUrl: string): Promise<boolean> {
 	return blockedHosts.includes(host.toLowerCase());
 }
 
-function getCallbackUri(env: Env, requestUrl: URL): string {
+function getCallbackUri(requestUrl: URL): string {
 	return `${requestUrl.protocol}//${requestUrl.host}/api/auth/indieauth/callback`;
 }
 
+function getClientId(requestUrl: URL): string {
+	return `${requestUrl.protocol}//${requestUrl.host}/api/auth/indieauth/client`;
+}
+
+async function fetchMisskeyAccount(issuer: string, accessToken: string): Promise<MisskeyAccount | null> {
+	let res: Response;
+	try {
+		res = await fetch(`${issuer}/api/i`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ i: accessToken }),
+		});
+	} catch {
+		return null;
+	}
+
+	if (!res.ok) return null;
+
+	try {
+		return await res.json() as MisskeyAccount;
+	} catch {
+		return null;
+	}
+}
+
 const app = new Hono<{ Bindings: Env }>();
+
+app.get('/client', (c) => {
+	const requestUrl = new URL(c.req.url);
+	const callbackUri = getCallbackUri(requestUrl);
+
+	return c.html(`<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<title>CFW FileUp</title>
+		<link rel="redirect_uri" href="${callbackUri}">
+	</head>
+	<body>
+		<div class="h-app">
+			<a class="u-url p-name" href="${requestUrl.protocol}//${requestUrl.host}/">CFW FileUp</a>
+		</div>
+	</body>
+</html>`);
+});
 
 app.get('/begin', async (c) => {
 	const profileUrlRaw = c.req.query('profile_url');
@@ -157,8 +293,8 @@ app.get('/begin', async (c) => {
 		throw new HTTPException(403, { message: 'This Misskey server is not allowed' });
 	}
 
-	const authEndpoint = await discoverAuthorizationEndpoint(profileUrl);
-	if (!authEndpoint) {
+	const server = await discoverAuthorizationServer(profileUrl);
+	if (!server) {
 		throw new HTTPException(400, { message: 'Could not discover IndieAuth authorization endpoint from the given profile URL' });
 	}
 
@@ -182,17 +318,17 @@ app.get('/begin', async (c) => {
 	});
 
 	const requestUrl = new URL(c.req.url);
-	const redirectUri = getCallbackUri(c.env, requestUrl);
+	const redirectUri = getCallbackUri(requestUrl);
+	const clientId = getClientId(requestUrl);
 
-	const authUrl = new URL(authEndpoint);
+	const authUrl = new URL(server.authorizationEndpoint);
 	authUrl.searchParams.set('response_type', 'code');
-	authUrl.searchParams.set('client_id', `${requestUrl.protocol}//${requestUrl.host}/`);
+	authUrl.searchParams.set('client_id', clientId);
 	authUrl.searchParams.set('redirect_uri', redirectUri);
 	authUrl.searchParams.set('state', state);
 	authUrl.searchParams.set('code_challenge', codeChallenge);
 	authUrl.searchParams.set('code_challenge_method', 'S256');
-	authUrl.searchParams.set('scope', 'profile');
-	authUrl.searchParams.set('me', profileUrl);
+	authUrl.searchParams.set('scope', MISSKEY_OAUTH_SCOPE);
 
 	return c.redirect(authUrl.toString(), 302);
 });
@@ -235,33 +371,29 @@ app.get('/callback', async (c) => {
 		return c.redirect('/signin?indieauth_error=server_blocked', 302);
 	}
 
-	// Re-discover authorization endpoint to get token endpoint
-	const authEndpoint = await discoverAuthorizationEndpoint(profileUrl);
-	if (!authEndpoint) {
+	const server = await discoverAuthorizationServer(profileUrl);
+	if (!server) {
 		return c.redirect('/signin?indieauth_error=discovery_failed', 302);
 	}
 
 	const requestUrl = new URL(c.req.url);
-	const redirectUri = getCallbackUri(c.env, requestUrl);
+	const redirectUri = getCallbackUri(requestUrl);
+	const clientId = getClientId(requestUrl);
 
-	// Discover token endpoint from the auth endpoint URL page
-	// IndieAuth spec: the token endpoint is linked from the authorization endpoint
-	// In practice for Misskey, token endpoint = auth endpoint with POST method
-	// We need to fetch the auth endpoint page and look for rel="token_endpoint"
-	const tokenEndpoint = await discoverTokenEndpoint(authEndpoint, profileUrl);
-	if (!tokenEndpoint) {
+	if (!server.tokenEndpoint) {
 		return c.redirect('/signin?indieauth_error=no_token_endpoint', 302);
 	}
 
 	// Exchange code for token
-	const tokenRes = await fetch(tokenEndpoint, {
+	const tokenRes = await fetch(server.tokenEndpoint, {
 		method: 'POST',
-		headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
-		body: new URLSearchParams({
+		headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+		body: JSON.stringify({
 			grant_type: 'authorization_code',
 			code,
-			client_id: `${requestUrl.protocol}//${requestUrl.host}/`,
+			client_id: clientId,
 			redirect_uri: redirectUri,
+			scope: MISSKEY_OAUTH_SCOPE,
 			code_verifier: codeVerifier,
 		}),
 	});
@@ -272,10 +404,13 @@ app.get('/callback', async (c) => {
 		return c.redirect('/signin?indieauth_error=token_exchange_failed', 302);
 	}
 
-	const tokenData = (await tokenRes.json()) as { me?: string; access_token?: string; profile?: { name?: string; url?: string } };
+	const tokenData = (await tokenRes.json()) as MisskeyTokenResponse;
+	const account = tokenData.access_token
+		? await fetchMisskeyAccount(server.issuer, tokenData.access_token)
+		: null;
 
-	// The canonical "me" URL returned by the server is the authoritative profile URL
-	const canonicalMe = tokenData.me ?? profileUrl;
+	const canonicalMe = tokenData.me
+		?? (account?.id ? `${server.issuer}/users/${account.id}` : profileUrl);
 
 	// Use the profile URL as the misskey_id (canonical identifier)
 	const misskeyId = canonicalMe;
@@ -305,9 +440,9 @@ app.get('/callback', async (c) => {
 		}
 
 		// Generate username from profile
-		const profileName = tokenData.profile?.name;
+		const profileName = account?.name ?? tokenData.profile?.name;
 		const urlPath = new URL(canonicalMe).pathname.replace(/^\//, '').replace(/@/g, '').replace(/[^a-zA-Z0-9_]/g, '_');
-		const nameSource = profileName?.replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 28) ?? urlPath.slice(0, 28);
+		const nameSource = (account?.username ?? profileName)?.replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 28) ?? urlPath.slice(0, 28);
 		const baseUsername = nameSource || 'misskey_user';
 
 		let username = baseUsername;
@@ -368,97 +503,5 @@ app.post('/complete', async (c) => {
 
 	return c.json({ token: body.indieauthToken });
 });
-
-/**
- * Discover token_endpoint from an authorization endpoint URL.
- * Checks Link headers and HTML <link rel="token_endpoint">.
- */
-async function discoverTokenEndpoint(authEndpoint: string, profileUrl: string): Promise<string | null> {
-	// For Misskey-style IndieAuth, the token endpoint is typically indicated on the
-	// IndieAuth server's authorization endpoint page.
-	// Per IndieAuth spec, we should look for rel="token_endpoint" on the auth endpoint page.
-	let res: Response;
-	try {
-		res = await fetch(authEndpoint, {
-			headers: { Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
-		});
-	} catch {
-		// Fallback: try the profile URL's token_endpoint
-		return discoverTokenEndpointFromProfile(profileUrl);
-	}
-
-	if (!res.ok) {
-		return discoverTokenEndpointFromProfile(profileUrl);
-	}
-
-	// Check Link header
-	const linkHeader = res.headers.get('Link');
-	if (linkHeader) {
-		const match = linkHeader.match(/<([^>]+)>\s*;\s*rel="token_endpoint"/i)
-			?? linkHeader.match(/<([^>]+)>\s*;\s*rel=token_endpoint/i);
-		if (match?.[1]) {
-			return new URL(match[1], authEndpoint).toString();
-		}
-	}
-
-	// Parse HTML for <link rel="token_endpoint" href="...">
-	const html = await res.text();
-	const linkTagPattern = /<link[^>]+>/gi;
-	let linkMatch: RegExpExecArray | null;
-	while ((linkMatch = linkTagPattern.exec(html)) !== null) {
-		const tag = linkMatch[0];
-		if (/rel=["']?token_endpoint["']?/i.test(tag)) {
-			const hrefMatch = /href=["']([^"']+)["']/i.exec(tag);
-			if (hrefMatch?.[1]) {
-				return new URL(hrefMatch[1], authEndpoint).toString();
-			}
-		}
-	}
-
-	// Fallback: try discovering from the profile URL itself
-	return discoverTokenEndpointFromProfile(profileUrl);
-}
-
-/**
- * Discover token_endpoint from the user's profile URL.
- */
-async function discoverTokenEndpointFromProfile(profileUrl: string): Promise<string | null> {
-	let res: Response;
-	try {
-		res = await fetch(profileUrl, {
-			headers: { Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
-		});
-	} catch {
-		return null;
-	}
-
-	if (!res.ok) return null;
-
-	// Check Link header
-	const linkHeader = res.headers.get('Link');
-	if (linkHeader) {
-		const match = linkHeader.match(/<([^>]+)>\s*;\s*rel="token_endpoint"/i)
-			?? linkHeader.match(/<([^>]+)>\s*;\s*rel=token_endpoint/i);
-		if (match?.[1]) {
-			return new URL(match[1], profileUrl).toString();
-		}
-	}
-
-	// Parse HTML
-	const html = await res.text();
-	const linkTagPattern = /<link[^>]+>/gi;
-	let linkMatch: RegExpExecArray | null;
-	while ((linkMatch = linkTagPattern.exec(html)) !== null) {
-		const tag = linkMatch[0];
-		if (/rel=["']?token_endpoint["']?/i.test(tag)) {
-			const hrefMatch = /href=["']([^"']+)["']/i.exec(tag);
-			if (hrefMatch?.[1]) {
-				return new URL(hrefMatch[1], profileUrl).toString();
-			}
-		}
-	}
-
-	return null;
-}
 
 export const indieAuthRoutes = app;

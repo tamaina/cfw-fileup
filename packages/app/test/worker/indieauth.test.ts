@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll, beforeEach } from 'vitest';
+import { describe, test, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { env, app, setupDb, clearDb, signup, authHeaders } from './helpers';
 
 beforeAll(async () => {
@@ -7,6 +7,10 @@ beforeAll(async () => {
 
 beforeEach(async () => {
 	await clearDb();
+});
+
+afterEach(() => {
+	vi.restoreAllMocks();
 });
 
 describe('GET /api/auth/indieauth/begin', () => {
@@ -24,6 +28,51 @@ describe('GET /api/auth/indieauth/begin', () => {
 	test('returns 400 for ftp:// URL scheme', async () => {
 		const res = await app.request('/api/auth/indieauth/begin?profile_url=ftp%3A%2F%2Fexample.com', { method: 'GET' }, env);
 		expect(res.status).toBe(400);
+	});
+
+	test('redirects to Misskey OAuth authorization endpoint discovered from well-known metadata', async () => {
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+			const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+			if (url === 'https://p1.a9z.dev/.well-known/oauth-authorization-server') {
+				return Response.json({
+					issuer: 'https://p1.a9z.dev',
+					authorization_endpoint: 'https://p1.a9z.dev/oauth/authorize',
+					token_endpoint: 'https://p1.a9z.dev/oauth/token',
+					response_types_supported: ['code'],
+					grant_types_supported: ['authorization_code'],
+					code_challenge_methods_supported: ['S256'],
+				});
+			}
+			return new Response('not found', { status: 404 });
+		});
+
+		const res = await app.request(
+			'http://localhost:8788/api/auth/indieauth/begin?profile_url=https%3A%2F%2Fp1.a9z.dev%2F%40aqz',
+			{ method: 'GET' },
+			env,
+		);
+		expect(res.status).toBe(302);
+
+		const location = res.headers.get('Location');
+		expect(location).toBeTruthy();
+		const url = new URL(location ?? '');
+		expect(url.origin + url.pathname).toBe('https://p1.a9z.dev/oauth/authorize');
+		expect(url.searchParams.get('client_id')).toBe('http://localhost:8788/api/auth/indieauth/client');
+		expect(url.searchParams.get('redirect_uri')).toBe('http://localhost:8788/api/auth/indieauth/callback');
+		expect(url.searchParams.get('scope')).toBe('read:account');
+		expect(url.searchParams.get('code_challenge_method')).toBe('S256');
+		expect(url.searchParams.get('state')).toBeTruthy();
+	});
+});
+
+describe('GET /api/auth/indieauth/client', () => {
+	test('serves OAuth client metadata page for Misskey client discovery', async () => {
+		const res = await app.request('http://localhost:8788/api/auth/indieauth/client', { method: 'GET' }, env);
+		expect(res.status).toBe(200);
+		const html = await res.text();
+		expect(html).toContain('<link rel="redirect_uri" href="http://localhost:8788/api/auth/indieauth/callback">');
+		expect(html).toContain('class="h-app"');
+		expect(html).toContain('CFW FileUp');
 	});
 });
 

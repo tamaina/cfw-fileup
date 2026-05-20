@@ -15,6 +15,9 @@ const signinForm = reactive({ username: '', password: '' });
 const signinError = ref('');
 const signinLoading = ref(false);
 const passkeySigninLoading = ref(false);
+const googleLoading = ref(false);
+const indieauthLoading = ref(false);
+const indieauthProfileUrl = ref('');
 
 const useBackupCode = ref(false);
 const backupCode = ref('');
@@ -30,6 +33,8 @@ const turnstileEnabled = ref(false);
 const turnstileSiteKey = ref('');
 const signinTurnstileToken = ref<string | null>(null);
 const signupTurnstileToken = ref<string | null>(null);
+const googleAuthEnabled = ref(false);
+const googleRequired = ref(false);
 
 const activeMode = computed<'signin' | 'signup'>(() => (
 	mainRouter.currentRef.value.route.name === 'signup' ? 'signup' : 'signin'
@@ -54,10 +59,18 @@ const canPasskeySignup = computed(() =>
 async function fetchMeta(): Promise<void> {
 	try {
 		const res = await fetch('/api/meta');
-		const data = (await res.json()) as { passphraseRequired?: boolean; turnstileEnabled?: boolean; turnstileSiteKey?: string };
+		const data = (await res.json()) as {
+			passphraseRequired?: boolean;
+			turnstileEnabled?: boolean;
+			turnstileSiteKey?: string;
+			googleAuthEnabled?: boolean;
+			googleRequired?: boolean;
+		};
 		passphraseRequired.value = data.passphraseRequired ?? false;
 		turnstileEnabled.value = data.turnstileEnabled ?? false;
 		turnstileSiteKey.value = data.turnstileSiteKey ?? '';
+		googleAuthEnabled.value = data.googleAuthEnabled ?? false;
+		googleRequired.value = data.googleRequired ?? false;
 	} catch (e) {
 		console.error('Failed to fetch meta:', e);
 	}
@@ -73,6 +86,107 @@ async function finishAuth(token: string, nextPath = '/my/buckets'): Promise<void
 	setToken(token);
 	await fetchCurrentUser();
 	navigateTo(nextPath);
+}
+
+async function handleGoogleCallback(): Promise<void> {
+	const params = new URLSearchParams(window.location.search);
+	const googleToken = params.get('google_token');
+	if (!googleToken) return;
+
+	const newUrl = new URL(window.location.href);
+	newUrl.searchParams.delete('google_token');
+	window.history.replaceState({}, '', newUrl.toString());
+
+	googleLoading.value = true;
+	signinError.value = '';
+	signupError.value = '';
+	try {
+		const res = await fetch('/api/auth/google/complete', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ googleToken }),
+		});
+		const data = (await res.json()) as { token?: string; error?: string };
+		if (!res.ok || !data.token) {
+			signinError.value = data.error ?? 'Googleサインインに失敗しました';
+			return;
+		}
+		await finishAuth(data.token);
+	} catch (e) {
+		signinError.value = String(e);
+	} finally {
+		googleLoading.value = false;
+	}
+}
+
+async function handleIndieAuthCallback(): Promise<void> {
+	const params = new URLSearchParams(window.location.search);
+	const indieauthToken = params.get('indieauth_token');
+	const indieauthError = params.get('indieauth_error');
+	if (!indieauthToken && !indieauthError) return;
+
+	const newUrl = new URL(window.location.href);
+	newUrl.searchParams.delete('indieauth_token');
+	newUrl.searchParams.delete('indieauth_error');
+	window.history.replaceState({}, '', newUrl.toString());
+
+	if (indieauthError) {
+		const errorMessages: Record<string, string> = {
+			access_denied: 'IndieAuthがキャンセルされました',
+			missing_params: 'IndieAuthの認証情報が不足しています',
+			invalid_state: 'IndieAuthのstateが無効です',
+			server_blocked: 'このMisskeyサーバーは許可されていません',
+			discovery_failed: 'IndieAuthエンドポイントの検出に失敗しました',
+			no_token_endpoint: 'IndieAuth token endpoint が見つかりません',
+			token_exchange_failed: 'IndieAuth token の交換に失敗しました',
+			registration_closed: '新規登録は停止されています',
+			suspended: 'アカウントは停止されています',
+			user_creation_failed: 'ユーザー作成に失敗しました',
+		};
+		signinError.value = errorMessages[indieauthError] ?? `IndieAuthエラー: ${indieauthError}`;
+		return;
+	}
+
+	if (!indieauthToken) return;
+
+	indieauthLoading.value = true;
+	signinError.value = '';
+	signupError.value = '';
+	try {
+		const res = await fetch('/api/auth/indieauth/complete', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ indieauthToken }),
+		});
+		const data = (await res.json()) as { token?: string; error?: string };
+		if (!res.ok || !data.token) {
+			signinError.value = data.error ?? 'IndieAuthサインインに失敗しました';
+			return;
+		}
+		await finishAuth(data.token);
+	} catch (e) {
+		signinError.value = String(e);
+	} finally {
+		indieauthLoading.value = false;
+	}
+}
+
+handleGoogleCallback();
+handleIndieAuthCallback();
+
+function signinWithGoogle(): void {
+	googleLoading.value = true;
+	location.href = '/api/auth/google';
+}
+
+function signinWithIndieAuth(): void {
+	const url = indieauthProfileUrl.value.trim();
+	if (!url) {
+		signinError.value = 'MisskeyプロフィールURLを入力してください';
+		return;
+	}
+	indieauthLoading.value = true;
+	location.href = `/api/auth/indieauth/begin?profile_url=${encodeURIComponent(url)}`;
 }
 
 async function signinWithPassword({ valid }: { valid: boolean }): Promise<void> {
@@ -232,7 +346,11 @@ async function signupWithPasskey(): Promise<void> {
         </div>
 
         <template v-if="activeMode === 'signin'">
-          <div :class="$style.methodBlock">
+          <div v-if="googleRequired" class="alert alert-error">
+            このサービスはGoogleアカウントによるサインインのみ受け付けています。
+          </div>
+
+          <div v-if="!googleRequired" :class="$style.methodBlock">
             <button
               v-if="!useBackupCode"
               type="button"
@@ -254,13 +372,13 @@ async function signupWithPasskey(): Promise<void> {
             <div v-if="signinError" class="alert alert-error">{{ signinError }}</div>
           </div>
 
-          <div v-if="!useBackupCode" :class="$style.divider">
+          <div v-if="!googleRequired && !useBackupCode" :class="$style.divider">
             <hr :class="$style.dividerLine">
             <span :class="$style.dividerText">または</span>
             <hr :class="$style.dividerLine">
           </div>
 
-          <Form :class="$style.form" @submit="signinWithPassword">
+          <Form v-if="!googleRequired" :class="$style.form" @submit="signinWithPassword">
             <div v-if="useBackupCode" class="form-group">
               <label class="form-label" for="backup-code">バックアップコード</label>
               <input
@@ -312,7 +430,11 @@ async function signupWithPasskey(): Promise<void> {
         </template>
 
         <template v-else>
-          <div :class="$style.form">
+          <div v-if="googleRequired" class="alert alert-error">
+            このサービスはGoogleアカウントによる登録のみ受け付けています。
+          </div>
+
+          <div v-if="!googleRequired" :class="$style.form">
             <div class="form-group">
               <label class="form-label" for="signup-username">ユーザー名</label>
               <input
@@ -363,13 +485,13 @@ async function signupWithPasskey(): Promise<void> {
             <div v-if="passkeySignupError" class="alert alert-error">{{ passkeySignupError }}</div>
           </div>
 
-          <div :class="$style.divider">
+          <div v-if="!googleRequired" :class="$style.divider">
             <hr :class="$style.dividerLine">
             <span :class="$style.dividerText">または</span>
             <hr :class="$style.dividerLine">
           </div>
 
-          <Form :class="$style.form" @submit="signupWithPassword">
+          <Form v-if="!googleRequired" :class="$style.form" @submit="signupWithPassword">
             <div class="form-group">
               <label class="form-label" for="signup-password">パスワード</label>
               <input
@@ -400,10 +522,39 @@ async function signupWithPasskey(): Promise<void> {
 
       <aside :class="['card', $style.ssoCard]">
         <h2 :class="$style.sideTitle">外部サイト認証</h2>
-        <button type="button" :class="['btn', 'btn-secondary', 'w-full', $style.fullButton]" disabled>
-          Googleでログイン
-        </button>
-        <p :class="$style.sideText">Googleログインは今後実装予定です。</p>
+        <div :class="$style.methodBlock">
+          <button
+            v-if="googleAuthEnabled"
+            type="button"
+            :class="['btn', 'btn-secondary', 'w-full', $style.fullButton]"
+            :disabled="googleLoading"
+            @click="signinWithGoogle"
+          >
+            {{ googleLoading ? '処理中...' : activeMode === 'signup' ? 'Googleで登録' : 'Googleでログイン' }}
+          </button>
+
+          <div v-if="!googleRequired" :class="$style.indieauthBox">
+            <input
+              v-model="indieauthProfileUrl"
+              class="form-input"
+              type="url"
+              placeholder="https://misskey.io/@username"
+              autocomplete="url"
+            >
+            <button
+              type="button"
+              :class="['btn', 'btn-ghost', 'w-full', $style.fullButton]"
+              :disabled="indieauthLoading"
+              @click="signinWithIndieAuth"
+            >
+              {{ indieauthLoading ? '処理中...' : activeMode === 'signup' ? 'Misskeyで登録' : 'Misskeyでログイン' }}
+            </button>
+          </div>
+
+          <p v-if="!googleAuthEnabled && googleRequired" :class="$style.sideText">
+            Google認証が設定されていません。
+          </p>
+        </div>
       </aside>
     </div>
   </div>
@@ -485,6 +636,12 @@ async function signupWithPasskey(): Promise<void> {
   margin-top: 12px;
   color: var(--color-text-muted);
   font-size: 0.875rem;
+}
+
+.indieauthBox {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 @media (max-width: 760px) {
