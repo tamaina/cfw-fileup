@@ -48,11 +48,33 @@ fetchMeta();
 async function handleGoogleCallback(): Promise<void> {
 	const params = new URLSearchParams(window.location.search);
 	const googleToken = params.get('google_token');
-	if (!googleToken) return;
+	const googleError = params.get('google_error');
+	if (!googleToken && !googleError) return;
 
 	const newUrl = new URL(window.location.href);
 	newUrl.searchParams.delete('google_token');
+	newUrl.searchParams.delete('google_error');
 	window.history.replaceState({}, '', newUrl.toString());
+
+	if (googleError) {
+		const errorMessages: Record<string, string> = {
+			access_denied: 'Google認証がキャンセルされました',
+			missing_params: 'Google認証情報が不足しています',
+			invalid_state: 'Google認証のstateが無効です',
+			token_exchange_failed: 'Google token の交換に失敗しました',
+			userinfo_failed: 'Googleアカウント情報の取得に失敗しました',
+			registration_closed: '新規登録は停止されています',
+			signup_required: 'このGoogleアカウントは未登録です。サインアップ画面から登録してください。',
+			invalid_username: 'ユーザー名の形式が正しくありません',
+			username_taken: 'このユーザー名はすでに使われています',
+			suspended: 'アカウントは凍結されています',
+			user_creation_failed: 'ユーザー作成に失敗しました',
+		};
+		error.value = errorMessages[googleError] ?? `Google認証エラー: ${googleError}`;
+		return;
+	}
+
+	if (!googleToken) return;
 
 	googleLoading.value = true;
 	error.value = '';
@@ -102,7 +124,11 @@ async function handleIndieAuthCallback(): Promise<void> {
 			no_token_endpoint: 'IndieAuth token endpoint が見つかりません',
 			token_exchange_failed: 'IndieAuth token の交換に失敗しました',
 			registration_closed: '新規登録は停止されています',
-			suspended: 'アカウントは停止されています',
+			invalid_passphrase: '合言葉が正しくありません',
+			missing_username: 'ユーザー名を入力してから登録してください',
+			invalid_username: 'ユーザー名の形式が正しくありません',
+			username_taken: 'このユーザー名はすでに使われています',
+			suspended: 'アカウントは凍結されています',
 			user_creation_failed: 'ユーザー作成に失敗しました',
 		};
 		error.value = errorMessages[indieauthError] ?? `IndieAuthエラー: ${indieauthError}`;

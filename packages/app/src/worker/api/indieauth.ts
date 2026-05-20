@@ -5,6 +5,8 @@ import { users, tokens, appSettings, oauthStates, usedUsernames } from '../schem
 import { getDb } from '../utils/db';
 import { generateToken } from '../utils/crypto';
 import { genEaidx } from '../../shared/eaid-x';
+import { validateUsername } from '../utils/name-validation';
+import { isValidNameFormat } from '../../shared/name-validation';
 
 const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const MISSKEY_OAUTH_SCOPE = 'read:account';
@@ -280,6 +282,8 @@ app.get('/client', (c) => {
 
 app.get('/begin', async (c) => {
 	const profileUrlRaw = c.req.query('profile_url');
+	const passphrase = c.req.query('passphrase');
+	const signupUsername = c.req.query('username');
 	if (!profileUrlRaw) {
 		throw new HTTPException(400, { message: 'profile_url is required' });
 	}
@@ -314,6 +318,8 @@ app.get('/begin', async (c) => {
 		state,
 		codeVerifier,
 		profileUrl,
+		signupPassphrase: passphrase,
+		signupUsername,
 		expiresAt,
 	});
 
@@ -427,29 +433,42 @@ app.get('/callback', async (c) => {
 		const userCount = await db.select({ count: count() }).from(users);
 		const isFirstUser = (userCount[0]?.count ?? 0) === 0;
 
-		if (!isFirstUser) {
-			const registrationModeSetting = await db
-				.select()
-				.from(appSettings)
-				.where(eq(appSettings.key, 'registration_mode'))
-				.get();
+		const registrationModeSetting = await db
+			.select()
+			.from(appSettings)
+			.where(eq(appSettings.key, 'registration_mode'))
+			.get();
 
-			if ((registrationModeSetting?.value ?? 'passphrase') === 'closed') {
+		const registrationMode = (registrationModeSetting?.value ?? 'passphrase') as 'closed' | 'passphrase' | 'open';
+
+		if (!isFirstUser) {
+			if (registrationMode === 'closed') {
 				return c.redirect('/signin?indieauth_error=registration_closed', 302);
 			}
 		}
 
-		// Generate username from profile
-		const profileName = account?.name ?? tokenData.profile?.name;
-		const urlPath = new URL(canonicalMe).pathname.replace(/^\//, '').replace(/@/g, '').replace(/[^a-zA-Z0-9_]/g, '_');
-		const nameSource = (account?.username ?? profileName)?.replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 28) ?? urlPath.slice(0, 28);
-		const baseUsername = nameSource || 'misskey_user';
+		if (registrationMode === 'passphrase') {
+			const signupPassphrase = c.env.SIGNUP_PASSPHRASE;
+			if (!signupPassphrase || !storedState.signupPassphrase || storedState.signupPassphrase !== signupPassphrase) {
+				return c.redirect('/signin?indieauth_error=invalid_passphrase', 302);
+			}
+		}
 
-		let username = baseUsername;
-		let suffix = 1;
-		while (await db.select().from(users).where(eq(users.username, username)).get()) {
-			username = `${baseUsername}_${suffix}`;
-			suffix++;
+		const username = storedState.signupUsername?.trim();
+		if (!username) {
+			return c.redirect('/signin?indieauth_error=missing_username', 302);
+		}
+
+		if (!isValidNameFormat(username)) {
+			return c.redirect('/signin?indieauth_error=invalid_username', 302);
+		}
+
+		if (!isFirstUser) {
+			const usernameError = await validateUsername(db, username);
+			if (usernameError) {
+				const error = usernameError === 'Username already exists' ? 'username_taken' : 'invalid_username';
+				return c.redirect(`/signin?indieauth_error=${error}`, 302);
+			}
 		}
 
 		const userId = genEaidx(Date.now());

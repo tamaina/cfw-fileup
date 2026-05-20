@@ -63,6 +63,38 @@ describe('GET /api/auth/indieauth/begin', () => {
 		expect(url.searchParams.get('code_challenge_method')).toBe('S256');
 		expect(url.searchParams.get('state')).toBeTruthy();
 	});
+
+	test('stores signup data in OAuth state', async () => {
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+			const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+			if (url === 'https://p1.a9z.dev/.well-known/oauth-authorization-server') {
+				return Response.json({
+					issuer: 'https://p1.a9z.dev',
+					authorization_endpoint: 'https://p1.a9z.dev/oauth/authorize',
+					token_endpoint: 'https://p1.a9z.dev/oauth/token',
+				});
+			}
+			return new Response('not found', { status: 404 });
+		});
+
+		const res = await app.request(
+			'http://localhost:8788/api/auth/indieauth/begin?profile_url=https%3A%2F%2Fp1.a9z.dev%2F%40aqz&passphrase=secret&username=alice',
+			{ method: 'GET' },
+			env,
+		);
+		expect(res.status).toBe(302);
+
+		const location = res.headers.get('Location') ?? '';
+		const state = new URL(location).searchParams.get('state');
+		expect(state).toBeTruthy();
+
+		const row = await env.DB
+			.prepare('SELECT signup_passphrase, signup_username FROM oauth_states WHERE state = ?')
+			.bind(state)
+			.first<{ signup_passphrase: string | null; signup_username: string | null }>();
+		expect(row?.signup_passphrase).toBe('secret');
+		expect(row?.signup_username).toBe('alice');
+	});
 });
 
 describe('GET /api/auth/indieauth/client', () => {

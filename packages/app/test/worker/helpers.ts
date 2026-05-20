@@ -2,12 +2,16 @@ import { env } from 'cloudflare:workers';
 import app from '../../src/worker/index';
 import migration0000 from '../../migrations/0000_rich_gressill.sql?raw';
 import migration0001 from '../../migrations/0001_blushing_sandman.sql?raw';
+import migration0002 from '../../migrations/0002_pretty_talos.sql?raw';
+import migration0003 from '../../migrations/0003_overjoyed_pyro.sql?raw';
 
 export { env, app };
 
 const migrations = [
 	migration0000,
 	migration0001,
+	migration0002,
+	migration0003,
 ] as const;
 
 const tables = [
@@ -69,6 +73,7 @@ export async function clearDb(): Promise<void> {
 		env.DB.prepare('DELETE FROM passkeys'),
 		env.DB.prepare('DELETE FROM files'),
 		env.DB.prepare('DELETE FROM directories'),
+		env.DB.prepare('DELETE FROM oauth_states'),
 		env.DB.prepare('DELETE FROM tokens'),
 		env.DB.prepare('DELETE FROM user_quotas'),
 		env.DB.prepare('DELETE FROM buckets'),

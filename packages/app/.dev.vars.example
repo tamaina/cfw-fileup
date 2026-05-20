@@ -5,3 +5,7 @@ MAX_FILES_PER_BUCKET=
 MAX_DAILY_UPLOADS=
 TURNSTILE_SECRET=
 TURNSTILE_SITE_KEY=
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+# Optional. If empty, the app uses <request-origin>/api/auth/google/callback.
+GOOGLE_REDIRECT_URI=

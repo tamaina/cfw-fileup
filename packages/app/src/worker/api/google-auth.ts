@@ -5,6 +5,8 @@ import { users, tokens, appSettings, oauthStates, usedUsernames } from '../schem
 import { getDb } from '../utils/db';
 import { generateToken } from '../utils/crypto';
 import { genEaidx } from '../../shared/eaid-x';
+import { validateUsername } from '../utils/name-validation';
+import { isValidNameFormat } from '../../shared/name-validation';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -33,6 +35,10 @@ function getRedirectUri(env: Env, url: URL): string {
 	return `${url.protocol}//${url.host}/api/auth/google/callback`;
 }
 
+function googleErrorLocation(error: string, path: '/signin' | '/signup' = '/signin'): string {
+	return `${path}?google_error=${encodeURIComponent(error)}`;
+}
+
 const app = new Hono<{ Bindings: Env }>();
 
 app.get('/', async (c) => {
@@ -41,6 +47,8 @@ app.get('/', async (c) => {
 	}
 
 	const db = getDb(c.env);
+	const passphrase = c.req.query('passphrase');
+	const signupUsername = c.req.query('username');
 
 	// Clean up expired states
 	await db.delete(oauthStates).where(lt(oauthStates.expiresAt, Date.now()));
@@ -49,7 +57,7 @@ app.get('/', async (c) => {
 	const stateId = genEaidx(Date.now());
 	const expiresAt = Date.now() + STATE_TTL_MS;
 
-	await db.insert(oauthStates).values({ id: stateId, state, expiresAt });
+	await db.insert(oauthStates).values({ id: stateId, state, signupPassphrase: passphrase, signupUsername, expiresAt });
 
 	const url = new URL(c.req.url);
 	const redirectUri = getRedirectUri(c.env, url);
@@ -74,11 +82,11 @@ app.get('/callback', async (c) => {
 	const { code, state, error } = c.req.query();
 
 	if (error) {
-		throw new HTTPException(400, { message: `Google OAuth error: ${error}` });
+		return c.redirect(googleErrorLocation(error), 302);
 	}
 
 	if (!code || !state) {
-		throw new HTTPException(400, { message: 'Missing code or state parameter' });
+		return c.redirect(googleErrorLocation('missing_params'), 302);
 	}
 
 	// Validate state (CSRF protection)
@@ -89,7 +97,7 @@ app.get('/callback', async (c) => {
 		.get();
 
 	if (!storedState || storedState.expiresAt < Date.now()) {
-		throw new HTTPException(400, { message: 'Invalid or expired state parameter' });
+		return c.redirect(googleErrorLocation('invalid_state'), 302);
 	}
 
 	// Delete the used state
@@ -114,7 +122,7 @@ app.get('/callback', async (c) => {
 	if (!tokenRes.ok) {
 		const body = await tokenRes.text();
 		console.error('Google token exchange failed:', body);
-		throw new HTTPException(502, { message: 'Failed to exchange code for token' });
+		return c.redirect(googleErrorLocation('token_exchange_failed'), 302);
 	}
 
 	const tokenData = (await tokenRes.json()) as GoogleTokenResponse;
@@ -125,14 +133,14 @@ app.get('/callback', async (c) => {
 	});
 
 	if (!userinfoRes.ok) {
-		throw new HTTPException(502, { message: 'Failed to fetch Google user info' });
+		return c.redirect(googleErrorLocation('userinfo_failed'), 302);
 	}
 
 	const userInfo = (await userinfoRes.json()) as GoogleUserInfo;
 	const googleId = userInfo.sub;
 
 	if (!googleId) {
-		throw new HTTPException(502, { message: 'Invalid Google user info: missing sub' });
+		return c.redirect(googleErrorLocation('userinfo_failed'), 302);
 	}
 
 	// Check if user exists with this Google ID
@@ -141,34 +149,49 @@ app.get('/callback', async (c) => {
 	if (user) {
 		// Existing Google user - sign in
 		if (user.isSuspended) {
-			throw new HTTPException(401, { message: 'Account is suspended' });
+			return c.redirect(googleErrorLocation('suspended'), 302);
 		}
 	} else {
 		// New Google user - check if registration is allowed
 		const userCount = await db.select({ count: count() }).from(users);
 		const isFirstUser = (userCount[0]?.count ?? 0) === 0;
 
-		if (!isFirstUser) {
-			const registrationModeSetting = await db
-				.select()
-				.from(appSettings)
-				.where(eq(appSettings.key, 'registration_mode'))
-				.get();
+		const registrationModeSetting = await db
+			.select()
+			.from(appSettings)
+			.where(eq(appSettings.key, 'registration_mode'))
+			.get();
 
-			if ((registrationModeSetting?.value ?? 'passphrase') === 'closed') {
-				throw new HTTPException(403, { message: 'Registration is closed' });
+		const registrationMode = (registrationModeSetting?.value ?? 'passphrase') as 'closed' | 'passphrase' | 'open';
+
+		if (!isFirstUser) {
+			if (registrationMode === 'closed') {
+				return c.redirect(googleErrorLocation('registration_closed', '/signup'), 302);
 			}
 		}
 
-		// Generate a username from Google profile
-		const nameSource = userInfo.name ?? (userInfo.email ? userInfo.email.split('@')[0] : undefined) ?? 'user';
-		const baseUsername = nameSource.replace(/[^a-zA-Z0-9_]/g, '_').replace(/^_+|_+$/g, '').slice(0, 28) || 'user';
+		if (registrationMode === 'passphrase') {
+			const signupPassphrase = c.env.SIGNUP_PASSPHRASE;
+			if (!signupPassphrase || !storedState.signupPassphrase || storedState.signupPassphrase !== signupPassphrase) {
+				return c.redirect(googleErrorLocation('signup_required', '/signup'), 302);
+			}
+		}
 
-		let username = baseUsername;
-		let suffix = 1;
-		while (await db.select().from(users).where(eq(users.username, username)).get()) {
-			username = `${baseUsername}_${suffix}`;
-			suffix++;
+		const username = storedState.signupUsername?.trim();
+		if (!username) {
+			return c.redirect(googleErrorLocation('signup_required', '/signup'), 302);
+		}
+
+		if (!isValidNameFormat(username)) {
+			return c.redirect(googleErrorLocation('invalid_username', '/signup'), 302);
+		}
+
+		if (!isFirstUser) {
+			const usernameError = await validateUsername(db, username);
+			if (usernameError) {
+				const error = usernameError === 'Username already exists' ? 'username_taken' : 'invalid_username';
+				return c.redirect(googleErrorLocation(error, '/signup'), 302);
+			}
 		}
 
 		const userId = genEaidx(Date.now());
@@ -188,7 +211,7 @@ app.get('/callback', async (c) => {
 
 		user = await db.select().from(users).where(eq(users.id, userId)).get();
 		if (!user) {
-			throw new HTTPException(500, { message: 'Failed to create user' });
+			return c.redirect(googleErrorLocation('user_creation_failed', '/signup'), 302);
 		}
 	}
 

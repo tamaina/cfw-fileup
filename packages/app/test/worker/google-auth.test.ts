@@ -15,9 +15,15 @@ const googleEnv = Object.assign({}, env, {
 	GOOGLE_REDIRECT_URI: 'http://localhost:8788/api/auth/google/callback',
 });
 
+const noGoogleEnv = Object.assign({}, env, {
+	GOOGLE_CLIENT_ID: '',
+	GOOGLE_CLIENT_SECRET: '',
+	GOOGLE_REDIRECT_URI: '',
+});
+
 describe('GET /api/auth/google', () => {
 	test('returns 503 when Google OAuth is not configured', async () => {
-		const res = await app.request('/api/auth/google', { method: 'GET' }, env);
+		const res = await app.request('/api/auth/google', { method: 'GET' }, noGoogleEnv);
 		expect(res.status).toBe(503);
 	});
 
@@ -29,32 +35,52 @@ describe('GET /api/auth/google', () => {
 		expect(location).toContain('client_id=test-client-id');
 		expect(location).toContain('state=');
 	});
+
+	test('stores signup data in OAuth state', async () => {
+		const res = await app.request('/api/auth/google?passphrase=secret&username=alice', { method: 'GET' }, googleEnv);
+		expect(res.status).toBe(302);
+
+		const location = res.headers.get('Location') ?? '';
+		const state = new URL(location).searchParams.get('state');
+		expect(state).toBeTruthy();
+
+		const row = await env.DB
+			.prepare('SELECT signup_passphrase, signup_username FROM oauth_states WHERE state = ?')
+			.bind(state)
+			.first<{ signup_passphrase: string | null; signup_username: string | null }>();
+		expect(row?.signup_passphrase).toBe('secret');
+		expect(row?.signup_username).toBe('alice');
+	});
 });
 
 describe('GET /api/auth/google/callback', () => {
 	test('returns 503 when Google OAuth is not configured', async () => {
-		const res = await app.request('/api/auth/google/callback?code=abc&state=xyz', { method: 'GET' }, env);
+		const res = await app.request('/api/auth/google/callback?code=abc&state=xyz', { method: 'GET' }, noGoogleEnv);
 		expect(res.status).toBe(503);
 	});
 
-	test('returns 400 when state is missing', async () => {
+	test('redirects with error when state is missing', async () => {
 		const res = await app.request('/api/auth/google/callback?code=abc', { method: 'GET' }, googleEnv);
-		expect(res.status).toBe(400);
+		expect(res.status).toBe(302);
+		expect(res.headers.get('Location')).toContain('google_error=missing_params');
 	});
 
-	test('returns 400 when code is missing', async () => {
+	test('redirects with error when code is missing', async () => {
 		const res = await app.request('/api/auth/google/callback?state=xyz', { method: 'GET' }, googleEnv);
-		expect(res.status).toBe(400);
+		expect(res.status).toBe(302);
+		expect(res.headers.get('Location')).toContain('google_error=missing_params');
 	});
 
-	test('returns 400 for invalid/expired state', async () => {
+	test('redirects with error for invalid/expired state', async () => {
 		const res = await app.request('/api/auth/google/callback?code=abc&state=invalid-state', { method: 'GET' }, googleEnv);
-		expect(res.status).toBe(400);
+		expect(res.status).toBe(302);
+		expect(res.headers.get('Location')).toContain('google_error=invalid_state');
 	});
 
-	test('returns 400 with error parameter', async () => {
+	test('redirects with error parameter', async () => {
 		const res = await app.request('/api/auth/google/callback?error=access_denied', { method: 'GET' }, googleEnv);
-		expect(res.status).toBe(400);
+		expect(res.status).toBe(302);
+		expect(res.headers.get('Location')).toContain('google_error=access_denied');
 	});
 });
 

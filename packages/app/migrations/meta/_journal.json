@@ -15,6 +15,20 @@
       "when": 1779249352877,
       "tag": "0001_blushing_sandman",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1779253916115,
+      "tag": "0002_pretty_talos",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1779256612964,
+      "tag": "0003_overjoyed_pyro",
+      "breakpoints": true
     }
   ]
 }

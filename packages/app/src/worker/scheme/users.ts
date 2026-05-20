@@ -21,5 +21,7 @@ export const oauthStates = sqliteTable('oauth_states', {
 	state: text('state').notNull().unique(),
 	codeVerifier: text('code_verifier'),
 	profileUrl: text('profile_url'),
+	signupPassphrase: text('signup_passphrase'),
+	signupUsername: text('signup_username'),
 	expiresAt: integer('expires_at').notNull(),
 });
