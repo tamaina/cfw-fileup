@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, watch } from 'vue';
+import * as v from 'valibot';
 import type { FileVisibility } from '../../shared/file-visibility';
-import { Button, Form, Popover } from '@vuetify/v0';
+import { Button, Popover } from '@vuetify/v0';
 import NirA from '@/components/nira.vue';
 import { authStore, authHeaders } from '@/store/auth';
 import { apiPost } from '@/utils/api';
 import { setPendingUpload } from '@/store/pending-upload';
 import { mainRouter } from '@/router';
 import ConfirmDialog from '@/components/confirm-dialog.vue';
+import InputDialog from '@/components/input-dialog.vue';
 
 const props = defineProps<{
 	bucketName: string;
@@ -63,6 +65,15 @@ function formatSize(bytes: number): string {
 const bucketId = ref<string | null>(null);
 const newDirName = ref('');
 const mkdirError = ref('');
+const mkdirDialog = ref(false);
+
+const directoryNameSchema = v.pipe(
+	v.string(),
+	v.trim(),
+	v.minLength(1, 'フォルダ名を入力してください'),
+	v.maxLength(255, 'フォルダ名は255文字以内で入力してください'),
+	v.regex(/^[^/\\]+$/, 'フォルダ名に / や \\ は使えません'),
+);
 
 const deleteDialog = ref(false);
 const deleteTarget = ref<DisplayEntry | null>(null);
@@ -208,10 +219,14 @@ async function loadBucketId(): Promise<void> {
 	bucketId.value = result.data.buckets.find(b => b.name === props.bucketName)?.id ?? null;
 }
 
-async function createDirectory({ valid }: { valid: boolean }): Promise<void> {
-	if (!valid) return;
-	const name = newDirName.value.trim();
-	if (!name || !bucketId.value) return;
+function openMkdirDialog(): void {
+	newDirName.value = '';
+	mkdirError.value = '';
+	mkdirDialog.value = true;
+}
+
+async function createDirectory(name: string): Promise<void> {
+	if (!bucketId.value) return;
 	mkdirError.value = '';
 	const path = `${props.filePath}${name}/`;
 	const dirResult = await apiPost('/api/directories/create', { bucketId: bucketId.value!, path });
@@ -219,6 +234,7 @@ async function createDirectory({ valid }: { valid: boolean }): Promise<void> {
 		mkdirError.value = dirResult.data.error;
 		return;
 	}
+	mkdirDialog.value = false;
 	newDirName.value = '';
 	await load();
 }
@@ -496,63 +512,58 @@ watch([isPartiallySelected, isAllSelected], async () => {
 
 <template>
   <div>
-    <!-- アーカイブ操作 -->
-    <div v-if="isArchive" class="flex gap-2 items-center mb-3 flex-wrap">
-      <a :href="downloadUrl" download class="btn btn-secondary">ダウンロード</a>
-      <a v-if="isTargz" :href="decompressUrl" download class="btn btn-secondary">展開してダウンロード (.tar)</a>
-      <Button.Root v-if="authStore.user" class="btn btn-ghost-danger" @click="archiveDeleteDialog = true">
-        <Button.Content>削除</Button.Content>
-      </Button.Root>
-      <span v-if="deleteError" :class="[$style.inlineError, 'alert', 'alert-error']">{{ deleteError }}</span>
-    </div>
 
-    <!-- 通常ディレクトリ操作 -->
-    <div v-if="!isArchive && authStore.user" class="flex gap-2 items-center mb-3 flex-wrap">
-      <Button.Root class="btn btn-primary" @click="goUpload">
-        <Button.Content>アップロード</Button.Content>
-      </Button.Root>
-      <Form class="flex gap-2 items-center" @submit="createDirectory">
-        <input
-          v-model="newDirName"
-          :class="[$style.dirInput, 'form-input', 'form-input-mono']"
-          type="text"
-          placeholder="新しいフォルダ名"
-        >
-        <button type="submit" class="btn btn-secondary" :disabled="!newDirName.trim() || !bucketId">
+    <div class="flex gap-2 items-center mb-3 flex-wrap">
+      <!-- アーカイブ操作 -->
+      <template v-if="isArchive" class="flex gap-2 items-center mb-3 flex-wrap">
+        <a :href="downloadUrl" download class="btn btn-secondary">ダウンロード</a>
+        <a v-if="isTargz" :href="decompressUrl" download class="btn btn-secondary">展開してダウンロード (.tar)</a>
+        <Button.Root v-if="authStore.user" class="btn btn-ghost-danger" @click="archiveDeleteDialog = true">
+          <Button.Content>削除</Button.Content>
+        </Button.Root>
+        <span v-if="deleteError" :class="[$style.inlineError, 'alert', 'alert-error']">{{ deleteError }}</span>
+      </template>
+
+      <!-- 通常ディレクトリ操作 -->
+      <template v-if="!isArchive && authStore.user">
+        <Button.Root class="btn btn-primary" @click="goUpload">
+          <Button.Content>アップロード</Button.Content>
+        </Button.Root>
+        <button type="button" class="btn btn-secondary" :disabled="!bucketId" @click="openMkdirDialog">
           フォルダ作成
         </button>
-      </Form>
-      <span v-if="mkdirError" :class="[$style.mkdirError, 'text-danger']">{{ mkdirError }}</span>
-    </div>
+      </template>
 
-    <div v-if="canSelectEntries" class="flex gap-2 items-center mb-3 flex-wrap">
-      <button
-        v-if="canSelectEntries && selectableEntries.length > 0 && selectedCount === 0"
-        type="button"
-        :class="['btn', $style.selectAllButton]"
-        @click="selectAllEntries"
-      >
-        全て選択
-      </button>
+      <!-- 一括選択 -->
+      <template v-if="canSelectEntries">
+        <button
+          v-if="canSelectEntries && selectableEntries.length > 0 && selectedCount === 0"
+          type="button"
+          :class="['btn', $style.selectAllButton]"
+          @click="selectAllEntries"
+        >
+          全て選択
+        </button>
 
-      <Popover.Root v-if="canSelectEntries && selectedCount > 0" v-model="selectionPopoverOpen">
-        <Popover.Activator :class="['btn', 'btn-secondary', $style.selectionButton]" aria-haspopup="true">
-          <span>選択中</span>
-          <span :class="['badge', selectAllMode ? 'badge-success' : 'badge-info', $style.selectionBadge]">
-            {{ selectionBadgeLabel }}
-          </span>
-        </Popover.Activator>
-        <Popover.Content class="action-menu">
-          <div class="action-menu-inner">
-            <Button.Root v-if="canDeleteSelectedEntries" class="btn btn-ghost-danger w-full" :class="$style.menuItem" @click="requestBulkDelete">
-              <Button.Content>まとめて削除</Button.Content>
-            </Button.Root>
-            <Button.Root class="btn btn-ghost w-full" :class="$style.menuItem" @click="clearSelection">
-              <Button.Content>選択を解除</Button.Content>
-            </Button.Root>
-          </div>
-        </Popover.Content>
-      </Popover.Root>
+        <Popover.Root v-if="canSelectEntries && selectedCount > 0" v-model="selectionPopoverOpen">
+          <Popover.Activator :class="['btn', 'btn-secondary', $style.selectionButton]" aria-haspopup="true">
+            <span>選択中</span>
+            <span :class="['badge', selectAllMode ? 'badge-success' : 'badge-info', $style.selectionBadge]">
+              {{ selectionBadgeLabel }}
+            </span>
+          </Popover.Activator>
+          <Popover.Content class="action-menu">
+            <div class="action-menu-inner">
+              <Button.Root v-if="canDeleteSelectedEntries" class="btn btn-ghost-danger w-full" :class="$style.menuItem" @click="requestBulkDelete">
+                <Button.Content>まとめて削除</Button.Content>
+              </Button.Root>
+              <Button.Root class="btn btn-ghost w-full" :class="$style.menuItem" @click="clearSelection">
+                <Button.Content>選択を解除</Button.Content>
+              </Button.Root>
+            </div>
+          </Popover.Content>
+        </Popover.Root>
+      </template>
     </div>
 
     <div v-if="loading" class="page-loading">
@@ -678,6 +689,20 @@ watch([isPartiallySelected, isAllSelected], async () => {
       @cancel="bulkDeleteDialog = false"
     />
 
+    <InputDialog
+      v-if="authStore.user"
+      v-model:open="mkdirDialog"
+      v-model="newDirName"
+      title="フォルダ作成"
+      label="フォルダ名"
+      confirm-label="作成"
+      :schema="directoryNameSchema"
+      :external-error="mkdirError"
+      :mono="true"
+      @submit="createDirectory"
+      @cancel="mkdirError = ''"
+    />
+
     <!-- 削除確認ダイアログ（アーカイブ） -->
     <ConfirmDialog
       v-model:open="archiveDeleteDialog"
@@ -694,14 +719,6 @@ watch([isPartiallySelected, isAllSelected], async () => {
 <style module lang="scss">
 .inlineError {
   padding: 4px 10px;
-  font-size: 0.8rem;
-}
-
-.dirInput {
-  width: 180px;
-}
-
-.mkdirError {
   font-size: 0.8rem;
 }
 
