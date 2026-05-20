@@ -1,15 +1,13 @@
 import { env } from 'cloudflare:workers';
 import app from '../../src/worker/index';
 import migration0000 from '../../migrations/0000_rich_gressill.sql?raw';
-import migration0008 from '../../migrations/0008_add_google_auth.sql?raw';
-import migration0009 from '../../migrations/0009_add_indieauth.sql?raw';
+import migration0001 from '../../migrations/0001_blushing_sandman.sql?raw';
 
 export { env, app };
 
 const migrations = [
 	migration0000,
-	migration0008,
-	migration0009,
+	migration0001,
 ] as const;
 
 const tables = [

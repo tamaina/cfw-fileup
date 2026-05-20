@@ -12,15 +12,8 @@
     {
       "idx": 1,
       "version": "6",
-      "when": 1779250000000,
-      "tag": "0008_add_google_auth",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "6",
-      "when": 1779251000000,
-      "tag": "0009_add_indieauth",
+      "when": 1779249352877,
+      "tag": "0001_blushing_sandman",
       "breakpoints": true
     }
   ]
