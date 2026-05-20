@@ -41,7 +41,7 @@
     "valibot": "^1.4.0"
   },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "^1.36.3",
+    "@cloudflare/vite-plugin": "^1.37.2",
     "@cloudflare/vitest-pool-workers": "^0.16.4",
     "@eslint/eslintrc": "^3.3.5",
     "@eslint/js": "^9.39.4",
@@ -65,6 +65,6 @@
     "vue": "^3.5.34",
     "vue-tsc": "^3.2.8",
     "workbox-window": "^7.4.1",
-    "wrangler": "^4.4.0"
+    "wrangler": "^4.93.0"
   }
 }

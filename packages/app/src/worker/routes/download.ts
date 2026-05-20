@@ -2,12 +2,97 @@ import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { eq, and, like } from 'drizzle-orm';
 import { createBgzfBlock } from 'bgzf';
+import { aidxRegExp, parseEaidx } from '../../shared/eaid-x';
 import { buckets, files, targzFiles, tarFiles, tokens, users, fileAccessTokens } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { DownloadContext, downloadCacheInternalHeaders } from '../utils/download-context';
 
 const app = new Hono<{ Bindings: Env }>();
 const downloadCacheName = 'download';
+const missingFileCacheName = 'download-file-not-found';
+const tenYearsInSeconds = 10 * 365 * 24 * 60 * 60;
+
+function createMissingFileCacheRequest(fileId: string): Request {
+	const keyUrl = new URL('https://cache.cfw-fileup.local/download-file-not-found');
+	keyUrl.searchParams.set('v', '1');
+	keyUrl.searchParams.set('fileId', fileId);
+	return new Request(keyUrl, { method: 'GET' });
+}
+
+function stripInternalCacheHeaders(cached: Response): Response {
+	const headers = new Headers(cached.headers);
+	const cachedStatus = Number(headers.get(downloadCacheInternalHeaders.status));
+	const status = Number.isInteger(cachedStatus) && cachedStatus >= 100 && cachedStatus <= 599
+		? cachedStatus
+		: cached.status;
+	const statusText = headers.get(downloadCacheInternalHeaders.statusText) ?? cached.statusText;
+	headers.delete(downloadCacheInternalHeaders.status);
+	headers.delete(downloadCacheInternalHeaders.statusText);
+	return new Response(cached.body, {
+		status,
+		statusText,
+		headers,
+	});
+}
+
+async function matchMissingFileCache(fileId: string): Promise<Response | null> {
+	const cacheRequest = createMissingFileCacheRequest(fileId);
+	const cache = await caches.open(missingFileCacheName);
+	const cached = await cache.match(cacheRequest);
+	if (cached === undefined) return null;
+
+	const expires = cached.headers.get('Expires');
+	if (expires !== null) {
+		const expiresAt = Date.parse(expires);
+		if (!Number.isNaN(expiresAt) && expiresAt <= Date.now()) {
+			await cache.delete(cacheRequest);
+			return null;
+		}
+	}
+
+	return stripInternalCacheHeaders(cached);
+}
+
+function createMissingFileResponse(fileId: string): Response {
+	const fileDate = parseEaidx(fileId).date;
+	const now = Date.now();
+	const expiresAt = fileDate.getTime() > now
+		? fileDate.getTime()
+		: now + tenYearsInSeconds * 1000;
+	const maxAge = Math.max(0, Math.floor((expiresAt - now) / 1000));
+
+	return new Response(JSON.stringify({ error: 'File not found' }), {
+		status: 404,
+		headers: {
+			'Content-Type': 'application/json',
+			'Cache-Control': `public, max-age=${maxAge}`,
+			'Expires': new Date(expiresAt).toUTCString(),
+		},
+	});
+}
+
+function putMissingFileCache(fileId: string, response: Response, waitUntil: (promise: Promise<void>) => void): void {
+	const putPromise = (async () => {
+		const cache = await caches.open(missingFileCacheName);
+		const cacheResponse = response.clone();
+		const headers = new Headers(cacheResponse.headers);
+		headers.set(downloadCacheInternalHeaders.status, String(cacheResponse.status));
+		headers.set(downloadCacheInternalHeaders.statusText, cacheResponse.statusText);
+		await cache.put(createMissingFileCacheRequest(fileId), new Response(cacheResponse.body, {
+			status: 200,
+			statusText: 'OK',
+			headers,
+		}));
+	})();
+
+	try {
+		waitUntil(putPromise);
+	} catch {
+		void putPromise.catch((error: unknown) => {
+			console.error('Failed to put missing file response into cache:', error);
+		});
+	}
+}
 
 async function decompressGzipChunk(data: Uint8Array): Promise<Uint8Array> {
 	const decompressor = new DecompressionStream('gzip');
@@ -50,8 +135,16 @@ async function decompressGzipChunk(data: Uint8Array): Promise<Uint8Array> {
 app.get('/d/:fileId', async (c) => {
 	const db = getDb(c.env);
 	const fileId = c.req.param('fileId');
+	if (!aidxRegExp.test(fileId)) throw new HTTPException(400, { message: 'Invalid file ID' });
+	const cachedMissingFile = await matchMissingFileCache(fileId);
+	if (cachedMissingFile !== null) return cachedMissingFile;
+
 	const file = await db.select().from(files).where(eq(files.id, fileId)).get();
-	if (!file) throw new HTTPException(404, { message: 'File not found' });
+	if (!file) {
+		const response = createMissingFileResponse(fileId);
+		putMissingFileCache(fileId, response, (promise) => c.executionCtx.waitUntil(promise));
+		return response;
+	}
 	const bucket = await db.select().from(buckets).where(eq(buckets.id, file.bucketId)).get();
 	if (!bucket) throw new HTTPException(404, { message: 'Bucket not found' });
 

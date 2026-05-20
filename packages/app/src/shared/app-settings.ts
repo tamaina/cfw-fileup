@@ -17,6 +17,8 @@ export type RegistrationMode = v.InferOutput<typeof registrationModeSchema>;
  */
 export const KNOWN_SETTINGS = {
 	registration_mode: v.optional(registrationModeSchema, 'passphrase' satisfies RegistrationMode),
+	google_required: v.optional(v.picklist(['true', 'false']), 'false'),
+	indieauth_blocked_servers: v.optional(v.string(), ''),
 	forbidden_usernames: v.optional(v.string(), DEFAULT_FORBIDDEN_USERNAMES),
 	forbidden_bucket_names: v.optional(v.string(), DEFAULT_FORBIDDEN_BUCKET_NAMES),
 } as const;

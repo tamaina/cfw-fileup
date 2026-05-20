@@ -17,6 +17,8 @@ jobs:
           node-version: 24
           cache: pnpm
 
+      - run: pnpm config set minimumReleaseAge 0 --location project
+
       - run: pnpm install --frozen-lockfile
 
       - run: pnpm --filter app run test
@@ -32,6 +34,8 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+
+      - run: pnpm config set minimumReleaseAge 0 --location project
 
       - run: pnpm install --frozen-lockfile
 
@@ -50,6 +54,8 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+
+      - run: pnpm config set minimumReleaseAge 0 --location project
 
       - run: pnpm install --frozen-lockfile
 

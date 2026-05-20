@@ -199,6 +199,7 @@ export const passkeyApiDef = {
 		req: v.object({
 			username: v.pipe(v.string(), v.minLength(1), v.maxLength(32)),
 			passphrase: v.optional(v.string()),
+			turnstileToken: v.optional(v.string()),
 		}),
 		res: {
 			200: { description: 'Signup options', content: { 'application/json': { vSchema: v.object({ challengeId: v.string(), options: PublicKeyCredentialCreationOptionsJSON }) } } },

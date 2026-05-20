@@ -37,3 +37,12 @@ tags: [d1, migrations, drizzle, db, schema, scheme]
 
 ### マイグレーションファイルのパス
 `packages/app/migrations/*.sql`
+
+## テストヘルパー
+
+Worker テストの DB 初期化は `packages/app/test/worker/helpers.ts` で行っています。
+
+- 生成された migration SQL は `?raw` 付きで import し、`migrations` 配列へ実行順に追加してください。
+- `setupDb()` は `migrations` 配列の SQL を `--> statement-breakpoint` で分割して適用します。本番/ローカル D1 と同じ migration SQL を使うため、テスト用に別 SQL を手書きしないでください。
+- 新しいテーブルを追加した場合は、`tables` 配列と `clearDb()` の削除順も更新してください。外部キーがあるので、依存する子テーブルから先に削除します。
+- migration を作り直したりファイル名が変わった場合は、古い import と `migrations` 配列の参照も忘れずに置き換えてください。

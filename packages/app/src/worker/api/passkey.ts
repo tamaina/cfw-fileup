@@ -15,6 +15,7 @@ import { genEaidx, parseEaidx } from '../../shared/eaid-x';
 import { generateToken, verifyPassword } from '../utils/crypto';
 import { isValidNameFormat } from '../../shared/name-validation';
 import { validateUsername } from '../utils/name-validation';
+import { verifyTurnstile } from '../utils/turnstile';
 import { apiDef, getResponseDefWithAuth, type JsonCtx } from '../../shared/api';
 import { omitResAndReq } from '../utils/omit';
 import type { AuthenticatorTransportFuture } from '@simplewebauthn/server';
@@ -472,8 +473,14 @@ app.post(
 	describeResponse(async (c: JsonCtx<'/api/passkey/signup/begin', Env>) => {
 		const db = getDb(c.env);
 		const { rpID } = getRpInfo(c.req.url);
-		const { username, passphrase } = c.req.valid('json');
+		const { username, passphrase, turnstileToken } = c.req.valid('json');
 		const trimmed = username.trim();
+
+		if ((c.env.TURNSTILE_SECRET as string) !== '') {
+			if (!turnstileToken || !await verifyTurnstile(turnstileToken, c.env.TURNSTILE_SECRET)) {
+				throw new HTTPException(400, { message: 'Turnstile verification failed' });
+			}
+		}
 
 		if (!isValidNameFormat(trimmed)) {
 			throw new HTTPException(400, { message: 'Invalid username format' });
