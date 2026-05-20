@@ -42,6 +42,9 @@ async function fetchSettings(): Promise<void> {
 				case 'google_required':
 					map.google_required = s.value;
 					break;
+				case 'indieauth_blocked_servers':
+					map.indieauth_blocked_servers = s.value;
+					break;
 				case 'forbidden_usernames':
 					map.forbidden_usernames = s.value;
 					break;
@@ -115,6 +118,17 @@ async function saveSetting<TKey extends KnownSettingKey>(key: TKey, value: v.Inf
           @save="saveSetting('google_required', $event)"
         >
           有効にすると Google アカウントによる登録・サインインのみが許可されます。
+        </SettingItem>
+
+        <SettingItem
+          v-model="values['indieauth_blocked_servers']"
+          :schema="KNOWN_SETTINGS['indieauth_blocked_servers']"
+          title="IndieAuth ブロックサーバー"
+          :saving="saving['indieauth_blocked_servers']"
+          multiline
+          @save="saveSetting('indieauth_blocked_servers', $event)"
+        >
+          カンマ区切りで Misskey サーバーのホスト名を指定します。
         </SettingItem>
 
         <SettingItem

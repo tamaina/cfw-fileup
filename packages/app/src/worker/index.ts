@@ -12,6 +12,7 @@ import { metaRoutes } from './api/meta';
 import { fileTokenRoutes } from './api/file-tokens';
 import { passkeyRoutes } from './api/passkey';
 import { googleAuthRoutes } from './api/google-auth';
+import { indieAuthRoutes } from './api/indieauth';
 import { downloadRoutes } from './routes/download';
 import { uploadRoutes } from './routes/upload';
 
@@ -47,6 +48,7 @@ app.route('/api/directories', directoryRoutes);
 app.route('/api/file-tokens', fileTokenRoutes);
 app.route('/api/passkey', passkeyRoutes);
 app.route('/api/auth/google', googleAuthRoutes);
+app.route('/api/auth/indieauth', indieAuthRoutes);
 app.route('/', downloadRoutes);
 app.route('/', uploadRoutes);
 

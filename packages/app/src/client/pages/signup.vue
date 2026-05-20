@@ -14,6 +14,8 @@ const form = reactive({ username: '', password: '', passphrase: '' });
 const error = ref('');
 const loading = ref(false);
 const googleLoading = ref(false);
+const indieauthLoading = ref(false);
+const indieauthProfileUrl = ref('');
 
 const passkeyForm = reactive({ username: '', passkeyName: '' });
 const passkeyError = ref('');
@@ -142,6 +144,16 @@ async function signupWithPasskey(): Promise<void> {
 function signupWithGoogle(): void {
 	googleLoading.value = true;
 	location.href = '/api/auth/google';
+}
+
+function signupWithIndieAuth(): void {
+	const url = indieauthProfileUrl.value.trim();
+	if (!url) {
+		error.value = 'MisskeyプロフィールURLを入力してください';
+		return;
+	}
+	indieauthLoading.value = true;
+	location.href = `/api/auth/indieauth/begin?profile_url=${encodeURIComponent(url)}`;
 }
 </script>
 
@@ -272,21 +284,38 @@ function signupWithGoogle(): void {
         </div>
       </template>
 
-      <div v-if="googleAuthEnabled" :class="$style.passkeySection">
-        <div :class="$style.divider">
-          <hr :class="$style.dividerLine">
-          <span :class="$style.dividerText">または</span>
-          <hr :class="$style.dividerLine">
+	      <div :class="$style.passkeySection">
+	        <div :class="$style.divider">
+	          <hr :class="$style.dividerLine">
+	          <span :class="$style.dividerText">または</span>
+	          <hr :class="$style.dividerLine">
         </div>
         <button
           type="button"
           :class="['btn', 'btn-ghost', 'w-full', $style.passkeyBtn]"
           :disabled="googleLoading"
           @click="signupWithGoogle"
-        >
-          {{ googleLoading ? '処理中...' : 'Googleでアカウント作成' }}
-        </button>
-      </div>
+	        >
+	          {{ googleLoading ? '処理中...' : 'Googleでアカウント作成' }}
+	        </button>
+	        <div :class="$style.indieauthBox">
+	          <input
+	            v-model="indieauthProfileUrl"
+	            class="form-input"
+	            type="url"
+	            placeholder="https://misskey.io/@username"
+	            autocomplete="url"
+	          >
+	          <button
+	            type="button"
+	            :class="['btn', 'btn-ghost', 'w-full', $style.passkeyBtn]"
+	            :disabled="indieauthLoading"
+	            @click="signupWithIndieAuth"
+	          >
+	            {{ indieauthLoading ? '処理中...' : 'Misskeyでアカウント作成' }}
+	          </button>
+	        </div>
+	      </div>
 
       <div :class="$style.footer">
         <button type="button" class="btn btn-ghost" @click="navigateTo('/signin')">
@@ -359,6 +388,13 @@ function signupWithGoogle(): void {
 
 .googleRequiredAlert {
   margin-bottom: 12px;
+}
+
+.indieauthBox {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  gap: 8px;
 }
 
 .footer {
