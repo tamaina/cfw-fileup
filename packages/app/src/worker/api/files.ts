@@ -7,20 +7,21 @@ import { buckets, files, targzFiles, tarFiles, uploadParts, directories, tokens,
 import { getDb } from '../utils/db';
 import { getQuotaForUser } from '../utils/rate-limit';
 import { authMiddleware } from '../middleware/auth';
+import { shortGetCache } from '../middleware/short-get-cache';
 import { genEaidx } from '../../shared/eaid-x';
 import { apiDef, getResponseDefWithAuth, type JsonCtx } from '../../shared/api';
 import { omitResAndReq } from '../utils/omit';
 
 const app = new Hono<{ Bindings: Env }>();
 
-async function listFiles(c: { env: Env; req: { header(name: string): string | undefined } }, bucketName: string, path = '', forceOwner = false) {
+async function listFiles(c: { env: Env; req: { header(name: string): string | undefined } }, bucketName: string, path = '', forceOwner = false, allowBearerAuth = true) {
 	const db = getDb(c.env);
 	const normalizedPath = path === '' || path.endsWith('/') ? path : `${path}/`;
 	const bucket = await db.select().from(buckets).where(eq(buckets.name, bucketName)).get();
 	if (!bucket) throw new HTTPException(404, { message: 'Bucket not found' });
 
 	let isOwnerOrAdmin = forceOwner;
-	if (!isOwnerOrAdmin) {
+	if (!isOwnerOrAdmin && allowBearerAuth) {
 		const authorization = c.req.header('Authorization');
 		if (authorization?.startsWith('Bearer ')) {
 			const token = authorization.slice(7);
@@ -97,10 +98,12 @@ async function listFiles(c: { env: Env; req: { header(name: string): string | un
 	return { type: 'directory' as const, entries };
 }
 
+app.use('/ls', shortGetCache({ maxAgeSeconds: 10 }));
+
 app.get('/ls', async (c) => {
 	const bucketName = c.req.query('bucketName');
 	if (!bucketName) throw new HTTPException(400, { message: 'bucketName is required' });
-	return c.json(await listFiles(c, bucketName, c.req.query('path') ?? ''), 200);
+	return c.json(await listFiles(c, bucketName, c.req.query('path') ?? '', false, false), 200);
 });
 
 app.get('/meta', async (c) => {

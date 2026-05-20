@@ -498,12 +498,12 @@ async function startUpload(): Promise<void> {
 			const lastSlash = path.lastIndexOf('/');
 			const parentPath = lastSlash === -1 ? '' : path.slice(0, lastSlash + 1);
 			const fileName = path.slice(lastSlash + 1);
-			const res = await fetch(`/api/files/ls?bucketName=${encodeURIComponent(selectedBucketName.value)}&path=${encodeURIComponent(parentPath)}`, {
-				headers: authHeaders(),
+			const result = await apiPost('/api/files/ls', {
+				bucketName: selectedBucketName.value,
+				path: parentPath,
 			});
-			if (res.ok) {
-				const data = await res.json() as { entries: Array<{ type: string; name: string }> };
-				if (data.entries.some(e => e.type === 'file' && e.name === fileName)) {
+			if (result.ok) {
+				if (result.data.entries.some(e => e.type === 'file' && e.name === fileName)) {
 					conflicts.push(path);
 				}
 			}
