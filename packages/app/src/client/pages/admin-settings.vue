@@ -39,6 +39,9 @@ async function fetchSettings(): Promise<void> {
 				case 'registration_mode':
 					map.registration_mode = s.value;
 					break;
+				case 'google_required':
+					map.google_required = s.value;
+					break;
 				case 'forbidden_usernames':
 					map.forbidden_usernames = s.value;
 					break;
@@ -102,6 +105,16 @@ async function saveSetting<TKey extends KnownSettingKey>(key: TKey, value: v.Inf
           @save="saveSetting('registration_mode', $event)"
         >
           非公開: 新規登録を受け付けません。パスフレーズ必須: 環境変数 <code>SIGNUP_PASSPHRASE</code> を知るユーザーのみ登録できます。公開: 誰でも登録できます。
+        </SettingItem>
+
+        <SettingItem
+          v-model="values['google_required']"
+          :schema="KNOWN_SETTINGS['google_required']"
+          title="Googleアカウント登録必須"
+          :saving="saving['google_required']"
+          @save="saveSetting('google_required', $event)"
+        >
+          有効にすると Google アカウントによる登録・サインインのみが許可されます。
         </SettingItem>
 
         <SettingItem

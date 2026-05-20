@@ -17,11 +17,22 @@ app.get('/meta', async (c) => {
 
 		const mode = registrationModeSetting?.value ?? 'passphrase';
 
+		const googleRequiredSetting = await db
+			.select()
+			.from(appSettings)
+			.where(eq(appSettings.key, 'google_required'))
+			.get();
+
+		const googleRequired = googleRequiredSetting?.value === 'true';
+		const googleAuthEnabled = (c.env.GOOGLE_CLIENT_ID as string) !== '' && (c.env.GOOGLE_CLIENT_SECRET as string) !== '';
+
 		return c.json({
 			registrationEnabled: mode !== 'closed',
 			passphraseRequired: mode === 'passphrase',
 			turnstileEnabled: (c.env.TURNSTILE_SECRET as string) !== '',
 			turnstileSiteKey: c.env.TURNSTILE_SITE_KEY,
+			googleAuthEnabled,
+			googleRequired,
 		});
 	} catch {
 		return c.json({
@@ -29,6 +40,8 @@ app.get('/meta', async (c) => {
 			passphraseRequired: true,
 			turnstileEnabled: false,
 			turnstileSiteKey: '',
+			googleAuthEnabled: false,
+			googleRequired: false,
 		});
 	}
 });

@@ -1,11 +1,13 @@
 import { env } from 'cloudflare:workers';
 import app from '../../src/worker/index';
 import migration0000 from '../../migrations/0000_rich_gressill.sql?raw';
+import migration0008 from '../../migrations/0008_add_google_auth.sql?raw';
 
 export { env, app };
 
 const migrations = [
 	migration0000,
+	migration0008,
 ] as const;
 
 const tables = [
@@ -18,6 +20,7 @@ const tables = [
 	'passkeys',
 	'files',
 	'directories',
+	'oauth_states',
 	'tokens',
 	'user_quotas',
 	'buckets',

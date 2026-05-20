@@ -8,6 +8,13 @@
       "when": 1779229046194,
       "tag": "0000_rich_gressill",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1779250000000,
+      "tag": "0008_add_google_auth",
+      "breakpoints": true
     }
   ]
 }

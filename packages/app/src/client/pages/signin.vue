@@ -13,9 +13,11 @@ const form = reactive({ username: '', password: '' });
 const error = ref('');
 const loading = ref(false);
 const passkeyLoading = ref(false);
+const googleLoading = ref(false);
 const turnstileEnabled = ref(false);
 const turnstileSiteKey = ref('');
 const turnstileToken = ref<string | null>(null);
+const googleAuthEnabled = ref(false);
 
 // Backup code mode
 const showBackupCode = ref(false);
@@ -26,15 +28,56 @@ const backupError = ref('');
 async function fetchMeta(): Promise<void> {
 	try {
 		const res = await fetch('/api/meta');
-		const data = (await res.json()) as { turnstileEnabled?: boolean; turnstileSiteKey?: string };
+		const data = (await res.json()) as {
+			turnstileEnabled?: boolean;
+			turnstileSiteKey?: string;
+			googleAuthEnabled?: boolean;
+		};
 		turnstileEnabled.value = data.turnstileEnabled ?? false;
 		turnstileSiteKey.value = data.turnstileSiteKey ?? '';
+		googleAuthEnabled.value = data.googleAuthEnabled ?? false;
 	} catch (e) {
 		console.error('Failed to fetch meta:', e);
 	}
 }
 
 fetchMeta();
+
+async function handleGoogleCallback(): Promise<void> {
+	const params = new URLSearchParams(window.location.search);
+	const googleToken = params.get('google_token');
+	if (!googleToken) return;
+
+	const newUrl = new URL(window.location.href);
+	newUrl.searchParams.delete('google_token');
+	window.history.replaceState({}, '', newUrl.toString());
+
+	googleLoading.value = true;
+	error.value = '';
+	try {
+		const res = await fetch('/api/auth/google/complete', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ googleToken }),
+		});
+		const data = (await res.json()) as { token?: string; error?: string };
+		if (!res.ok) {
+			error.value = data.error ?? 'Googleサインインに失敗しました';
+			return;
+		}
+		if (data.token) {
+			setToken(data.token);
+			await fetchCurrentUser();
+			navigateTo('/my/buckets');
+		}
+	} catch (e) {
+		error.value = String(e);
+	} finally {
+		googleLoading.value = false;
+	}
+}
+
+handleGoogleCallback();
 
 const canSubmit = computed(() => !turnstileEnabled.value || turnstileToken.value !== null);
 
@@ -128,6 +171,10 @@ async function signinWithBackupCode({ valid }: { valid: boolean }): Promise<void
 		backupLoading.value = false;
 	}
 }
+
+function signinWithGoogle(): void {
+	location.href = '/api/auth/google';
+}
 </script>
 
 <template>
@@ -197,6 +244,15 @@ async function signinWithBackupCode({ valid }: { valid: boolean }): Promise<void
             @click="showBackupCode = true"
           >
             バックアップコードでサインイン
+          </button>
+          <button
+            v-if="googleAuthEnabled"
+            type="button"
+            :class="[$style.passkeyBtn, 'btn', 'btn-ghost', 'w-full']"
+            :disabled="googleLoading"
+            @click="signinWithGoogle"
+          >
+            {{ googleLoading ? '処理中...' : 'Googleでサインイン' }}
           </button>
         </div>
       </template>
