@@ -851,9 +851,9 @@ watch([isPartiallySelected, isAllSelected], async () => {
       </template>
     </div>
 
-    <div class="flex gap-1 items-center mb-3" style="justify-content: flex-end">
+    <div :class="$style.viewToggle" aria-label="表示形式">
       <button
-        :class="['btn btn-sm', viewMode === 'list' ? 'btn-primary' : 'btn-secondary']"
+        :class="[$style.viewToggleButton, viewMode === 'list' && $style.viewToggleButtonActive]"
         type="button"
         title="リストビュー"
         @click="setViewMode('list')"
@@ -861,7 +861,7 @@ watch([isPartiallySelected, isAllSelected], async () => {
         リスト
       </button>
       <button
-        :class="['btn btn-sm', viewMode === 'grid' ? 'btn-primary' : 'btn-secondary']"
+        :class="[$style.viewToggleButton, viewMode === 'grid' && $style.viewToggleButtonActive]"
         type="button"
         title="グリッドビュー"
         @click="setViewMode('grid')"
@@ -913,12 +913,12 @@ watch([isPartiallySelected, isAllSelected], async () => {
             <tbody>
               <tr v-if="isArchive && archivePath !== ''">
                 <td :colspan="3">
-                  <button :class="[$style.upButton, 'text-muted', 'font-mono']" @click="navigateArchiveUp">..</button>
+                  <button :class="$style.upButton" @click="navigateArchiveUp">..</button>
                 </td>
               </tr>
               <tr v-else-if="parentPath()">
                 <td :colspan="tableColspan">
-                  <NirA :to="parentPath()!" :class="[$style.upLink, 'text-muted', 'font-mono']">..</NirA>
+                  <NirA :to="parentPath()!" :class="$style.upLink">..</NirA>
                 </td>
               </tr>
               <tr v-for="entry in entries" :key="entry.key">
@@ -971,10 +971,10 @@ watch([isPartiallySelected, isAllSelected], async () => {
         </div>
         <template v-else>
           <div v-if="isArchive && archivePath !== ''" class="mb-2">
-            <button :class="[$style.upButton, 'text-muted', 'font-mono']" type="button" @click="navigateArchiveUp">..</button>
+            <button :class="$style.upButton" type="button" @click="navigateArchiveUp">..</button>
           </div>
           <div v-else-if="parentPath()" class="mb-2">
-            <NirA :to="parentPath()!" :class="[$style.upLink, 'text-muted', 'font-mono']">..</NirA>
+            <NirA :to="parentPath()!" :class="$style.upLink">..</NirA>
           </div>
 
           <div v-if="entries.length === 0" class="empty-state card">
@@ -1008,6 +1008,7 @@ watch([isPartiallySelected, isAllSelected], async () => {
                   :alt="entry.name"
                   :class="$style.gridCardImage"
                   loading="lazy"
+                  decoding="async"
                 >
                 <div v-else :class="$style.gridCardIcon">
                   <Folder v-if="entry.isDir" :size="42" :stroke-width="1.8" aria-hidden="true" />
@@ -1128,6 +1129,45 @@ watch([isPartiallySelected, isAllSelected], async () => {
   overflow: hidden;
 }
 
+.viewToggle {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
+.viewToggleButton {
+  min-width: 72px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text);
+  cursor: pointer;
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-border, #d5dbe3);
+}
+
+.viewToggleButton:first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.viewToggleButton + .viewToggleButton {
+  margin-left: -1px;
+  border-radius: 0 6px 6px 0;
+}
+
+.viewToggleButton:hover {
+  background: var(--color-bg);
+}
+
+.viewToggleButtonActive,
+.viewToggleButtonActive:hover {
+  z-index: 1;
+  color: #fff;
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
 .checkboxCell {
   width: 1em;
   padding-right: 6px !important;
@@ -1147,15 +1187,40 @@ watch([isPartiallySelected, isAllSelected], async () => {
 }
 
 .upButton {
-  font-size: 0.875rem;
-  background: none;
-  border: none;
+  display: inline-flex;
+  align-items: center;
+  min-width: 42px;
+  padding: 4px 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--color-primary);
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-primary);
+  border-radius: 6px;
   cursor: pointer;
-  padding: 0;
+  text-decoration: none;
 }
 
 .upLink {
-  font-size: 0.875rem;
+  display: inline-flex;
+  align-items: center;
+  min-width: 42px;
+  padding: 4px 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--color-primary);
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-primary);
+  border-radius: 6px;
+  text-decoration: none;
+}
+
+.upButton:hover,
+.upLink:hover {
+  color: #fff;
+  background: var(--color-primary);
 }
 
 .nameCell {
@@ -1242,11 +1307,14 @@ watch([isPartiallySelected, isAllSelected], async () => {
 }
 
 .gridCardPreview {
+  position: relative;
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
   width: 100%;
-  aspect-ratio: 1;
+  height: auto;
+  aspect-ratio: 1 / 1;
   color: var(--color-text-muted);
   text-decoration: none;
   background: var(--color-bg);
@@ -1259,6 +1327,8 @@ watch([isPartiallySelected, isAllSelected], async () => {
 }
 
 .gridCardImage {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;
