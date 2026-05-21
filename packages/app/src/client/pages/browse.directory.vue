@@ -1249,7 +1249,7 @@ watch([isPartiallySelected, isAllSelected], async () => {
   aspect-ratio: 1;
   color: var(--color-text-muted);
   text-decoration: none;
-  background: var(--color-background-muted, #f5f5f5);
+  background: var(--color-bg);
 }
 
 .gridCardPreviewButton {
