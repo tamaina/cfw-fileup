@@ -43,6 +43,11 @@ export const ROUTE_DEF = [
 		component: page(() => import('@/pages/my-uploadings.vue')),
 	},
 	{
+		path: '/my/downloads',
+		name: 'my-downloads',
+		component: page(() => import('@/pages/my-downloads.vue')),
+	},
+	{
 		path: '/my/passkeys',
 		name: 'my-passkeys',
 		component: page(() => import('@/pages/my-passkeys.vue')),

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import { Form } from '@vuetify/v0';
 import { startAuthentication, startRegistration } from '@simplewebauthn/browser';
 import type { PublicKeyCredentialCreationOptionsJSON, PublicKeyCredentialRequestOptionsJSON } from '@simplewebauthn/browser';
@@ -15,6 +15,9 @@ const signinForm = reactive({ username: '', password: '' });
 const signinError = ref('');
 const signinLoading = ref(false);
 const passkeySigninLoading = ref(false);
+const googleLoading = ref(false);
+const indieauthLoading = ref(false);
+const indieauthProfileUrl = ref('');
 
 const useBackupCode = ref(false);
 const backupCode = ref('');
@@ -24,12 +27,16 @@ const signupError = ref('');
 const signupLoading = ref(false);
 const passkeySignupError = ref('');
 const passkeySignupLoading = ref(false);
+const signupMethod = ref<'passkey' | 'password'>('passkey');
 
 const passphraseRequired = ref(false);
 const turnstileEnabled = ref(false);
 const turnstileSiteKey = ref('');
 const signinTurnstileToken = ref<string | null>(null);
 const signupTurnstileToken = ref<string | null>(null);
+const signupPrerequisitesConfirmed = ref(false);
+const googleAuthEnabled = ref(false);
+const googleRequired = ref(false);
 
 const activeMode = computed<'signin' | 'signup'>(() => (
 	mainRouter.currentRef.value.route.name === 'signup' ? 'signup' : 'signin'
@@ -42,22 +49,38 @@ const signupUsernameFormatError = computed(() => {
 });
 
 const canPasswordSignin = computed(() => !turnstileEnabled.value || signinTurnstileToken.value !== null);
-const canPasswordSignup = computed(() =>
-	(!turnstileEnabled.value || signupTurnstileToken.value !== null) && !signupUsernameFormatError.value,
+const signupPrerequisitesRequired = computed(() => passphraseRequired.value || turnstileEnabled.value);
+const signupPrerequisitesMet = computed(() =>
+	(!signupPrerequisitesRequired.value || signupPrerequisitesConfirmed.value) &&
+	(!passphraseRequired.value || !!signupForm.passphrase) &&
+	(!turnstileEnabled.value || signupTurnstileToken.value !== null)
 );
-const canPasskeySignup = computed(() =>
+const signupUsernameReady = computed(() =>
+	signupPrerequisitesMet.value &&
 	!!signupForm.username.trim() &&
-	!signupUsernameFormatError.value &&
-	(!passphraseRequired.value || !!signupForm.passphrase),
+	!signupUsernameFormatError.value,
+);
+const canPasswordSignup = computed(() => signupUsernameReady.value);
+const canPasskeySignup = computed(() => signupUsernameReady.value);
+const canUseExternalAuth = computed(() =>
+	activeMode.value === 'signin' || signupUsernameReady.value,
 );
 
 async function fetchMeta(): Promise<void> {
 	try {
 		const res = await fetch('/api/meta');
-		const data = (await res.json()) as { passphraseRequired?: boolean; turnstileEnabled?: boolean; turnstileSiteKey?: string };
+		const data = (await res.json()) as {
+			passphraseRequired?: boolean;
+			turnstileEnabled?: boolean;
+			turnstileSiteKey?: string;
+			googleAuthEnabled?: boolean;
+			googleRequired?: boolean;
+		};
 		passphraseRequired.value = data.passphraseRequired ?? false;
 		turnstileEnabled.value = data.turnstileEnabled ?? false;
 		turnstileSiteKey.value = data.turnstileSiteKey ?? '';
+		googleAuthEnabled.value = data.googleAuthEnabled ?? false;
+		googleRequired.value = data.googleRequired ?? false;
 	} catch (e) {
 		console.error('Failed to fetch meta:', e);
 	}
@@ -65,14 +88,205 @@ async function fetchMeta(): Promise<void> {
 
 fetchMeta();
 
+watch(() => signupForm.passphrase, () => {
+	signupPrerequisitesConfirmed.value = false;
+});
+
 function switchMode(mode: 'signin' | 'signup'): void {
 	navigateTo(mode === 'signin' ? '/signin' : '/signup');
+}
+
+function confirmSignupPrerequisites(): void {
+	signupError.value = '';
+	if (!signupForm.username.trim()) {
+		signupError.value = 'ユーザー名を入力してください';
+		return;
+	}
+	if (signupUsernameFormatError.value) {
+		signupError.value = signupUsernameFormatError.value;
+		return;
+	}
+	if (passphraseRequired.value && !signupForm.passphrase) {
+		signupError.value = '合言葉を入力してください';
+		return;
+	}
+	if (turnstileEnabled.value && !signupTurnstileToken.value) {
+		signupError.value = 'Turnstileの確認を完了してください';
+		return;
+	}
+	signupPrerequisitesConfirmed.value = true;
 }
 
 async function finishAuth(token: string, nextPath = '/my/buckets'): Promise<void> {
 	setToken(token);
 	await fetchCurrentUser();
 	navigateTo(nextPath);
+}
+
+async function handleGoogleCallback(): Promise<void> {
+	const params = new URLSearchParams(window.location.search);
+	const googleToken = params.get('google_token');
+	const googleError = params.get('google_error');
+	if (!googleToken && !googleError) return;
+
+	const newUrl = new URL(window.location.href);
+	newUrl.searchParams.delete('google_token');
+	newUrl.searchParams.delete('google_error');
+	window.history.replaceState({}, '', newUrl.toString());
+
+	if (googleError) {
+		const errorMessages: Record<string, string> = {
+			access_denied: 'Google認証がキャンセルされました',
+			missing_params: 'Google認証情報が不足しています',
+			invalid_state: 'Google認証のstateが無効です',
+			token_exchange_failed: 'Google token の交換に失敗しました',
+			userinfo_failed: 'Googleアカウント情報の取得に失敗しました',
+			registration_closed: '新規登録は停止されています',
+			signup_required: 'このGoogleアカウントは未登録です。ユーザー名と必要な確認を入力して登録してください。',
+			invalid_username: 'ユーザー名の形式が正しくありません',
+			username_taken: 'このユーザー名はすでに使われています',
+			suspended: 'アカウントは凍結されています',
+			user_creation_failed: 'ユーザー作成に失敗しました',
+		};
+		const message = errorMessages[googleError] ?? `Google認証エラー: ${googleError}`;
+		if (activeMode.value === 'signup') {
+			signupError.value = message;
+		} else {
+			signinError.value = message;
+		}
+		return;
+	}
+
+	if (!googleToken) return;
+
+	googleLoading.value = true;
+	signinError.value = '';
+	signupError.value = '';
+	try {
+		const res = await fetch('/api/auth/google/complete', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ googleToken }),
+		});
+		const data = (await res.json()) as { token?: string; error?: string };
+		if (!res.ok || !data.token) {
+			signinError.value = data.error ?? 'Googleサインインに失敗しました';
+			return;
+		}
+		await finishAuth(data.token);
+	} catch (e) {
+		signinError.value = String(e);
+	} finally {
+		googleLoading.value = false;
+	}
+}
+
+async function handleIndieAuthCallback(): Promise<void> {
+	const params = new URLSearchParams(window.location.search);
+	const indieauthToken = params.get('indieauth_token');
+	const indieauthError = params.get('indieauth_error');
+	if (!indieauthToken && !indieauthError) return;
+
+	const newUrl = new URL(window.location.href);
+	newUrl.searchParams.delete('indieauth_token');
+	newUrl.searchParams.delete('indieauth_error');
+	window.history.replaceState({}, '', newUrl.toString());
+
+	if (indieauthError) {
+		const errorMessages: Record<string, string> = {
+			access_denied: 'IndieAuthがキャンセルされました',
+			missing_params: 'IndieAuthの認証情報が不足しています',
+			invalid_state: 'IndieAuthのstateが無効です',
+			server_blocked: 'このMisskeyサーバーは許可されていません',
+			discovery_failed: 'IndieAuthエンドポイントの検出に失敗しました',
+			no_token_endpoint: 'IndieAuth token endpoint が見つかりません',
+			token_exchange_failed: 'IndieAuth token の交換に失敗しました',
+			registration_closed: '新規登録は停止されています',
+			invalid_passphrase: '合言葉が正しくありません',
+			missing_username: 'ユーザー名を入力してから登録してください',
+			invalid_username: 'ユーザー名の形式が正しくありません',
+			username_taken: 'このユーザー名はすでに使われています',
+			suspended: 'アカウントは凍結されています',
+			user_creation_failed: 'ユーザー作成に失敗しました',
+		};
+		signinError.value = errorMessages[indieauthError] ?? `IndieAuthエラー: ${indieauthError}`;
+		return;
+	}
+
+	if (!indieauthToken) return;
+
+	indieauthLoading.value = true;
+	signinError.value = '';
+	signupError.value = '';
+	try {
+		const res = await fetch('/api/auth/indieauth/complete', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ indieauthToken }),
+		});
+		const data = (await res.json()) as { token?: string; error?: string };
+		if (!res.ok || !data.token) {
+			signinError.value = data.error ?? 'IndieAuthサインインに失敗しました';
+			return;
+		}
+		await finishAuth(data.token);
+	} catch (e) {
+		signinError.value = String(e);
+	} finally {
+		indieauthLoading.value = false;
+	}
+}
+
+handleGoogleCallback();
+handleIndieAuthCallback();
+
+function signinWithGoogle(): void {
+	if (activeMode.value === 'signup' && !signupPrerequisitesMet.value) {
+		signupError.value = '登録前に必要な確認を完了してください';
+		return;
+	}
+	if (activeMode.value === 'signup' && !signupUsernameReady.value) {
+		signupError.value = signupUsernameFormatError.value || 'ユーザー名を入力してください';
+		return;
+	}
+	googleLoading.value = true;
+	const params = new URLSearchParams();
+	if (activeMode.value === 'signup') {
+		params.set('username', signupForm.username.trim());
+		if (signupForm.passphrase) {
+			params.set('passphrase', signupForm.passphrase);
+		}
+	}
+	location.href = `/api/auth/google${params.size > 0 ? `?${params.toString()}` : ''}`;
+}
+
+function signinWithIndieAuth(): void {
+	if (activeMode.value === 'signup' && !signupPrerequisitesMet.value) {
+		signupError.value = '登録前に必要な確認を完了してください';
+		return;
+	}
+	if (activeMode.value === 'signup' && !signupUsernameReady.value) {
+		signupError.value = signupUsernameFormatError.value || 'ユーザー名を入力してください';
+		return;
+	}
+	const url = indieauthProfileUrl.value.trim();
+	if (!url) {
+		if (activeMode.value === 'signup') {
+			signupError.value = 'MisskeyプロフィールURLを入力してください';
+		} else {
+			signinError.value = 'MisskeyプロフィールURLを入力してください';
+		}
+		return;
+	}
+	const params = new URLSearchParams({ profile_url: url });
+	if (activeMode.value === 'signup') {
+		params.set('username', signupForm.username.trim());
+		if (signupForm.passphrase) {
+			params.set('passphrase', signupForm.passphrase);
+		}
+	}
+	indieauthLoading.value = true;
+	location.href = `/api/auth/indieauth/begin?${params.toString()}`;
 }
 
 async function signinWithPassword({ valid }: { valid: boolean }): Promise<void> {
@@ -172,6 +386,7 @@ async function signupWithPasskey(): Promise<void> {
 		const beginResult = await apiPost('/api/passkey/signup/begin', {
 			username: signupForm.username.trim(),
 			passphrase: signupForm.passphrase || undefined,
+			turnstileToken: turnstileEnabled.value && signupTurnstileToken.value ? signupTurnstileToken.value : undefined,
 		});
 		if (!beginResult.ok) {
 			passkeySignupError.value = beginResult.data.error || 'サインアップの開始に失敗しました';
@@ -213,7 +428,7 @@ async function signupWithPasskey(): Promise<void> {
         <div class="tab-bar" :class="$style.tabs" role="tablist" aria-label="認証方法">
           <button
             type="button"
-            :class="['tab-btn', activeMode === 'signin' ? 'tab-btn-active' : '']"
+            :class="[$style.tabItemButton, 'tab-btn', activeMode === 'signin' ? 'tab-btn-active' : '']"
             role="tab"
             :aria-selected="activeMode === 'signin'"
             @click="switchMode('signin')"
@@ -222,7 +437,7 @@ async function signupWithPasskey(): Promise<void> {
           </button>
           <button
             type="button"
-            :class="['tab-btn', activeMode === 'signup' ? 'tab-btn-active' : '']"
+            :class="[$style.tabItemButton, 'tab-btn', activeMode === 'signup' ? 'tab-btn-active' : '']"
             role="tab"
             :aria-selected="activeMode === 'signup'"
             @click="switchMode('signup')"
@@ -232,7 +447,11 @@ async function signupWithPasskey(): Promise<void> {
         </div>
 
         <template v-if="activeMode === 'signin'">
-          <div :class="$style.methodBlock">
+          <div v-if="googleRequired" class="alert alert-error">
+            このサービスはGoogleアカウントによるサインインのみ受け付けています。
+          </div>
+
+          <div v-if="!googleRequired" :class="$style.methodBlock">
             <button
               v-if="!useBackupCode"
               type="button"
@@ -254,13 +473,13 @@ async function signupWithPasskey(): Promise<void> {
             <div v-if="signinError" class="alert alert-error">{{ signinError }}</div>
           </div>
 
-          <div v-if="!useBackupCode" :class="$style.divider">
+          <div v-if="!googleRequired && !useBackupCode" :class="$style.divider">
             <hr :class="$style.dividerLine">
             <span :class="$style.dividerText">または</span>
             <hr :class="$style.dividerLine">
           </div>
 
-          <Form :class="$style.form" @submit="signinWithPassword">
+          <Form v-if="!googleRequired" :class="$style.form" @submit="signinWithPassword">
             <div v-if="useBackupCode" class="form-group">
               <label class="form-label" for="backup-code">バックアップコード</label>
               <input
@@ -312,6 +531,10 @@ async function signupWithPasskey(): Promise<void> {
         </template>
 
         <template v-else>
+          <div v-if="googleRequired" class="alert alert-error">
+            このサービスはGoogleアカウントによる登録のみ受け付けています。
+          </div>
+
           <div :class="$style.form">
             <div class="form-group">
               <label class="form-label" for="signup-username">ユーザー名</label>
@@ -339,50 +562,6 @@ async function signupWithPasskey(): Promise<void> {
               >
             </div>
 
-            <div class="form-group">
-              <label class="form-label" for="signup-passkey-name">パスキー名（任意）</label>
-              <input
-                id="signup-passkey-name"
-                v-model="signupForm.passkeyName"
-                class="form-input"
-                type="text"
-                placeholder="例: iPhoneのFace ID"
-                maxlength="64"
-              >
-            </div>
-
-            <button
-              type="button"
-              :class="['btn', 'btn-primary', 'w-full', $style.fullButton]"
-              :disabled="passkeySignupLoading || !canPasskeySignup"
-              @click="signupWithPasskey"
-            >
-              {{ passkeySignupLoading ? '処理中...' : 'パスキーで登録' }}
-            </button>
-
-            <div v-if="passkeySignupError" class="alert alert-error">{{ passkeySignupError }}</div>
-          </div>
-
-          <div :class="$style.divider">
-            <hr :class="$style.dividerLine">
-            <span :class="$style.dividerText">または</span>
-            <hr :class="$style.dividerLine">
-          </div>
-
-          <Form :class="$style.form" @submit="signupWithPassword">
-            <div class="form-group">
-              <label class="form-label" for="signup-password">パスワード</label>
-              <input
-                id="signup-password"
-                v-model="signupForm.password"
-                class="form-input"
-                type="password"
-                required
-                autocomplete="new-password"
-                placeholder="••••••••"
-              >
-            </div>
-
             <TurnstileWidget
               v-if="turnstileEnabled"
               :site-key="turnstileSiteKey"
@@ -391,19 +570,116 @@ async function signupWithPasskey(): Promise<void> {
 
             <div v-if="signupError" class="alert alert-error">{{ signupError }}</div>
 
-            <button type="submit" :class="['btn', 'btn-primary', 'w-full', $style.fullButton]" :disabled="!canPasswordSignup || signupLoading">
-              {{ signupLoading ? '処理中...' : turnstileEnabled && !signupTurnstileToken ? '確認中...' : '登録' }}
+            <button
+              v-if="signupPrerequisitesRequired && !signupPrerequisitesMet"
+              type="button"
+              :class="['btn', 'btn-primary', 'w-full', $style.fullButton]"
+              @click="confirmSignupPrerequisites"
+            >
+              確認して続行
             </button>
-          </Form>
+
+            <template v-if="signupPrerequisitesMet">
+              <template v-if="!googleRequired && signupMethod === 'passkey'">
+                <div class="form-group">
+                  <label class="form-label" for="signup-passkey-name">パスキー名（任意）</label>
+                  <input
+                    id="signup-passkey-name"
+                    v-model="signupForm.passkeyName"
+                    class="form-input"
+                    type="text"
+                    placeholder="例: iPhoneのFace ID"
+                    maxlength="64"
+                  >
+                </div>
+
+                <button
+                  type="button"
+                  :class="['btn', 'btn-primary', 'w-full', $style.fullButton]"
+                  :disabled="passkeySignupLoading || !canPasskeySignup"
+                  @click="signupWithPasskey"
+                >
+                  {{ passkeySignupLoading ? '処理中...' : 'パスキーで登録' }}
+                </button>
+
+                <button
+                  type="button"
+                  :class="['btn', 'btn-ghost', $style.toggleButton]"
+                  @click="signupMethod = 'password'"
+                >
+                  パスワードで登録
+                </button>
+
+                <div v-if="passkeySignupError" class="alert alert-error">{{ passkeySignupError }}</div>
+              </template>
+
+              <Form v-else-if="!googleRequired" :class="$style.form" @submit="signupWithPassword">
+                <div class="form-group">
+                  <label class="form-label" for="signup-password">パスワード</label>
+                  <input
+                    id="signup-password"
+                    v-model="signupForm.password"
+                    class="form-input"
+                    type="password"
+                    required
+                    autocomplete="new-password"
+                    placeholder="••••••••"
+                  >
+                </div>
+
+                <button type="submit" :class="['btn', 'btn-primary', 'w-full', $style.fullButton]" :disabled="!canPasswordSignup || signupLoading">
+                  {{ signupLoading ? '処理中...' : '登録' }}
+                </button>
+
+                <button
+                  type="button"
+                  :class="['btn', 'btn-ghost', $style.toggleButton]"
+                  @click="signupMethod = 'passkey'"
+                >
+                  パスキーで登録
+                </button>
+              </Form>
+            </template>
+          </div>
         </template>
       </section>
 
-      <aside :class="['card', $style.ssoCard]">
+      <aside :class="['card', $style.ssoCard, !canUseExternalAuth && $style.ssoCardDisabled]" :aria-disabled="!canUseExternalAuth">
         <h2 :class="$style.sideTitle">外部サイト認証</h2>
-        <button type="button" :class="['btn', 'btn-secondary', 'w-full', $style.fullButton]" disabled>
-          Googleでログイン
-        </button>
-        <p :class="$style.sideText">Googleログインは今後実装予定です。</p>
+        <div :class="$style.methodBlock">
+          <button
+            v-if="googleAuthEnabled"
+            type="button"
+            :class="['btn', 'btn-secondary', 'w-full', $style.fullButton]"
+            :disabled="googleLoading || !canUseExternalAuth"
+            @click="signinWithGoogle"
+          >
+            {{ googleLoading ? '処理中...' : activeMode === 'signup' ? 'Googleで登録' : 'Googleでログイン' }}
+          </button>
+
+          <div v-if="!googleRequired" :class="$style.indieauthBox">
+            <input
+              v-model="indieauthProfileUrl"
+              class="form-input"
+              type="url"
+              placeholder="https://misskey.io/@username"
+              autocomplete="url"
+              :disabled="!canUseExternalAuth"
+            >
+            <button
+              type="button"
+              :class="['btn', 'btn-ghost', 'w-full', $style.fullButton]"
+              :disabled="indieauthLoading || !canUseExternalAuth"
+              @click="signinWithIndieAuth"
+            >
+              {{ indieauthLoading ? '処理中...' : activeMode === 'signup' ? 'Misskeyで登録' : 'Misskeyでログイン' }}
+            </button>
+          </div>
+
+          <p v-if="!googleAuthEnabled && googleRequired" :class="$style.sideText">
+            Google認証が設定されていません。
+          </p>
+        </div>
       </aside>
     </div>
   </div>
@@ -431,8 +707,22 @@ async function signupWithPasskey(): Promise<void> {
   margin-top: 0 !important;
 }
 
+.ssoCardDisabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  user-select: none;
+}
+
+.ssoCardDisabled :is(button, input) {
+  cursor: not-allowed;
+}
+
 .tabs {
   margin-bottom: 20px;
+}
+
+.tabItemButton {
+  flex: 1;
 }
 
 .methodBlock,
@@ -485,6 +775,12 @@ async function signupWithPasskey(): Promise<void> {
   margin-top: 12px;
   color: var(--color-text-muted);
   font-size: 0.875rem;
+}
+
+.indieauthBox {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 @media (max-width: 760px) {

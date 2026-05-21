@@ -7,6 +7,9 @@ allowBuilds:
   sharp: true
   workerd: true
 
+# 5/21になったら消す
+minimumReleaseAge: 0
+
 onlyBuiltDependencies:
   - esbuild
   - sharp

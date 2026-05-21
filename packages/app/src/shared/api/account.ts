@@ -2,6 +2,7 @@ import * as v from 'valibot';
 import type { ApiEndpointDefinitionRecord } from '../api.types.js';
 import { ErrorResponse } from '../api.schemas.js';
 import { nameFormatValidation } from '../name-validation.js';
+import { MAX_PASSPHRASE_LENGTH, MAX_USERNAME_LENGTH } from '../const.js';
 
 export const accountApiDef = {
 	'/api/account/me': {
@@ -16,9 +17,9 @@ export const accountApiDef = {
     summary: 'Update account info',
     tags: ['account'],
 		req: v.object({
-			username: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(32), nameFormatValidation)),
-			newPassword: v.optional(v.pipe(v.string(), v.minLength(8))),
-			currentPassword: v.string(),
+			username: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(MAX_USERNAME_LENGTH), nameFormatValidation)),
+			newPassword: v.optional(v.pipe(v.string(), v.minLength(8), v.maxLength(MAX_PASSPHRASE_LENGTH))),
+			currentPassword: v.pipe(v.string(), v.maxLength(MAX_PASSPHRASE_LENGTH)),
 		}),
 		res: {
 			200: { description: 'Success', content: { 'application/json': { vSchema: v.object({ ok: v.literal(true) }) } } },

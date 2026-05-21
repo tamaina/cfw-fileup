@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeAll, beforeEach } from 'vitest';
-import { parseEaidx } from '../../src/shared/eaid-x';
+import { genEaidx, parseEaidx } from '../../src/shared/eaid-x';
 import { env, app, setupDb, clearDb, signup, authHeaders } from './helpers';
 
 beforeAll(async () => {
@@ -39,6 +39,49 @@ async function setupPublicFile() {
 	return { token, bucketId, fileId };
 }
 
+async function setupBucket(username: string) {
+	const { data } = await signup(username);
+	const token = String(data.token);
+	const userId = String(data.userId);
+
+	const bucketRes = await app.request('/api/buckets/create', {
+		method: 'POST',
+		headers: authHeaders(token),
+		body: JSON.stringify({ bucketName: `${username}_bucket` }),
+	}, env);
+	const { bucketId } = await bucketRes.json() as { bucketId: string };
+
+	return { token, userId, bucketId };
+}
+
+async function insertPublicFile(options: {
+	fileId: string;
+	bucketId: string;
+	userId: string;
+	path: string;
+	body: string;
+}): Promise<void> {
+	const r2Key = `${options.bucketId}/${options.path}`;
+	await env.R2.put(r2Key, options.body);
+	await env.DB.prepare(`
+		INSERT INTO files (
+			id, bucket_id, user_id, path, r2_key, size, mime_type, visibility,
+			upload_expires_at, is_closed, is_targz, is_tar, part_size
+		)
+		VALUES (?, ?, ?, ?, ?, ?, ?, 'public', ?, 1, 0, 0, ?)
+	`).bind(
+		options.fileId,
+		options.bucketId,
+		options.userId,
+		options.path,
+		r2Key,
+		options.body.length,
+		'text/plain',
+		Date.now() + 60_000,
+		32 * 1024 * 1024,
+	).run();
+}
+
 describe('GET /d/:fileId', () => {
 	test('downloads a public file', async () => {
 		const { fileId } = await setupPublicFile();
@@ -46,6 +89,7 @@ describe('GET /d/:fileId', () => {
 		const res = await app.request(`/d/${fileId}`, {}, env);
 		expect(res.status).toBe(200);
 		expect(res.headers.get('Cache-Control')).toBe('public, max-age=315360000, immutable');
+		expect(res.headers.get('Content-Disposition')).toBe('attachment; filename="hello.txt"; filename*=UTF-8\'\'hello.txt');
 		expect(res.headers.get('Last-Modified')).toBe(parseEaidx(fileId).date.toUTCString());
 		const text = await res.text();
 		expect(text).toBe('Hello World');
@@ -64,6 +108,7 @@ describe('GET /d/:fileId', () => {
 		const cachedRes = await app.request(`/d/${fileId}`, {}, env);
 		expect(cachedRes.status).toBe(200);
 		expect(cachedRes.headers.get('Cache-Control')).toBe('public, max-age=315360000, immutable');
+		expect(cachedRes.headers.get('Content-Disposition')).toBe('attachment; filename="hello.txt"; filename*=UTF-8\'\'hello.txt');
 		expect(cachedRes.headers.get('Last-Modified')).toBe(parseEaidx(fileId).date.toUTCString());
 		expect(await cachedRes.text()).toBe('Hello World');
 	});
@@ -88,9 +133,69 @@ describe('GET /d/:fileId', () => {
 		expect(afterDeleteRes.status).toBe(404);
 	});
 
-	test('nonexistent access key returns 404', async () => {
+	test('invalid access key returns 400', async () => {
 		const res = await app.request('/d/nonexistent_access_key_xyz', {}, env);
-		expect(res.status).toBe(404);
+		expect(res.status).toBe(400);
+		expect(await res.json()).toEqual({ error: 'Invalid file ID' });
+	});
+
+	test('missing past EAID-X file is cached as 404 before file lookup', async () => {
+		const fileId = genEaidx(Date.now() - 60_000);
+
+		const firstRes = await app.request(`/d/${fileId}`, {}, env);
+		expect(firstRes.status).toBe(404);
+		expect(firstRes.headers.get('Cache-Control')).toBe('public, max-age=315360000');
+		expect(await firstRes.json()).toEqual({ error: 'File not found' });
+
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		const { userId, bucketId } = await setupBucket('cached404past');
+		await insertPublicFile({
+			fileId,
+			bucketId,
+			userId,
+			path: 'created-after-cache.txt',
+			body: 'Created after negative cache',
+		});
+
+		const cachedRes = await app.request(`/d/${fileId}`, {}, env);
+		expect(cachedRes.status).toBe(404);
+		expect(cachedRes.headers.get('Cache-Control')).toBe('public, max-age=315360000');
+		expect(await cachedRes.json()).toEqual({ error: 'File not found' });
+	});
+
+	test('missing future EAID-X file is cached until the ID timestamp', async () => {
+		const fileId = genEaidx(Date.now() + 2_000);
+		const fileDate = parseEaidx(fileId).date;
+
+		const firstRes = await app.request(`/d/${fileId}`, {}, env);
+		expect(firstRes.status).toBe(404);
+		expect(firstRes.headers.get('Expires')).toBe(fileDate.toUTCString());
+		const cacheControl = firstRes.headers.get('Cache-Control');
+		expect(cacheControl).toMatch(/^public, max-age=\d+$/);
+		const maxAge = Number(cacheControl?.slice('public, max-age='.length));
+		expect(maxAge).toBeGreaterThanOrEqual(0);
+		expect(maxAge).toBeLessThanOrEqual(2);
+
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		const { userId, bucketId } = await setupBucket('cached404future');
+		await insertPublicFile({
+			fileId,
+			bucketId,
+			userId,
+			path: 'created-after-future-cache.txt',
+			body: 'Created before negative cache expires',
+		});
+
+		const cachedRes = await app.request(`/d/${fileId}`, {}, env);
+		expect(cachedRes.status).toBe(404);
+
+		await new Promise((resolve) => setTimeout(resolve, Math.max(0, fileDate.getTime() - Date.now()) + 1_100));
+
+		const afterExpiryRes = await app.request(`/d/${fileId}`, {}, env);
+		expect(afterExpiryRes.status).toBe(200);
+		expect(await afterExpiryRes.text()).toBe('Created before negative cache expires');
 	});
 
 	test('private file without token returns 403', async () => {

@@ -8,6 +8,7 @@ import { authMiddleware } from '../middleware/auth';
 import { genEaidx } from '../../shared/eaid-x';
 import { apiDef, getResponseDefWithAuth, type JsonCtx } from '../../shared/api';
 import { omitResAndReq } from '../utils/omit';
+import { MAX_FILE_PATH_LENGTH } from '../../shared/const';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -25,6 +26,9 @@ app.post(
 		if (!body.bucketId || !body.path) throw new HTTPException(400, { message: 'bucketId and path are required' });
 
 		const normalizedPath = body.path.endsWith('/') ? body.path : `${body.path}/`;
+		if (normalizedPath.length > MAX_FILE_PATH_LENGTH) {
+			throw new HTTPException(400, { message: `path must be at most ${MAX_FILE_PATH_LENGTH} characters` });
+		}
 
 		const bucket = await db.select().from(buckets).where(eq(buckets.id, body.bucketId)).get();
 		if (!bucket) throw new HTTPException(404, { message: 'Bucket not found' });

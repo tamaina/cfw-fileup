@@ -48,6 +48,18 @@ app.post(
 		const userCount = await db.select({ count: count() }).from(users);
 		const isFirstUser = (userCount[0]?.count ?? 0) === 0;
 
+		if (!isFirstUser) {
+			const googleRequiredSetting = await db
+				.select()
+				.from(appSettings)
+				.where(eq(appSettings.key, 'google_required'))
+				.get();
+
+			if (googleRequiredSetting?.value === 'true') {
+				throw new HTTPException(403, { message: 'Only Google account registration is allowed' });
+			}
+		}
+
 		const registrationModeSetting = await db
 			.select()
 			.from(appSettings)
@@ -130,6 +142,16 @@ app.post(
 
 		if (user.isSuspended) {
 			throw new HTTPException(401, { message: 'Account is suspended' });
+		}
+
+		const googleRequiredSetting = await db
+			.select()
+			.from(appSettings)
+			.where(eq(appSettings.key, 'google_required'))
+			.get();
+
+		if (googleRequiredSetting?.value === 'true') {
+			throw new HTTPException(403, { message: 'Only Google account sign-in is allowed' });
 		}
 
 		if (!user.passwordHash) {

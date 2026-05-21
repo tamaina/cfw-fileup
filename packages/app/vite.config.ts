@@ -4,7 +4,22 @@ import vue from '@vitejs/plugin-vue';
 import { VitePWA } from 'vite-plugin-pwa';
 import { resolve } from 'node:path';
 
+const devTunnelName = process.env.CF_DEV_TUNNEL;
+const devTunnel = devTunnelName === undefined || devTunnelName === ''
+  ? false
+  : ['1', 'true', 'quick'].includes(devTunnelName.toLowerCase())
+    ? true
+    : {
+      name: devTunnelName,
+      autoStart: true
+    };
+
 export default defineConfig({
+  preview: {
+    allowedHosts: [
+      '.trycloudflare.com',
+    ],
+  },
   server: {
     watch: {
       // .wrangler/state はMiniflareが頻繁に書き換えるため、HMRのトリガー対象から除外
@@ -19,6 +34,7 @@ export default defineConfig({
   plugins: [
     cloudflare({
       configPath: "./wrangler.jsonc",
+      tunnel: devTunnel as boolean,
     }),
     vue(),
     VitePWA({

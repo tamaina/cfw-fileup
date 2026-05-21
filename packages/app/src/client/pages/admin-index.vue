@@ -1,6 +1,29 @@
 <script setup lang="ts">
+import { ref } from 'vue';
 import { authStore } from '../store/auth';
+import { apiPost } from '../utils/api';
 import NirA from '@/components/nira.vue';
+
+const purging = ref(false);
+const error = ref('');
+const success = ref('');
+
+async function purgeWorkerCache(): Promise<void> {
+	if (!confirm('Workerキャッシュを全パージしますか？')) return;
+
+	purging.value = true;
+	error.value = '';
+	success.value = '';
+	try {
+		const result = await apiPost('/api/admin/purge-worker-cache');
+		if (!result.ok) throw new Error(result.data.error);
+		success.value = `Workerキャッシュをパージしました (${result.data.version})`;
+	} catch (e) {
+		error.value = String(e);
+	} finally {
+		purging.value = false;
+	}
+}
 </script>
 
 <template>
@@ -13,12 +36,24 @@ import NirA from '@/components/nira.vue';
       管理者権限が必要です。
     </div>
 
-    <div v-else :class="$style.navWrapper">
-      <ul class="admin-nav-list">
-        <li><NirA to="/admin/settings">アプリ設定</NirA></li>
-        <li><NirA to="/admin/global-quota">グローバルクォータ設定</NirA></li>
-        <li><NirA to="/admin/users">ユーザー管理</NirA></li>
-      </ul>
+    <div v-else>
+      <div v-if="error" class="alert alert-error mb-4">{{ error }}</div>
+      <div v-if="success" class="alert alert-success mb-4">{{ success }}</div>
+
+      <div :class="$style.navWrapper">
+        <ul class="admin-nav-list">
+          <li><NirA to="/admin/settings">アプリ設定</NirA></li>
+          <li><NirA to="/admin/global-quota">グローバルクォータ設定</NirA></li>
+          <li><NirA to="/admin/users">ユーザー管理</NirA></li>
+        </ul>
+      </div>
+
+      <div :class="$style.maintenance">
+        <h3 :class="$style.maintenanceTitle">メンテナンス</h3>
+        <button class="btn btn-danger" type="button" :disabled="purging" @click="purgeWorkerCache">
+          {{ purging ? 'パージ中...' : 'Workerキャッシュを全パージ' }}
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -26,5 +61,14 @@ import NirA from '@/components/nira.vue';
 <style module lang="scss">
 .navWrapper {
   max-width: 400px;
+}
+
+.maintenance {
+  margin-top: 24px;
+}
+
+.maintenanceTitle {
+  margin: 0 0 12px;
+  font-size: 1rem;
 }
 </style>

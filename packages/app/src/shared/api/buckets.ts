@@ -1,14 +1,15 @@
 import * as v from 'valibot';
 import type { ApiEndpointDefinitionRecord } from '../api.types.js';
-import { ErrorResponse } from '../api.schemas.js';
+import { ErrorResponse, IdString } from '../api.schemas.js';
 import { nameFormatValidation } from '../name-validation.js';
+import { MAX_BUCKET_NAME_LENGTH } from '../const.js';
 
 export const bucketsApiDef = {
 	'/api/buckets/create': {
 		summary: 'Create a bucket',
 		tags: ['buckets'],
 		req: v.object({
-			bucketName: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(64), nameFormatValidation),
+			bucketName: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(MAX_BUCKET_NAME_LENGTH), nameFormatValidation),
 		}),
 		res: {
 			200: { description: 'Success', content: { 'application/json': { vSchema: v.object({ bucketId: v.string() }) } } },
@@ -21,7 +22,7 @@ export const bucketsApiDef = {
 		summary: 'Delete a bucket',
 		tags: ['buckets'],
 		req: v.object({
-			bucketId: v.string(),
+			bucketId: IdString,
 		}),
 		res: {
 			200: { description: 'Success', content: { 'application/json': { vSchema: v.object({ ok: v.literal(true) }) } } },

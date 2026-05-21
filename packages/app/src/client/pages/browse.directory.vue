@@ -1,13 +1,23 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue';
+import * as v from 'valibot';
 import type { FileVisibility } from '../../shared/file-visibility';
-import { Button, Form } from '@vuetify/v0';
+import { Button, Popover } from '@vuetify/v0';
+import { FileIcon, Folder } from '@lucide/vue';
 import NirA from '@/components/nira.vue';
 import { authStore, authHeaders } from '@/store/auth';
 import { apiPost } from '@/utils/api';
 import { setPendingUpload } from '@/store/pending-upload';
 import { mainRouter } from '@/router';
 import ConfirmDialog from '@/components/confirm-dialog.vue';
+import InputDialog from '@/components/input-dialog.vue';
+import { MAX_DIRECTORY_NAME_LENGTH, MAX_FILE_PATH_LENGTH } from '../../shared/const';
+import { UploadTree } from '@/utils/upload-tree';
+import type { ArchiveDownloadWorkerMessage, ArchiveDownloadWorkerRequest, ArchiveDownloadProgress } from '@/workers/archive-download.worker';
+import type { DownloadTransformWorkerMessage, DownloadTransformWorkerRequest } from '@/workers/download-transform.worker';
+import { getOpfsTempFile, removeOpfsTempFile } from '@/workers/opfs-temp';
+import { completeDownloadStatus, failDownloadStatus, startDownloadStatus, updateDownloadStatus } from '@/store/download-status';
+import { registerDownloadedOpfsFile } from '@/store/download-cleanup';
 
 const props = defineProps<{
 	bucketName: string;
@@ -28,9 +38,9 @@ interface DisplayEntry {
 	isDir: boolean;
 	fullPath: string;
 	size?: number;
+	fileId?: string;
 	label: string;
 	visibility?: FileVisibility;
-	/** 画像プレビューURL (画像MIMEタイプのファイルのみ) */
 	previewUrl?: string;
 }
 
@@ -38,11 +48,6 @@ const downloadUrl = computed(() => {
 	if (!props.fileId) return '';
 	const base = `/d/${props.fileId}`;
 	return props.token ? `${base}?token=${props.token}` : base;
-});
-const decompressUrl = computed(() => {
-	if (!props.fileId) return '';
-	const base = `/d/${props.fileId}?decompress`;
-	return props.token ? `${base}&token=${props.token}` : base;
 });
 
 const entries = ref<DisplayEntry[]>([]);
@@ -65,12 +70,20 @@ function formatSize(bytes: number): string {
 const bucketId = ref<string | null>(null);
 const newDirName = ref('');
 const mkdirError = ref('');
+const mkdirDialog = ref(false);
+
+const directoryNameSchema = v.pipe(
+	v.string(),
+	v.trim(),
+	v.minLength(1, 'フォルダ名を入力してください'),
+	v.maxLength(MAX_DIRECTORY_NAME_LENGTH, `フォルダ名は${MAX_DIRECTORY_NAME_LENGTH}文字以内で入力してください`),
+	v.regex(/^[^/\\]+$/, 'フォルダ名に / や \\ は使えません'),
+);
 
 const deleteDialog = ref(false);
 const deleteTarget = ref<DisplayEntry | null>(null);
 const archiveDeleteDialog = ref(false);
 
-// ビューモード: list / grid (localStorageに保存して永続化)
 type ViewMode = 'list' | 'grid';
 const VIEW_MODE_KEY = 'cfw-fileup:dir-view-mode';
 const viewMode = ref<ViewMode>((localStorage.getItem(VIEW_MODE_KEY) as ViewMode | null) ?? 'list');
@@ -80,9 +93,368 @@ function setViewMode(mode: ViewMode): void {
 	localStorage.setItem(VIEW_MODE_KEY, mode);
 }
 
-/** MIMEタイプが画像かどうか */
 function isImageMime(mime: string): boolean {
 	return mime.startsWith('image/');
+}
+
+// 一括選択・削除用の状態
+const selectedPaths = ref<Set<string>>(new Set());
+const bulkDeleteDialog = ref(false);
+const excludedPaths = ref<Set<string>>(new Set());
+const selectAllMode = ref(false);
+const selectionPopoverOpen = ref(false);
+const headerCheckbox = ref<HTMLInputElement | null>(null);
+const archiveDownloadError = ref('');
+const archiveDownloadProgress = ref<ArchiveDownloadProgress | null>(null);
+let archiveDownloadWorker: Worker | null = null;
+let downloadTransformWorker: Worker | null = null;
+let archiveDownloadRequestId = 0;
+const archiveDownloadRequests = new Map<string, {
+	resolve: (value: { opfsName: string; filename: string; mimeType: string }) => void;
+	reject: (error: Error & { opfsName?: string }) => void;
+}>();
+const downloadTransformRequests = new Map<string, {
+	resolve: (value: { opfsName: string; filename: string; mimeType: string }) => void;
+	reject: (error: Error & { opfsName?: string }) => void;
+}>();
+
+/** 選択可能なエントリ */
+const selectableEntries = computed(() => entries.value);
+const canSelectEntries = computed(() => !isArchive.value);
+const canDeleteSelectedEntries = computed(() => !isArchive.value && authStore.user != null && bucketId.value != null);
+
+const selectedCount = computed(() => {
+	if (selectAllMode.value) return Math.max(0, selectableEntries.value.length - excludedPaths.value.size);
+	return selectedPaths.value.size;
+});
+
+const isAllEntriesSelected = computed(() => {
+	if (selectableEntries.value.length === 0) return false;
+	return selectableEntries.value.every(e => selectedPaths.value.has(e.fullPath));
+});
+
+const selectionBadgeLabel = computed(() => {
+	if (selectAllMode.value) return excludedPaths.value.size === 0 ? '全件' : `-${excludedPaths.value.size}件`;
+	return `${selectedCount.value}件`;
+});
+
+const tableColspan = computed(() => {
+	if (isArchive.value) return 3;
+	if (authStore.user && bucketId.value) return 6;
+	if (authStore.user) return 5;
+	return 4;
+});
+
+const archiveProgressLabel = computed(() => {
+	const progress = archiveDownloadProgress.value;
+	if (!progress) return '';
+	const phase = progress.phase === 'resolving' ? '対象解決中'
+		: progress.phase === 'reading' ? '読み込み中'
+			: progress.phase === 'writing' ? '書き込み中'
+				: '完了';
+	const total = progress.totalFiles > 0 ? ` / ${progress.totalFiles}` : '';
+	const current = progress.currentFile ? `: ${progress.currentFile}` : '';
+	return `${phase} ${progress.processedFiles}${total}${current}`;
+});
+
+/** 全選択チェックボックスの状態 */
+const isAllSelected = computed(() => {
+	if (selectableEntries.value.length === 0) return false;
+	return (selectAllMode.value && excludedPaths.value.size === 0) || isAllEntriesSelected.value;
+});
+
+/** 一部選択状態（indeterminate） */
+const isPartiallySelected = computed(() => {
+	const count = selectedCount.value;
+	return count > 0 && count < selectableEntries.value.length;
+});
+
+async function syncHeaderCheckbox(): Promise<void> {
+	await nextTick();
+	await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+	if (headerCheckbox.value) {
+		headerCheckbox.value.checked = isAllSelected.value;
+		headerCheckbox.value.indeterminate = isPartiallySelected.value;
+	}
+}
+
+function toggleSelectAll(): void {
+	if (!canSelectEntries.value || selectableEntries.value.length === 0) return;
+
+	if (selectAllMode.value) {
+		if (excludedPaths.value.size > 0) {
+			excludedPaths.value.clear();
+			void syncHeaderCheckbox();
+			return;
+		}
+		selectedPaths.value = new Set(selectableEntries.value.map(e => e.fullPath));
+		excludedPaths.value.clear();
+		selectAllMode.value = false;
+		void syncHeaderCheckbox();
+		return;
+	}
+
+	if (isAllEntriesSelected.value) {
+		selectAllMode.value = true;
+		selectedPaths.value.clear();
+		excludedPaths.value.clear();
+		void syncHeaderCheckbox();
+		return;
+	}
+
+	selectedPaths.value = new Set(selectableEntries.value.map(e => e.fullPath));
+	excludedPaths.value.clear();
+	selectAllMode.value = false;
+	void syncHeaderCheckbox();
+}
+
+function selectAllEntries(): void {
+	if (!canSelectEntries.value || selectableEntries.value.length === 0) return;
+	selectedPaths.value.clear();
+	excludedPaths.value.clear();
+	selectAllMode.value = true;
+}
+
+function clearSelection(): void {
+	selectedPaths.value.clear();
+	excludedPaths.value.clear();
+	selectAllMode.value = false;
+	selectionPopoverOpen.value = false;
+}
+
+function requestBulkDelete(): void {
+	if (!canDeleteSelectedEntries.value) return;
+	selectionPopoverOpen.value = false;
+	bulkDeleteDialog.value = true;
+}
+
+function getArchiveDownloadWorker(): Worker {
+	if (archiveDownloadWorker) return archiveDownloadWorker;
+	archiveDownloadWorker = new Worker(new URL('../workers/archive-download.worker.ts', import.meta.url), { type: 'module' });
+	archiveDownloadWorker.onmessage = (event: MessageEvent<ArchiveDownloadWorkerMessage>) => {
+		const message = event.data;
+		if (message.type === 'progress') {
+			archiveDownloadProgress.value = message.progress;
+			updateDownloadStatus(message.id, message.progress);
+			return;
+		}
+		const pending = archiveDownloadRequests.get(message.id);
+		if (!pending) return;
+		archiveDownloadRequests.delete(message.id);
+		if (message.type === 'done') {
+			pending.resolve({ opfsName: message.opfsName, filename: message.filename, mimeType: message.mimeType });
+		} else {
+			const error = new Error(message.error) as Error & { opfsName?: string };
+			error.opfsName = message.opfsName;
+			pending.reject(error);
+		}
+	};
+	return archiveDownloadWorker;
+}
+
+function runArchiveDownloadWorker(request: Omit<ArchiveDownloadWorkerRequest, 'id'>): Promise<{ opfsName: string; filename: string; mimeType: string }> {
+	const id = String(++archiveDownloadRequestId);
+	return new Promise((resolve, reject) => {
+		archiveDownloadRequests.set(id, { resolve, reject });
+		getArchiveDownloadWorker().postMessage({ ...request, id });
+	});
+}
+
+function getDownloadTransformWorker(): Worker {
+	if (downloadTransformWorker) return downloadTransformWorker;
+	downloadTransformWorker = new Worker(new URL('../workers/download-transform.worker.ts', import.meta.url), { type: 'module' });
+	downloadTransformWorker.onmessage = (event: MessageEvent<DownloadTransformWorkerMessage>) => {
+		const message = event.data;
+		if (message.type === 'progress') {
+			archiveDownloadProgress.value = message.progress;
+			updateDownloadStatus(message.id, message.progress);
+			return;
+		}
+		const pending = downloadTransformRequests.get(message.id);
+		if (!pending) return;
+		downloadTransformRequests.delete(message.id);
+		if (message.type === 'done') {
+			pending.resolve({ opfsName: message.opfsName, filename: message.filename, mimeType: message.mimeType });
+		} else if (message.type === 'error') {
+			const error = new Error(message.error) as Error & { opfsName?: string };
+			error.opfsName = message.opfsName;
+			pending.reject(error);
+		}
+	};
+	return downloadTransformWorker;
+}
+
+function runDownloadTransformWorker(request: Omit<DownloadTransformWorkerRequest, 'id'>): Promise<{ opfsName: string; filename: string; mimeType: string }> {
+	const id = `download-${++archiveDownloadRequestId}`;
+	return new Promise((resolve, reject) => {
+		downloadTransformRequests.set(id, { resolve, reject });
+		getDownloadTransformWorker().postMessage({ ...request, id });
+	});
+}
+
+async function cleanupOpfsFile(opfsName: string | undefined): Promise<void> {
+	if (!opfsName) return;
+	await removeOpfsTempFile(opfsName);
+}
+
+async function downloadOpfsFile(result: { opfsName: string; filename: string; mimeType: string }): Promise<void> {
+	const sourceFile = await getOpfsTempFile(result.opfsName);
+	const file = new File([sourceFile], result.filename, { type: result.mimeType, lastModified: sourceFile.lastModified });
+	const url = URL.createObjectURL(file);
+	registerDownloadedOpfsFile(url, result.opfsName);
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = result.filename;
+	document.body.append(a);
+	a.click();
+	a.remove();
+}
+
+function archiveBaseNameFromPath(path: string): string {
+	const segments = path.split('/').filter(Boolean);
+	return (segments.at(-1) ?? props.bucketName).replace(/\.(?:tar|tar\.gz)$/i, '') || 'archive';
+}
+
+function selectedArchiveTargets(): Array<
+	| { type: 'file'; path: string; fileId: string; size: number }
+	| { type: 'directory'; path: string }
+> {
+	if (selectAllMode.value) return [{ type: 'directory', path: props.filePath }];
+	return Array.from(selectedPaths.value).map((path) => {
+		const entry = entries.value.find(item => item.fullPath === path);
+		if (!entry || entry.isDir) return { type: 'directory' as const, path };
+		if (!entry.fileId) throw new Error(`fileId is missing for ${entry.name}`);
+		return { type: 'file' as const, path, fileId: entry.fileId, size: entry.size ?? 0 };
+	});
+}
+
+async function startDirectoryArchiveDownload(format: 'tar' | 'zip'): Promise<void> {
+	selectionPopoverOpen.value = false;
+	archiveDownloadError.value = '';
+	archiveDownloadProgress.value = null;
+	if (!navigator.storage?.getDirectory) {
+		archiveDownloadError.value = 'このブラウザは OPFS に対応していないため、アーカイブを作成できません。';
+		return;
+	}
+	const filename = `${archiveBaseNameFromPath(props.filePath)}.${format}`;
+	const statusId = String(archiveDownloadRequestId + 1);
+	startDownloadStatus(statusId, filename);
+	try {
+		const result = await runArchiveDownloadWorker({
+			mode: 'directory',
+			format,
+			bucketName: props.bucketName,
+			basePath: props.filePath,
+			targets: selectedArchiveTargets(),
+			excludePaths: Array.from(excludedPaths.value),
+			authHeaders: authHeaders(),
+			filename,
+		});
+		await downloadOpfsFile(result);
+		completeDownloadStatus(statusId);
+		archiveDownloadProgress.value = null;
+	} catch (err) {
+		await cleanupOpfsFile((err as Error & { opfsName?: string }).opfsName);
+		downloadTransformWorker?.terminate();
+		downloadTransformWorker = null;
+		const message = err instanceof Error ? err.message : String(err);
+		failDownloadStatus(statusId, message);
+		archiveDownloadError.value = message;
+	}
+}
+
+async function startArchiveToZipDownload(): Promise<void> {
+	archiveDownloadError.value = '';
+	archiveDownloadProgress.value = null;
+	if (!props.fileId) return;
+	if (!navigator.storage?.getDirectory) {
+		archiveDownloadError.value = 'このブラウザは OPFS に対応していないため、ZIP を作成できません。';
+		return;
+	}
+	const filename = `${archiveBaseNameFromPath(props.filePath)}.zip`;
+	const statusId = String(archiveDownloadRequestId + 1);
+	startDownloadStatus(statusId, filename);
+	try {
+		const result = await runArchiveDownloadWorker({
+			mode: 'archive-to-zip',
+			fileId: props.fileId,
+			token: props.token,
+			isTargz: props.isTargz,
+			filename,
+			authHeaders: authHeaders(),
+		});
+		await downloadOpfsFile(result);
+		completeDownloadStatus(statusId);
+		archiveDownloadProgress.value = null;
+	} catch (err) {
+		await cleanupOpfsFile((err as Error & { opfsName?: string }).opfsName);
+		archiveDownloadWorker?.terminate();
+		archiveDownloadWorker = null;
+		const message = err instanceof Error ? err.message : String(err);
+		failDownloadStatus(statusId, message);
+		archiveDownloadError.value = message;
+	}
+}
+
+async function startFullArchiveDownload(decompress: boolean): Promise<void> {
+	archiveDownloadError.value = '';
+	archiveDownloadProgress.value = null;
+	if (!props.fileId) return;
+	if (!navigator.storage?.getDirectory) {
+		archiveDownloadError.value = 'このブラウザは OPFS に対応していないため、アーカイブをダウンロードできません。';
+		return;
+	}
+	const baseName = archiveBaseNameFromPath(props.filePath);
+	const filename = `${baseName}${decompress ? '.tar' : '.tar.gz'}`;
+	const statusId = `download-${archiveDownloadRequestId + 1}`;
+	startDownloadStatus(statusId, filename);
+	try {
+		const result = await runDownloadTransformWorker({
+			mode: 'download',
+			url: downloadUrl.value,
+			filename,
+			mimeType: decompress ? 'application/x-tar' : 'application/gzip',
+			transform: decompress ? 'decompress-gzip' : 'recompress-bgzf',
+			authHeaders: authHeaders(),
+		});
+		await downloadOpfsFile(result);
+		completeDownloadStatus(statusId);
+		archiveDownloadProgress.value = null;
+	} catch (err) {
+		await cleanupOpfsFile((err as Error & { opfsName?: string }).opfsName);
+		archiveDownloadWorker?.terminate();
+		archiveDownloadWorker = null;
+		const message = err instanceof Error ? err.message : String(err);
+		failDownloadStatus(statusId, message);
+		archiveDownloadError.value = message;
+	}
+}
+
+function toggleSelect(path: string): void {
+	if (!canSelectEntries.value) return;
+
+	if (selectAllMode.value) {
+		const next = new Set(excludedPaths.value);
+		if (next.has(path)) {
+			next.delete(path);
+		} else {
+			next.add(path);
+		}
+		excludedPaths.value = next;
+		return;
+	}
+
+	const next = new Set(selectedPaths.value);
+	if (next.has(path)) {
+		next.delete(path);
+	} else {
+		next.add(path);
+	}
+	selectedPaths.value = next;
+}
+
+function isEntrySelected(entry: DisplayEntry): boolean {
+	return selectAllMode.value ? !excludedPaths.value.has(entry.fullPath) : selectedPaths.value.has(entry.fullPath);
 }
 
 async function loadBucketId(): Promise<void> {
@@ -92,17 +464,26 @@ async function loadBucketId(): Promise<void> {
 	bucketId.value = result.data.buckets.find(b => b.name === props.bucketName)?.id ?? null;
 }
 
-async function createDirectory({ valid }: { valid: boolean }): Promise<void> {
-	if (!valid) return;
-	const name = newDirName.value.trim();
-	if (!name || !bucketId.value) return;
+function openMkdirDialog(): void {
+	newDirName.value = '';
+	mkdirError.value = '';
+	mkdirDialog.value = true;
+}
+
+async function createDirectory(name: string): Promise<void> {
+	if (!bucketId.value) return;
 	mkdirError.value = '';
 	const path = `${props.filePath}${name}/`;
+	if (path.length > MAX_FILE_PATH_LENGTH) {
+		mkdirError.value = `パスは${MAX_FILE_PATH_LENGTH}文字以内で入力してください`;
+		return;
+	}
 	const dirResult = await apiPost('/api/directories/create', { bucketId: bucketId.value!, path });
 	if (!dirResult.ok) {
 		mkdirError.value = dirResult.data.error;
 		return;
 	}
+	mkdirDialog.value = false;
 	newDirName.value = '';
 	await load();
 }
@@ -120,22 +501,51 @@ async function executeDeleteEntry(): Promise<void> {
 	deleteError.value = '';
 
 	if (entry.isDir) {
-		const delResult = await apiPost('/api/directories/delete', { bucketId: bucketId.value!, path: entry.fullPath });
+		const delResult = await apiPost('/api/files/delete', { bucketId: bucketId.value!, targets: [{ type: 'directory', path: entry.fullPath }] });
 		if (!delResult.ok) {
 			deleteError.value = delResult.data.error;
 			return;
 		}
 	} else {
-		const res = await fetch(`/d/${props.bucketName}/${entry.fullPath}`, {
-			method: 'DELETE',
-			headers: authHeaders(),
-		});
-		if (!res.ok) {
-			const err = await res.json().catch(() => ({})) as { error?: string };
-			deleteError.value = err.error ?? '削除失敗';
+		if (!bucketId.value) {
+			deleteError.value = '削除できません（バケットIDが不明）';
+			return;
+		}
+		const delResult = await apiPost('/api/files/delete', { bucketId: bucketId.value, path: entry.fullPath });
+		if (!delResult.ok) {
+			deleteError.value = delResult.data.error ?? '削除失敗';
 			return;
 		}
 	}
+	await load();
+}
+
+async function executeBulkDelete(): Promise<void> {
+	bulkDeleteDialog.value = false;
+	deleteError.value = '';
+	if (!bucketId.value) {
+		deleteError.value = '削除できません（バケットIDが不明）';
+		return;
+	}
+
+	const targets = selectAllMode.value
+		? [{ type: 'directory' as const, path: props.filePath, excludePaths: Array.from(excludedPaths.value) }]
+		: Array.from(selectedPaths.value).map((path) => {
+			const entry = entries.value.find(e => e.fullPath === path);
+			return { type: entry?.isDir ? 'directory' as const : 'file' as const, path };
+		});
+
+	const result = await apiPost('/api/files/delete', { bucketId: bucketId.value, targets });
+	selectedPaths.value.clear();
+	excludedPaths.value.clear();
+	selectAllMode.value = false;
+	selectionPopoverOpen.value = false;
+
+	if (!result.ok) {
+		deleteError.value = result.data.error ?? '削除失敗';
+		return;
+	}
+
 	await load();
 }
 
@@ -155,6 +565,7 @@ function buildArchiveEntries(): void {
 				isDir: false,
 				fullPath: e.path,
 				size: e.size,
+				fileId: e.id,
 				label: e.mimeType,
 			});
 		} else {
@@ -199,6 +610,10 @@ function navigateArchiveUp(): void {
 async function load(): Promise<void> {
 	loading.value = true;
 	error.value = '';
+	// ロード時に選択状態をリセット
+	selectedPaths.value.clear();
+	excludedPaths.value.clear();
+	selectAllMode.value = false;
 	try {
 		if (isArchive.value) {
 			const listUrl = props.token ? `${downloadUrl.value}&list` : `${downloadUrl.value}?list`;
@@ -209,28 +624,30 @@ async function load(): Promise<void> {
 			allArchiveEntries.value = raw;
 			buildArchiveEntries();
 		} else {
-			const lsUrl = `/api/files/ls?bucketName=${encodeURIComponent(props.bucketName)}&path=${encodeURIComponent(props.filePath)}`;
-			const res = await fetch(lsUrl, { headers: authHeaders() });
-			if (!res.ok) { error.value = `取得失敗: ${res.status}`; return; }
-			const data = await res.json() as {
-				entries: Array<{
-					type: 'dir' | 'file'; name: string; path?: string; fileId?: string;
-					size?: number; mimeType?: string; isTargz?: boolean; isTar?: boolean; visibility?: FileVisibility;
-				}>;
-			};
+			const data = authStore.user
+				? await (async () => {
+					const result = await apiPost('/api/files/ls', { bucketName: props.bucketName, path: props.filePath });
+					if (!result.ok && result.status === 403) return await fetchPublicDirectoryEntries();
+					if (!result.ok) {
+						error.value = result.data.error;
+						return null;
+					}
+					return result.data;
+				})()
+				: await fetchPublicDirectoryEntries();
+			if (data === null) return;
 			entries.value = data.entries.map(e => {
 				if (e.type === 'dir') {
 					return {
-						key: `dir:${e.name}`,
-						name: e.name,
-						link: `/v/${props.bucketName}/${props.filePath}${e.name}/`,
-						isDir: true,
-						fullPath: `${props.filePath}${e.name}/`,
-						label: 'フォルダ',
+					key: `dir:${e.name}`,
+					name: e.name,
+					link: `/v/${props.bucketName}/${props.filePath}${e.name}/`,
+					isDir: true,
+					fullPath: `${props.filePath}${e.name}/`,
+					label: 'フォルダ',
 					};
 				}
 				const mime = e.isTargz ? 'application/gzip' : e.isTar ? 'application/x-tar' : (e.mimeType ?? '');
-				// 画像ファイルはプレビューURLを設定（ダウンロードURLを使用）
 				const previewUrl = isImageMime(mime) && e.fileId ? `/d/${e.fileId}` : undefined;
 				return {
 					key: `file:${e.name}`,
@@ -239,6 +656,7 @@ async function load(): Promise<void> {
 					isDir: false,
 					fullPath: e.path ?? e.name,
 					size: e.size,
+					fileId: e.fileId,
 					label: e.isTargz ? 'tar.gz' : e.isTar ? 'tar' : mime,
 					visibility: e.visibility,
 					previewUrl,
@@ -271,9 +689,9 @@ function parentPath(): string | null {
 		: `/v/${props.bucketName}/${parts.join('/')}/`;
 }
 
-function goUpload(): void {
-	setPendingUpload([], props.filePath);
-	mainRouter.pushByPath(`/my/buckets/${props.bucketName}/upload`);
+async function goUpload(): Promise<void> {
+	setPendingUpload(await UploadTree.from([]), props.bucketName, props.filePath);
+	mainRouter.pushByPath('/uploader');
 }
 
 function onDragOver(e: DragEvent): void {
@@ -286,26 +704,35 @@ function onDragLeave(): void {
 	isDragOver.value = false;
 }
 
-function onDrop(e: DragEvent): void {
+async function onDrop(e: DragEvent): Promise<void> {
 	isDragOver.value = false;
 	if (isArchive.value || !authStore.user) return;
 	e.preventDefault();
-	const droppedFiles = Array.from(e.dataTransfer?.files ?? []);
-	if (droppedFiles.length === 0) return;
-	setPendingUpload(droppedFiles, props.filePath);
-	mainRouter.pushByPath(`/my/buckets/${props.bucketName}/upload`);
+	const data = e.dataTransfer;
+	if (!data) return;
+	try {
+		const tree = await UploadTree.from(data);
+		if (tree.entries.length === 0) return;
+		setPendingUpload(tree, props.bucketName, props.filePath);
+		mainRouter.pushByPath('/uploader');
+	} catch {
+		const droppedFiles = Array.from(data.files ?? []);
+		if (droppedFiles.length === 0) return;
+		setPendingUpload(await UploadTree.from(droppedFiles), props.bucketName, props.filePath);
+		mainRouter.pushByPath('/uploader');
+	}
 }
 
 async function executeDeleteArchive(): Promise<void> {
 	archiveDeleteDialog.value = false;
 	deleteError.value = '';
-	const res = await fetch(`/d/${props.bucketName}/${props.filePath}`, {
-		method: 'DELETE',
-		headers: authHeaders(),
-	});
-	if (!res.ok) {
-		const err = await res.json().catch(() => ({})) as { error?: string };
-		deleteError.value = err.error ?? '削除失敗';
+	if (!bucketId.value) {
+		deleteError.value = '削除できません（バケットIDが不明）';
+		return;
+	}
+	const delResult = await apiPost('/api/files/delete', { bucketId: bucketId.value, path: props.filePath });
+	if (!delResult.ok) {
+		deleteError.value = delResult.data.error ?? '削除失敗';
 		return;
 	}
 	const parts = props.filePath.split('/');
@@ -316,7 +743,36 @@ async function executeDeleteArchive(): Promise<void> {
 	mainRouter.pushByPath(parent);
 }
 
-onMounted(() => { load(); loadBucketId(); });
+async function fetchPublicDirectoryEntries(): Promise<{
+	entries: Array<{
+		type: 'dir' | 'file'; name: string; path?: string;
+		fileId?: string; size?: number; mimeType?: string; isTargz?: boolean; isTar?: boolean; visibility?: FileVisibility;
+	}>;
+} | null> {
+	const lsUrl = `/api/files/ls?bucketName=${encodeURIComponent(props.bucketName)}&path=${encodeURIComponent(props.filePath)}`;
+	const res = await fetch(lsUrl);
+	if (!res.ok) {
+		error.value = `取得失敗: ${res.status}`;
+		return null;
+	}
+	return await res.json() as {
+		entries: Array<{
+			type: 'dir' | 'file'; name: string; path?: string;
+			fileId?: string; size?: number; mimeType?: string; isTargz?: boolean; isTar?: boolean; visibility?: FileVisibility;
+		}>;
+	};
+}
+
+onMounted(() => {
+	load();
+	loadBucketId();
+});
+onBeforeUnmount(() => {
+	archiveDownloadWorker?.terminate();
+	archiveDownloadWorker = null;
+	downloadTransformWorker?.terminate();
+	downloadTransformWorker = null;
+});
 watch(() => [props.bucketName, props.filePath], () => { load(); loadBucketId(); });
 watch(() => props.entryPath, (newEntryPath) => {
 	if (isArchive.value) {
@@ -324,51 +780,94 @@ watch(() => props.entryPath, (newEntryPath) => {
 		buildArchiveEntries();
 	}
 });
+watch([isPartiallySelected, isAllSelected], async () => {
+	await syncHeaderCheckbox();
+}, { immediate: true, flush: 'post' });
 </script>
 
 <template>
   <div>
-    <!-- アーカイブ操作 -->
-    <div v-if="isArchive" class="flex gap-2 items-center mb-3 flex-wrap">
-      <a :href="downloadUrl" download class="btn btn-secondary">ダウンロード</a>
-      <a v-if="isTargz" :href="decompressUrl" download class="btn btn-secondary">展開してダウンロード (.tar)</a>
-      <Button.Root v-if="authStore.user" class="btn btn-ghost-danger" @click="archiveDeleteDialog = true">
-        <Button.Content>削除</Button.Content>
-      </Button.Root>
-      <span v-if="deleteError" :class="[$style.inlineError, 'alert', 'alert-error']">{{ deleteError }}</span>
-    </div>
 
-    <!-- 通常ディレクトリ操作 -->
-    <div v-if="!isArchive && authStore.user" class="flex gap-2 items-center mb-3 flex-wrap">
-      <Button.Root class="btn btn-primary" @click="goUpload">
-        <Button.Content>アップロード</Button.Content>
-      </Button.Root>
-      <Form class="flex gap-2 items-center" @submit="createDirectory">
-        <input
-          v-model="newDirName"
-          :class="[$style.dirInput, 'form-input', 'form-input-mono']"
-          type="text"
-          placeholder="新しいフォルダ名"
-        >
-        <button type="submit" class="btn btn-secondary" :disabled="!newDirName.trim() || !bucketId">
+    <div class="card file-actions flex gap-2 items-center mb-3 flex-wrap">
+      <!-- アーカイブ操作 -->
+      <template v-if="isArchive" class="flex gap-2 items-center mb-3 flex-wrap">
+        <button v-if="isTargz" type="button" class="btn btn-primary" :disabled="archiveDownloadProgress != null" @click="startFullArchiveDownload(false)">ダウンロード (.tar.gz)</button>
+        <a v-else :href="downloadUrl" download class="btn btn-primary">ダウンロード</a>
+        <button v-if="isTargz" type="button" class="btn btn-secondary" :disabled="archiveDownloadProgress != null" @click="startFullArchiveDownload(true)">展開してダウンロード (.tar)</button>
+        <button type="button" class="btn btn-secondary" :disabled="archiveDownloadProgress != null" @click="startArchiveToZipDownload">
+          zipとしてダウンロード
+        </button>
+        <Button.Root v-if="authStore.user" class="btn btn-ghost-danger" @click="archiveDeleteDialog = true">
+          <Button.Content>削除</Button.Content>
+        </Button.Root>
+        <span v-if="deleteError" :class="[$style.inlineError, 'alert', 'alert-error']">{{ deleteError }}</span>
+      </template>
+
+      <!-- 通常ディレクトリ操作 -->
+      <template v-if="!isArchive && authStore.user">
+        <Button.Root class="btn btn-primary" @click="goUpload">
+          <Button.Content>アップロード</Button.Content>
+        </Button.Root>
+        <button type="button" class="btn btn-secondary" :disabled="!bucketId" @click="openMkdirDialog">
           フォルダ作成
         </button>
-      </Form>
-      <span v-if="mkdirError" :class="[$style.mkdirError, 'text-danger']">{{ mkdirError }}</span>
+      </template>
+
+      <!-- 一括選択 -->
+      <template v-if="canSelectEntries">
+        <button
+          v-if="canSelectEntries && selectableEntries.length > 0 && selectedCount === 0"
+          type="button"
+          :class="['btn', $style.selectAllButton]"
+          @click="selectAllEntries"
+        >
+          全て選択
+        </button>
+
+        <Popover.Root v-if="canSelectEntries && selectedCount > 0" v-model="selectionPopoverOpen">
+          <Popover.Activator :class="['btn', 'btn-secondary', $style.selectionButton]" aria-haspopup="true">
+            <span>選択中</span>
+            <span :class="['badge', selectAllMode ? 'badge-success' : 'badge-info', $style.selectionBadge]">
+              {{ selectionBadgeLabel }}
+            </span>
+          </Popover.Activator>
+          <Popover.Content class="action-menu">
+            <div class="action-menu-inner">
+              <Button.Root v-if="canDeleteSelectedEntries" class="btn btn-ghost-danger w-full" :class="$style.menuItem" @click="requestBulkDelete">
+                <Button.Content>まとめて削除</Button.Content>
+              </Button.Root>
+              <Button.Root class="btn btn-ghost w-full" :class="$style.menuItem" :disabled="archiveDownloadProgress != null" @click="startDirectoryArchiveDownload('tar')">
+                <Button.Content>tarとしてダウンロード</Button.Content>
+              </Button.Root>
+              <Button.Root class="btn btn-ghost w-full" :class="$style.menuItem" :disabled="archiveDownloadProgress != null" @click="startDirectoryArchiveDownload('zip')">
+                <Button.Content>zipとしてダウンロード</Button.Content>
+              </Button.Root>
+              <Button.Root class="btn btn-ghost w-full" :class="$style.menuItem" @click="clearSelection">
+                <Button.Content>選択を解除</Button.Content>
+              </Button.Root>
+            </div>
+          </Popover.Content>
+        </Popover.Root>
+      </template>
     </div>
 
-    <!-- ビュー切り替えボタン -->
     <div class="flex gap-1 items-center mb-3" style="justify-content: flex-end">
       <button
         :class="['btn btn-sm', viewMode === 'list' ? 'btn-primary' : 'btn-secondary']"
+        type="button"
         title="リストビュー"
         @click="setViewMode('list')"
-      >&#9776; リスト</button>
+      >
+        リスト
+      </button>
       <button
         :class="['btn btn-sm', viewMode === 'grid' ? 'btn-primary' : 'btn-secondary']"
+        type="button"
         title="グリッドビュー"
         @click="setViewMode('grid')"
-      >&#9638; グリッド</button>
+      >
+        グリッド
+      </button>
     </div>
 
     <div v-if="loading" class="page-loading">
@@ -376,6 +875,8 @@ watch(() => props.entryPath, (newEntryPath) => {
     </div>
     <div v-else-if="error" class="alert alert-error">{{ error }}</div>
     <template v-else>
+      <div v-if="archiveProgressLabel" class="alert alert-info mb-3">{{ archiveProgressLabel }}</div>
+      <div v-if="archiveDownloadError" class="alert alert-error mb-3">{{ archiveDownloadError }}</div>
       <div v-if="deleteError" class="alert alert-error mb-3">{{ deleteError }}</div>
 
       <div
@@ -386,76 +887,91 @@ watch(() => props.entryPath, (newEntryPath) => {
       >
         <div v-if="isDragOver" class="drop-zone-overlay">ここにドロップしてアップロード</div>
 
-        <!-- リストビュー -->
-        <template v-if="viewMode === 'list'">
-          <div :class="[$style.tableCard, 'card']">
-            <div class="table-responsive">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>名前</th>
-                  <th class="col-right">サイズ</th>
-                  <th>種類</th>
-                  <th v-if="!isArchive && authStore.user">公開</th>
-                  <th v-if="!isArchive && authStore.user && bucketId" class="col-actions"></th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-if="isArchive && archivePath !== ''">
-                  <td :colspan="3">
-                    <button :class="[$style.upButton, 'text-muted', 'font-mono']" @click="navigateArchiveUp">..</button>
-                  </td>
-                </tr>
-                <tr v-else-if="parentPath()">
-                  <td :colspan="!isArchive && authStore.user && bucketId ? 5 : !isArchive && authStore.user ? 4 : 3">
-                    <NirA :to="parentPath()!" :class="[$style.upLink, 'text-muted', 'font-mono']">..</NirA>
-                  </td>
-                </tr>
-                <tr v-for="entry in entries" :key="entry.key">
-                  <td :class="$style.nameCell">
-                    <button v-if="isArchive && entry.isDir" :class="$style.archiveDirButton" @click="navigateArchiveDir(entry.fullPath)">
-                      <span :class="$style.folderIcon">📁</span>{{ entry.name }}
-                    </button>
-                    <NirA v-else-if="isArchive && !entry.isDir" :to="entry.link" :class="$style.entryLink">{{ entry.name }}</NirA>
-                    <NirA v-else :to="entry.link" :class="$style.entryLink">
-                      <span v-if="entry.isDir" :class="$style.folderIcon">📁</span>{{ entry.name }}
-                    </NirA>
-                  </td>
-                  <td :class="[$style.sizeCell, 'col-right', 'col-muted']">
-                    {{ entry.size != null ? formatSize(entry.size) : '' }}
-                  </td>
-                  <td :class="$style.labelCell">
-                    <span v-if="entry.label" class="badge badge-muted">{{ entry.label }}</span>
-                  </td>
-                  <td v-if="!isArchive && authStore.user" :class="$style.publicCell">
-                    <span v-if="!entry.isDir && entry.visibility != null" :class="entry.visibility === 'public' ? 'badge badge-success' : entry.visibility === 'passphrase' ? 'badge badge-warning' : 'badge badge-muted'">
-                      {{ entry.visibility === 'public' ? '公開' : entry.visibility === 'passphrase' ? '合言葉' : '非公開' }}
-                    </span>
-                  </td>
-                  <td v-if="!isArchive && authStore.user && bucketId" class="col-actions" :class="$style.actionsCell">
-                    <Button.Root class="btn btn-ghost-danger" @click="requestDeleteEntry(entry)">
-                      <Button.Content>削除</Button.Content>
-                    </Button.Root>
-                  </td>
-                </tr>
-                <tr v-if="entries.length === 0">
-                  <td :colspan="!isArchive && authStore.user && bucketId ? 5 : !isArchive && authStore.user ? 4 : 3">
-                    <div class="empty-state">
-                      <p>エントリがありません。</p>
-                    </div>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-            </div>
+        <div v-if="viewMode === 'list'" :class="[$style.tableCard, 'card']">
+          <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <!-- チェックボックス列 -->
+                <th v-if="!isArchive" :class="$style.checkboxCell">
+                  <input
+                    ref="headerCheckbox"
+                    type="checkbox"
+                    :class="[$style.checkbox, selectAllMode && $style.checkboxSelectAll]"
+                    :checked="isAllSelected"
+                    :disabled="!canSelectEntries || selectableEntries.length === 0"
+                    @click.prevent="toggleSelectAll"
+                  >
+                </th>
+                <th>名前</th>
+                <th class="col-right">サイズ</th>
+                <th>種類</th>
+                <th v-if="!isArchive && authStore.user">公開</th>
+                <th v-if="!isArchive && authStore.user && bucketId" class="col-actions"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="isArchive && archivePath !== ''">
+                <td :colspan="3">
+                  <button :class="[$style.upButton, 'text-muted', 'font-mono']" @click="navigateArchiveUp">..</button>
+                </td>
+              </tr>
+              <tr v-else-if="parentPath()">
+                <td :colspan="tableColspan">
+                  <NirA :to="parentPath()!" :class="[$style.upLink, 'text-muted', 'font-mono']">..</NirA>
+                </td>
+              </tr>
+              <tr v-for="entry in entries" :key="entry.key">
+                <!-- チェックボックスセル -->
+                <td v-if="!isArchive" :class="$style.checkboxCell">
+                  <input
+                    type="checkbox"
+                    :class="$style.checkbox"
+                    :checked="isEntrySelected(entry)"
+                    :disabled="!canSelectEntries"
+                    @change="toggleSelect(entry.fullPath)"
+                  >
+                </td>
+                <td :class="$style.nameCell">
+                  <button v-if="isArchive && entry.isDir" :class="$style.archiveDirButton" @click="navigateArchiveDir(entry.fullPath)">
+                    <Folder :class="$style.folderIcon" :size="16" :stroke-width="2" aria-hidden="true" />{{ entry.name }}
+                  </button>
+                  <NirA v-else-if="isArchive && !entry.isDir" :to="entry.link" :class="$style.entryLink">{{ entry.name }}</NirA>
+                  <NirA v-else :to="entry.link" :class="$style.entryLink">
+                    <Folder v-if="entry.isDir" :class="$style.folderIcon" :size="16" :stroke-width="2" aria-hidden="true" />{{ entry.name }}
+                  </NirA>
+                </td>
+                <td :class="[$style.sizeCell, 'col-right', 'col-muted']">
+                  {{ entry.size != null ? formatSize(entry.size) : '' }}
+                </td>
+                <td :class="$style.labelCell">
+                  <span v-if="entry.label" class="badge badge-muted">{{ entry.label }}</span>
+                </td>
+                <td v-if="!isArchive && authStore.user" :class="$style.publicCell">
+                  <span v-if="!entry.isDir && entry.visibility != null" :class="entry.visibility === 'public' ? 'badge badge-success' : entry.visibility === 'passphrase' ? 'badge badge-warning' : 'badge badge-muted'">
+                    {{ entry.visibility === 'public' ? '公開' : entry.visibility === 'passphrase' ? '合言葉' : '非公開' }}
+                  </span>
+                </td>
+                <td v-if="!isArchive && authStore.user && bucketId" class="col-actions" :class="$style.actionsCell">
+                  <Button.Root class="btn btn-ghost-danger" @click="requestDeleteEntry(entry)">
+                    <Button.Content>削除</Button.Content>
+                  </Button.Root>
+                </td>
+              </tr>
+              <tr v-if="entries.length === 0">
+                <td :colspan="tableColspan">
+                  <div class="empty-state">
+                    <p>エントリがありません。</p>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
           </div>
-        </template>
-
-        <!-- グリッドビュー -->
+        </div>
         <template v-else>
-          <!-- 上へ -->
           <div v-if="isArchive && archivePath !== ''" class="mb-2">
-            <button :class="[$style.upButton, 'text-muted', 'font-mono']" @click="navigateArchiveUp">..</button>
+            <button :class="[$style.upButton, 'text-muted', 'font-mono']" type="button" @click="navigateArchiveUp">..</button>
           </div>
           <div v-else-if="parentPath()" class="mb-2">
             <NirA :to="parentPath()!" :class="[$style.upLink, 'text-muted', 'font-mono']">..</NirA>
@@ -468,13 +984,22 @@ watch(() => props.entryPath, (newEntryPath) => {
             <div
               v-for="entry in entries"
               :key="entry.key"
-              :class="$style.gridCard"
+              :class="[$style.gridCard, isEntrySelected(entry) && $style.gridCardSelected]"
             >
-              <!-- プレビュー / アイコン -->
+              <div v-if="!isArchive" :class="$style.gridCheckboxCell">
+                <input
+                  type="checkbox"
+                  :class="$style.checkbox"
+                  :checked="isEntrySelected(entry)"
+                  :disabled="!canSelectEntries"
+                  @change="toggleSelect(entry.fullPath)"
+                >
+              </div>
               <component
-                :is="isArchive && entry.isDir ? 'button' : 'a'"
+                :is="isArchive && entry.isDir ? 'button' : NirA"
                 :class="[$style.gridCardPreview, isArchive && entry.isDir ? $style.gridCardPreviewButton : '']"
-                :href="!(isArchive && entry.isDir) ? entry.link : undefined"
+                :to="!(isArchive && entry.isDir) ? entry.link : undefined"
+                type="button"
                 @click="isArchive && entry.isDir ? navigateArchiveDir(entry.fullPath) : undefined"
               >
                 <img
@@ -485,22 +1010,21 @@ watch(() => props.entryPath, (newEntryPath) => {
                   loading="lazy"
                 >
                 <div v-else :class="$style.gridCardIcon">
-                  <span v-if="entry.isDir" style="font-size:2.5rem">📁</span>
-                  <span v-else style="font-size:2rem; color: var(--color-text-muted)">📄</span>
+                  <Folder v-if="entry.isDir" :size="42" :stroke-width="1.8" aria-hidden="true" />
+                  <FileIcon v-else :size="34" :stroke-width="1.8" aria-hidden="true" />
                 </div>
               </component>
-
-              <!-- ファイル情報 -->
               <div :class="$style.gridCardInfo">
                 <div :class="$style.gridCardName" :title="entry.name">{{ entry.name }}</div>
                 <div :class="$style.gridCardMeta">
                   <span v-if="entry.size != null" :class="$style.gridCardSize">{{ formatSize(entry.size) }}</span>
-                  <span v-if="!entry.isDir && entry.visibility != null && !isArchive" :class="[entry.visibility === 'public' ? 'badge badge-success' : entry.visibility === 'passphrase' ? 'badge badge-warning' : 'badge badge-muted', $style.gridCardBadge]">
+                  <span v-if="entry.label" class="badge badge-muted">{{ entry.label }}</span>
+                  <span v-if="!entry.isDir && entry.visibility != null && !isArchive" :class="entry.visibility === 'public' ? 'badge badge-success' : entry.visibility === 'passphrase' ? 'badge badge-warning' : 'badge badge-muted'">
                     {{ entry.visibility === 'public' ? '公開' : entry.visibility === 'passphrase' ? '合言葉' : '非公開' }}
                   </span>
                 </div>
                 <div v-if="!isArchive && authStore.user && bucketId" :class="$style.gridCardActions">
-                  <Button.Root :class="[$style.gridCardDeleteBtn, 'btn', 'btn-ghost-danger']" @click="requestDeleteEntry(entry)">
+                  <Button.Root :class="['btn', 'btn-ghost-danger', $style.gridCardDeleteButton]" @click="requestDeleteEntry(entry)">
                     <Button.Content>削除</Button.Content>
                   </Button.Root>
                 </div>
@@ -522,6 +1046,32 @@ watch(() => props.entryPath, (newEntryPath) => {
       @cancel="deleteDialog = false"
     />
 
+    <!-- 一括削除確認ダイアログ -->
+    <ConfirmDialog
+      v-if="canDeleteSelectedEntries"
+      v-model:open="bulkDeleteDialog"
+      title="複数エントリを削除"
+      :message="selectAllMode ? `このフォルダの中身を削除しますか？${excludedPaths.size > 0 ? `（${excludedPaths.size} 件を除外）` : ''}` : `選択した ${selectedCount} 件のエントリを削除しますか？`"
+      confirm-label="削除する"
+      :danger="true"
+      @confirm="executeBulkDelete"
+      @cancel="bulkDeleteDialog = false"
+    />
+
+    <InputDialog
+      v-if="authStore.user"
+      v-model:open="mkdirDialog"
+      v-model="newDirName"
+      title="フォルダ作成"
+      label="フォルダ名"
+      confirm-label="作成"
+      :schema="directoryNameSchema"
+      :external-error="mkdirError"
+      :mono="true"
+      @submit="createDirectory"
+      @cancel="mkdirError = ''"
+    />
+
     <!-- 削除確認ダイアログ（アーカイブ） -->
     <ConfirmDialog
       v-model:open="archiveDeleteDialog"
@@ -541,17 +1091,59 @@ watch(() => props.entryPath, (newEntryPath) => {
   font-size: 0.8rem;
 }
 
-.dirInput {
-  width: 180px;
+.selectAllButton {
+  background: transparent;
+  color: #15803d;
+  border-color: transparent;
 }
 
-.mkdirError {
-  font-size: 0.8rem;
+.selectAllButton:hover {
+  color: #fff;
+  background: #16a34a;
+}
+
+:global([data-theme="dark"]) .selectAllButton {
+  color: #4ade80;
+}
+
+:global([data-theme="dark"]) .selectAllButton:hover {
+  color: #052e16;
+  background: #86efac;
+}
+
+.selectionButton {
+  gap: 6px;
+}
+
+.selectionBadge {
+  margin-left: 2px;
+}
+
+.menuItem {
+  justify-content: flex-start;
 }
 
 .tableCard {
   padding: 0;
   overflow: hidden;
+}
+
+.checkboxCell {
+  width: 1em;
+  padding-right: 6px !important;
+  padding-left: 6px !important;
+  text-align: center !important;
+}
+
+.checkbox {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--color-primary);
+}
+
+.checkboxSelectAll {
+  accent-color: #16a34a;
 }
 
 .upButton {
@@ -576,6 +1168,8 @@ watch(() => props.entryPath, (newEntryPath) => {
 }
 
 .archiveDirButton {
+  display: inline-flex;
+  align-items: center;
   background: none;
   border: none;
   cursor: pointer;
@@ -587,9 +1181,13 @@ watch(() => props.entryPath, (newEntryPath) => {
 
 .folderIcon {
   margin-right: 4px;
+  color: var(--color-text-muted);
+  vertical-align: -3px;
 }
 
 .entryLink {
+  display: inline-flex;
+  align-items: center;
   font-weight: 500;
 }
 
@@ -609,90 +1207,110 @@ watch(() => props.entryPath, (newEntryPath) => {
   white-space: nowrap;
 }
 
-/* グリッドビュー */
 .gridView {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 12px;
 }
 
 .gridCard {
-  border: 1px solid var(--color-border, #e0e0e0);
-  border-radius: 8px;
-  overflow: hidden;
-  background: var(--color-surface, #fff);
+  position: relative;
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-border, #e0e0e0);
+  border-radius: 8px;
+}
+
+.gridCardSelected {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px var(--color-primary);
+}
+
+.gridCheckboxCell {
+  position: absolute;
+  z-index: 1;
+  top: 6px;
+  left: 6px;
+  display: flex;
+  padding: 3px;
+  background: var(--color-surface, #fff);
+  border-radius: 4px;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 14%);
 }
 
 .gridCardPreview {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
   aspect-ratio: 1;
-  overflow: hidden;
-  background: var(--color-background-muted, #f5f5f5);
+  color: var(--color-text-muted);
   text-decoration: none;
+  background: var(--color-background-muted, #f5f5f5);
 }
 
 .gridCardPreviewButton {
-  background: none;
-  border: none;
+  border: 0;
   cursor: pointer;
   padding: 0;
 }
 
 .gridCardImage {
+  display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  display: block;
 }
 
 .gridCardIcon {
-  width: 100%;
-  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: var(--color-text-muted);
 }
 
 .gridCardInfo {
-  padding: 6px 8px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
+  min-width: 0;
+  padding: 8px;
 }
 
 .gridCardName {
-  font-size: 0.8rem;
-  font-weight: 500;
   overflow: hidden;
+  font-size: 0.85rem;
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .gridCardMeta {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 4px;
-  flex-wrap: wrap;
+  min-height: 20px;
 }
 
 .gridCardSize {
-  font-size: 0.7rem;
-  color: var(--color-text-muted, #888);
-}
-
-.gridCardBadge {
-  font-size: 0.65rem;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
 }
 
 .gridCardActions {
   margin-top: 2px;
 }
 
-.gridCardDeleteBtn {
+.gridCardDeleteButton {
+  width: 100%;
+  justify-content: center;
+  padding-block: 4px;
   font-size: 0.75rem;
-  padding: 2px 8px;
 }
 </style>

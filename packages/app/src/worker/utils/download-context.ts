@@ -28,6 +28,19 @@ export const downloadCacheInternalHeaders = {
 	statusText: internalStatusTextHeader,
 } as const;
 
+function toAsciiFilenameFallback(filename: string): string {
+	const fallback = filename
+		.replace(/[^\x20-\x7e]/g, '_')
+		.replace(/["\\]/g, '_')
+		.trim();
+	return fallback || 'download';
+}
+
+function buildContentDisposition(filename: string): string {
+	const fallback = toAsciiFilenameFallback(filename);
+	return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+}
+
 export function createDownloadCacheRequest(options: {
 	fileId: string;
 	mode: CacheMode;
@@ -108,9 +121,12 @@ export class DownloadContext {
 		this.authContext = { type: 'expired-file-token', token };
 	}
 
-	getContentDisposition(filename: string): string {
-		const displayName = this.acceptsGzip ? filename : `${filename}.gz`;
-		return `attachment; filename="${displayName}"`;
+	createContentDisposition(
+		filename: string,
+		transform?: (filename: string, context: DownloadContext) => string,
+	): string {
+		const displayName = transform?.(filename, this) ?? filename;
+		return buildContentDisposition(displayName);
 	}
 
 	getETag(entryPath?: string): string {
@@ -161,7 +177,7 @@ export class DownloadContext {
 		});
 	}
 
-	stripInternalCacheHeaders(cached: Response): Response {
+	stripInternalCacheHeaders(cached: Response, mode: CacheMode): Response {
 		const headers = new Headers(cached.headers);
 		const cachedStatus = Number(headers.get(internalStatusHeader));
 		const status = Number.isInteger(cachedStatus) && cachedStatus >= 100 && cachedStatus <= 599
@@ -179,6 +195,7 @@ export class DownloadContext {
 			status,
 			statusText,
 			headers,
+			...(mode === 'targz-entry' ? { encodeBody: 'manual' } : {}),
 		});
 	}
 }

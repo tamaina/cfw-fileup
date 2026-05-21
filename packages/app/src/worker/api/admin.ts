@@ -10,6 +10,7 @@ import * as v from 'valibot';
 import { KNOWN_SETTINGS, KnownSettingRecordSchema } from '../../shared/app-settings';
 import { apiDef, getResponseDefWithAuth, type JsonCtx } from '../../shared/api';
 import { omitResAndReq } from '../utils/omit';
+import { bumpWorkerCacheVersion } from '../utils/cache-names';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -158,6 +159,16 @@ app.post(
 
 		return c.json({ ok: true }, 200);
 	}, getResponseDefWithAuth('/api/admin/delete-bucket')),
+);
+
+app.post(
+	'/purge-worker-cache',
+	describeRoute(omitResAndReq(apiDef['/api/admin/purge-worker-cache'])),
+	validator('json', apiDef['/api/admin/purge-worker-cache'].req),
+	describeResponse(async (c: JsonCtx<'/api/admin/purge-worker-cache', Env>) => {
+		const version = await bumpWorkerCacheVersion(c.env);
+		return c.json({ ok: true, version }, 200);
+	}, getResponseDefWithAuth('/api/admin/purge-worker-cache')),
 );
 
 app.post(

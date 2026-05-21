@@ -1,14 +1,26 @@
 import * as v from 'valibot';
 import type { ApiEndpointDefinitionRecord } from '../api.types.js';
-import { ErrorResponse } from '../api.schemas.js';
+import { ErrorResponse, IdString } from '../api.schemas.js';
 import { fileVisibilitySchema } from '../file-visibility.js';
+import {
+	MAX_ARCHIVE_INDEX_ENTRIES,
+	MAX_BUCKET_NAME_LENGTH,
+	MAX_DELETE_TARGETS,
+	MAX_FILE_PATH_LENGTH,
+	MAX_MIME_TYPE_LENGTH,
+	MAX_PASSPHRASE_LENGTH,
+} from '../const.js';
+
+const BucketNameString = v.pipe(v.string(), v.maxLength(MAX_BUCKET_NAME_LENGTH));
+const FilePathString = v.pipe(v.string(), v.maxLength(MAX_FILE_PATH_LENGTH));
+const MimeTypeString = v.pipe(v.string(), v.maxLength(MAX_MIME_TYPE_LENGTH));
 
 const UploadingFileResponse = v.pipe(
 	v.object({
-		id: v.string(),
-		bucketId: v.string(),
-		bucketName: v.string(),
-		path: v.string(),
+		id: IdString,
+		bucketId: IdString,
+		bucketName: BucketNameString,
+		path: FilePathString,
 		size: v.nullable(v.number()),
 		isClosed: v.boolean(),
 		visibility: fileVisibilitySchema,
@@ -22,11 +34,11 @@ const UploadingFileResponse = v.pipe(
 const FileListEntry = v.pipe(
 	v.object({
 		type: v.union([v.literal('dir'), v.literal('file')]),
-		name: v.string(),
-		path: v.optional(v.string()),
-		fileId: v.optional(v.string()),
+		name: FilePathString,
+		path: v.optional(FilePathString),
+		fileId: v.optional(IdString),
 		size: v.optional(v.number()),
-		mimeType: v.optional(v.string()),
+		mimeType: v.optional(MimeTypeString),
 		isTargz: v.optional(v.boolean()),
 		isTar: v.optional(v.boolean()),
 		visibility: v.optional(fileVisibilitySchema),
@@ -39,8 +51,8 @@ export const filesApiDef = {
 		summary: 'Open a new file upload',
 		tags: ['files'],
 		req: v.object({
-			bucketId: v.string(),
-			path: v.string(),
+			bucketId: IdString,
+			path: FilePathString,
 			partSize: v.optional(v.number()),
 		}),
 		res: {
@@ -55,17 +67,17 @@ export const filesApiDef = {
 		summary: 'Register tar.gz index for a file',
 		tags: ['files'],
 		req: v.object({
-			fileId: v.string(),
-			files: v.array(v.object({
-				path: v.string(),
-				mimeType: v.string(),
+			fileId: IdString,
+			files: v.pipe(v.array(v.object({
+				path: FilePathString,
+				mimeType: MimeTypeString,
 				aStart: v.number(),
 				aFirstEnd: v.number(),
 				aFinalStart: v.number(),
 				aEnd: v.number(),
 				rStartOffset: v.number(),
 				rEndOffset: v.number(),
-			})),
+			})), v.maxLength(MAX_ARCHIVE_INDEX_ENTRIES)),
 		}),
 		res: {
 			200: { description: 'Success', content: { 'application/json': { vSchema: v.object({ ok: v.literal(true) }) } } },
@@ -78,13 +90,13 @@ export const filesApiDef = {
 		summary: 'Register tar index for a file',
 		tags: ['files'],
 		req: v.object({
-			fileId: v.string(),
-			files: v.array(v.object({
-				path: v.string(),
-				mimeType: v.string(),
+			fileId: IdString,
+			files: v.pipe(v.array(v.object({
+				path: FilePathString,
+				mimeType: MimeTypeString,
 				offset: v.number(),
 				size: v.number(),
-			})),
+			})), v.maxLength(MAX_ARCHIVE_INDEX_ENTRIES)),
 		}),
 		res: {
 			200: { description: 'Success', content: { 'application/json': { vSchema: v.object({ ok: v.literal(true) }) } } },
@@ -97,9 +109,9 @@ export const filesApiDef = {
 		summary: 'Close (finalize) a file upload',
 		tags: ['files'],
 		req: v.object({
-			fileId: v.string(),
+			fileId: IdString,
 			visibility: fileVisibilitySchema,
-			passphrase: v.optional(v.string()),
+			passphrase: v.optional(v.pipe(v.string(), v.maxLength(MAX_PASSPHRASE_LENGTH))),
 		}),
 		res: {
 			200: { description: 'Success', content: { 'application/json': { vSchema: v.object({ ok: v.literal(true) }) } } },
@@ -113,7 +125,7 @@ export const filesApiDef = {
 		summary: 'Get upload status',
 		tags: ['files'],
 		req: v.object({
-			fileId: v.string(),
+			fileId: IdString,
 		}),
 		res: {
 			200: { description: 'Success', content: { 'application/json': { vSchema: v.object({ partCount: v.number(), offset: v.number(), partSize: v.number() }) } } },
@@ -125,8 +137,8 @@ export const filesApiDef = {
 		summary: 'List files in a bucket path',
 		tags: ['files'],
 		req: v.object({
-			bucketName: v.string(),
-			path: v.optional(v.string()),
+			bucketName: BucketNameString,
+			path: v.optional(FilePathString),
 		}),
 		res: {
 			200: { description: 'Success', content: { 'application/json': { vSchema: v.object({
@@ -140,10 +152,10 @@ export const filesApiDef = {
 		summary: 'Update file visibility',
 		tags: ['files'],
 		req: v.object({
-			bucketName: v.string(),
-			filePath: v.string(),
+			bucketName: BucketNameString,
+			filePath: FilePathString,
 			visibility: fileVisibilitySchema,
-			passphrase: v.optional(v.string()),
+			passphrase: v.optional(v.pipe(v.string(), v.maxLength(MAX_PASSPHRASE_LENGTH))),
 		}),
 		res: {
 			200: { description: 'Success', content: { 'application/json': { vSchema: v.object({ ok: v.literal(true) }) } } },
@@ -160,11 +172,16 @@ export const filesApiDef = {
 		},
 	},
 	'/api/files/delete': {
-		summary: 'Delete a file',
+		summary: 'Delete files and directories',
 		tags: ['files'],
 		req: v.object({
-			bucketId: v.string(),
-			path: v.string(),
+			bucketId: IdString,
+			path: v.optional(FilePathString),
+			targets: v.optional(v.pipe(v.array(v.object({
+				type: v.union([v.literal('file'), v.literal('directory')]),
+				path: FilePathString,
+				excludePaths: v.optional(v.pipe(v.array(FilePathString), v.maxLength(MAX_DELETE_TARGETS))),
+			})), v.maxLength(MAX_DELETE_TARGETS))),
 		}),
 		res: {
 			200: { description: 'Success', content: { 'application/json': { vSchema: v.object({ ok: v.literal(true) }) } } },

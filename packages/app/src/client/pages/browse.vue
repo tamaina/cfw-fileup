@@ -21,6 +21,11 @@ const entryPath = computed(() => {
 	if (!qs) return null;
 	return new URLSearchParams(qs).get('file');
 });
+const queryToken = computed(() => {
+	const qs = mainRouter.currentRef.value?._parsedRoute?.queryString;
+	if (!qs) return null;
+	return new URLSearchParams(qs).get('token');
+});
 
 const isEntryFile = computed(() => entryPath.value !== null && !entryPath.value.endsWith('/'));
 const isEntryDirectory = computed(() => entryPath.value !== null && entryPath.value.endsWith('/'));
@@ -154,8 +159,12 @@ async function fetchMeta(): Promise<void> {
 	fileId.value = null;
 	fileBucketId.value = null;
 	try {
+		const metaUrl = new URL('/api/files/meta', location.origin);
+		metaUrl.searchParams.set('bucketName', props.bucketName);
+		metaUrl.searchParams.set('path', props.filePath);
+		if (queryToken.value) metaUrl.searchParams.set('token', queryToken.value);
 		const [metaRes, apiMetaRes] = await Promise.all([
-			fetch(`/api/files/meta?bucketName=${encodeURIComponent(props.bucketName)}&path=${encodeURIComponent(props.filePath)}`, { headers: authHeaders() }),
+			fetch(metaUrl, { headers: authHeaders() }),
 			fetch('/api/meta'),
 		]);
 		if (!metaRes.ok) { metaError.value = `取得失敗: ${metaRes.status}`; return; }
@@ -173,7 +182,9 @@ async function fetchMeta(): Promise<void> {
 			turnstileSiteKey.value = apiMeta.turnstileSiteKey ?? '';
 		}
 
-		if (fileVisibility.value !== 'public') {
+		if (queryToken.value && data.fileId) {
+			autoToken.value = queryToken.value;
+		} else if (fileVisibility.value !== 'public') {
 			if (authStore.user) {
 				await issueAutoToken();
 			} else {
@@ -331,8 +342,12 @@ watch(() => [props.bucketName, props.filePath], () => {
 	fetchMeta();
 });
 onUnmounted(clearExpiryTimer);
-watch(() => entryPath.value, () => {
+watch(() => [entryPath.value, queryToken.value], () => {
 	innerMeta.value = null;
+	if (queryToken.value !== autoToken.value) {
+		fetchMeta();
+		return;
+	}
 	if (isEntryFile.value) fetchInnerMeta();
 });
 </script>
@@ -371,7 +386,7 @@ watch(() => entryPath.value, () => {
     <template v-else>
       <!-- アーカイブ内ファイルビュー (ログイン有無問わず) -->
       <template v-if="(isTargz || isTar) && isEntryFile">
-        <div class="file-actions">
+        <div class="card file-actions">
           <a :href="innerDownloadUrl" download class="btn btn-primary">ダウンロード</a>
           <a v-if="isInnerText" :href="innerDownloadUrl" target="_blank" class="btn btn-secondary">ブラウザで開く</a>
         </div>
@@ -384,7 +399,7 @@ watch(() => entryPath.value, () => {
       <template v-else-if="!isDirectory && authStore.user">
         <div class="tab-bar mb-3">
           <button :class="['tab-btn', activeTab === 'info' ? 'tab-btn-active' : '']" @click="infoTabClicked">詳細</button>
-          <button :class="['tab-btn', activeTab === 'tokens' ? 'tab-btn-active' : '']" @click="activeTab = 'tokens'">アクセストークン</button>
+          <button :class="['tab-btn', activeTab === 'tokens' ? 'tab-btn-active' : '']" @click="activeTab = 'tokens'">共有</button>
         </div>
 
         <!-- 詳細タブ: ファイル表示 -->
@@ -393,7 +408,7 @@ watch(() => entryPath.value, () => {
           <BrowseFile v-else :bucketName="bucketName" :filePath="filePath" :token="autoToken ?? undefined" :fileId="fileId ?? ''" :bucketId="fileBucketId" />
         </template>
 
-        <!-- アクセストークンタブ: 公開設定 + トークン管理 -->
+        <!-- 共有タブ: 公開設定 + 共有URL管理 -->
         <BrowseFileTokens
           v-else-if="activeTab === 'tokens'"
           :bucketName="bucketName"

@@ -2,12 +2,113 @@ import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { eq, and, like } from 'drizzle-orm';
 import { createBgzfBlock } from 'bgzf';
+import { aidxRegExp, parseEaidx } from '../../shared/eaid-x';
 import { buckets, files, targzFiles, tarFiles, tokens, users, fileAccessTokens } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { DownloadContext, downloadCacheInternalHeaders } from '../utils/download-context';
+import { MAX_FILE_PATH_LENGTH, MAX_ID_LENGTH } from '../../shared/const';
+import { openWorkerCache, workerCacheBaseNames } from '../utils/cache-names';
 
 const app = new Hono<{ Bindings: Env }>();
-const downloadCacheName = 'download';
+const tenYearsInSeconds = 10 * 365 * 24 * 60 * 60;
+
+function createMissingFileCacheRequest(fileId: string): Request {
+	const keyUrl = new URL('https://cache.cfw-fileup.local/download-file-not-found');
+	keyUrl.searchParams.set('v', '1');
+	keyUrl.searchParams.set('fileId', fileId);
+	return new Request(keyUrl, { method: 'GET' });
+}
+
+function toDownloadBasename(path: string): string {
+	return path.split('/').pop() ?? 'download';
+}
+
+function addGzipExtension(filename: string): string {
+	return `${filename}.gz`;
+}
+
+function getTargzEntryHeaders(download: DownloadContext, path: string, mimeType: string): HeadersInit {
+	return download.withDownloadHeaders({
+		'Content-Type': mimeType,
+		'Content-Disposition': download.createContentDisposition(path, addGzipExtension),
+		'ETag': download.getETag(path),
+	});
+}
+
+function stripInternalCacheHeaders(cached: Response): Response {
+	const headers = new Headers(cached.headers);
+	const cachedStatus = Number(headers.get(downloadCacheInternalHeaders.status));
+	const status = Number.isInteger(cachedStatus) && cachedStatus >= 100 && cachedStatus <= 599
+		? cachedStatus
+		: cached.status;
+	const statusText = headers.get(downloadCacheInternalHeaders.statusText) ?? cached.statusText;
+	headers.delete(downloadCacheInternalHeaders.status);
+	headers.delete(downloadCacheInternalHeaders.statusText);
+	return new Response(cached.body, {
+		status,
+		statusText,
+		headers,
+	});
+}
+
+async function matchMissingFileCache(env: Env, fileId: string): Promise<Response | null> {
+	const cacheRequest = createMissingFileCacheRequest(fileId);
+	const cache = await openWorkerCache(env, workerCacheBaseNames.missingDownloadFile);
+	const cached = await cache.match(cacheRequest);
+	if (cached === undefined) return null;
+
+	const expires = cached.headers.get('Expires');
+	if (expires !== null) {
+		const expiresAt = Date.parse(expires);
+		if (!Number.isNaN(expiresAt) && expiresAt <= Date.now()) {
+			await cache.delete(cacheRequest);
+			return null;
+		}
+	}
+
+	return stripInternalCacheHeaders(cached);
+}
+
+function createMissingFileResponse(fileId: string): Response {
+	const fileDate = parseEaidx(fileId).date;
+	const now = Date.now();
+	const expiresAt = fileDate.getTime() > now
+		? fileDate.getTime()
+		: now + tenYearsInSeconds * 1000;
+	const maxAge = Math.max(0, Math.floor((expiresAt - now) / 1000));
+
+	return new Response(JSON.stringify({ error: 'File not found' }), {
+		status: 404,
+		headers: {
+			'Content-Type': 'application/json',
+			'Cache-Control': `public, max-age=${maxAge}`,
+			'Expires': new Date(expiresAt).toUTCString(),
+		},
+	});
+}
+
+function putMissingFileCache(env: Env, fileId: string, response: Response, waitUntil: (promise: Promise<void>) => void): void {
+	const cacheResponse = response.clone();
+	const putPromise = (async () => {
+		const cache = await openWorkerCache(env, workerCacheBaseNames.missingDownloadFile);
+		const headers = new Headers(cacheResponse.headers);
+		headers.set(downloadCacheInternalHeaders.status, String(cacheResponse.status));
+		headers.set(downloadCacheInternalHeaders.statusText, cacheResponse.statusText);
+		await cache.put(createMissingFileCacheRequest(fileId), new Response(cacheResponse.body, {
+			status: 200,
+			statusText: 'OK',
+			headers,
+		}));
+	})();
+
+	try {
+		waitUntil(putPromise);
+	} catch {
+		void putPromise.catch((error: unknown) => {
+			console.error('Failed to put missing file response into cache:', error);
+		});
+	}
+}
 
 async function decompressGzipChunk(data: Uint8Array): Promise<Uint8Array> {
 	const decompressor = new DecompressionStream('gzip');
@@ -50,12 +151,24 @@ async function decompressGzipChunk(data: Uint8Array): Promise<Uint8Array> {
 app.get('/d/:fileId', async (c) => {
 	const db = getDb(c.env);
 	const fileId = c.req.param('fileId');
+	if (fileId.length > MAX_ID_LENGTH) throw new HTTPException(400, { message: `fileId must be at most ${MAX_ID_LENGTH} characters` });
+	if (!aidxRegExp.test(fileId)) throw new HTTPException(400, { message: 'Invalid file ID' });
+	const cachedMissingFile = await matchMissingFileCache(c.env, fileId);
+	if (cachedMissingFile !== null) return cachedMissingFile;
+
 	const file = await db.select().from(files).where(eq(files.id, fileId)).get();
-	if (!file) throw new HTTPException(404, { message: 'File not found' });
+	if (!file) {
+		const response = createMissingFileResponse(fileId);
+		putMissingFileCache(c.env, fileId, response, (promise) => c.executionCtx.waitUntil(promise));
+		return response;
+	}
 	const bucket = await db.select().from(buckets).where(eq(buckets.id, file.bucketId)).get();
 	if (!bucket) throw new HTTPException(404, { message: 'Bucket not found' });
 
 	const download = new DownloadContext(file, c.req.raw);
+	if (download.fileQuery !== null && download.fileQuery.length > MAX_FILE_PATH_LENGTH) {
+		throw new HTTPException(400, { message: `file must be at most ${MAX_FILE_PATH_LENGTH} characters` });
+	}
 
 	if (download.isMetaMode) {
 		return c.json({
@@ -75,7 +188,7 @@ app.get('/d/:fileId', async (c) => {
 	): Promise<Response | null> {
 		const cacheRequest = download.getCacheRequest(mode, entryPath);
 		if (cacheRequest === null) return null;
-		const cache = await caches.open(downloadCacheName);
+		const cache = await openWorkerCache(c.env, workerCacheBaseNames.download);
 		const cached = await cache.match(cacheRequest);
 		if (cached === undefined) return null;
 
@@ -88,7 +201,7 @@ app.get('/d/:fileId', async (c) => {
 			}
 		}
 
-		return download.stripInternalCacheHeaders(cached);
+		return download.stripInternalCacheHeaders(cached, mode);
 	}
 
 	function putDownloadCache(
@@ -98,9 +211,9 @@ app.get('/d/:fileId', async (c) => {
 	): void {
 		const cacheRequest = download.getCacheRequest(mode, entryPath);
 		if (cacheRequest === null) return;
+		const cacheResponse = response.clone();
 		const putPromise = (async () => {
-			const cache = await caches.open(downloadCacheName);
-			const cacheResponse = response.clone();
+			const cache = await openWorkerCache(c.env, workerCacheBaseNames.download);
 			const headers = new Headers(cacheResponse.headers);
 			headers.set('Cache-Control', download.getInternalCacheControl());
 			headers.set(downloadCacheInternalHeaders.status, String(cacheResponse.status));
@@ -109,6 +222,7 @@ app.get('/d/:fileId', async (c) => {
 				status: 200,
 				statusText: 'OK',
 				headers,
+				...(mode === 'targz-entry' ? { encodeBody: 'manual' } : {}),
 			}));
 		})();
 
@@ -124,6 +238,7 @@ app.get('/d/:fileId', async (c) => {
 	if (file.visibility !== 'public') {
 		const fileToken = c.req.query('token');
 		if (fileToken) {
+			if (fileToken.length > MAX_ID_LENGTH) throw new HTTPException(400, { message: `token must be at most ${MAX_ID_LENGTH} characters` });
 			const fileTokenRecord = await db
 				.select()
 				.from(fileAccessTokens)
@@ -161,11 +276,16 @@ app.get('/d/:fileId', async (c) => {
 	const cacheTarget = download.cacheTarget;
 	if (cacheTarget !== null) {
 		const cached = await matchDownloadCache(cacheTarget.mode, cacheTarget.entryPath);
-		if (cached !== null) return cached;
+		if (cached !== null) {
+			return cached;
+		}
 	}
 
 	if ((file.isTargz || file.isTar) && download.isListMode) {
 		const listPath = c.req.query('list');
+		if (listPath && listPath.length > MAX_FILE_PATH_LENGTH) {
+			throw new HTTPException(400, { message: `list must be at most ${MAX_FILE_PATH_LENGTH} characters` });
+		}
 		if (file.isTargz) {
 			const index = await db.select().from(targzFiles).where(
 				listPath
@@ -205,7 +325,7 @@ app.get('/d/:fileId', async (c) => {
 		const response = new Response(rangeData.body, {
 			headers: download.withDownloadHeaders({
 				'Content-Type': indexEntry.mimeType,
-				'Content-Disposition': `attachment; filename="${indexEntry.path.split('/').pop()}"`,
+				'Content-Disposition': download.createContentDisposition(toDownloadBasename(indexEntry.path)),
 				'Content-Length': String(indexEntry.size),
 			}),
 		});
@@ -291,12 +411,8 @@ app.get('/d/:fileId', async (c) => {
 			});
 
 			const response = new Response(combinedStream, {
-				headers: download.withDownloadHeaders({
-					'Content-Type': indexEntry.mimeType,
-					'Content-Encoding': 'gzip',
-					'Content-Disposition': download.getContentDisposition(indexEntry.path),
-					'ETag': download.getETag(indexEntry.path),
-				}),
+				headers: getTargzEntryHeaders(download, indexEntry.path, indexEntry.mimeType),
+				encodeBody: 'manual',
 			});
 			putDownloadCache(response, 'targz-entry', fileQuery);
 			return response;
@@ -315,6 +431,7 @@ app.get('/d/:fileId', async (c) => {
 	const response = new Response(r2Object.body, {
 		headers: download.withDownloadHeaders({
 			'Content-Type': file.mimeType ?? 'application/octet-stream',
+			'Content-Disposition': download.createContentDisposition(toDownloadBasename(file.path)),
 			'Content-Length': String(file.size ?? 0),
 		}),
 	});

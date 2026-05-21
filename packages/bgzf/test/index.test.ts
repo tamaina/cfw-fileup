@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { createBgzfBlock, TarArchiver, BgzfTarArchiver } from '../src/index';
+import { createBgzfBlock, createBgzfDecompressor, createTarHeader, parseTarStream, TarArchiver, BgzfTarArchiver } from '../src/index';
 
 // ---- Test helpers ----
 
@@ -96,19 +96,40 @@ async function decompressBgzf(buf: Uint8Array): Promise<Uint8Array> {
 
 interface TarEntry { path: string; size: number; data: Uint8Array }
 
-function parseTar(buf: Uint8Array): TarEntry[] {
-	const dec = new TextDecoder();
+function streamFromChunks(chunks: Uint8Array[]): ReadableStream<Uint8Array> {
+	return new ReadableStream({
+		start(controller) {
+			for (const chunk of chunks) controller.enqueue(chunk);
+			controller.close();
+		},
+	});
+}
+
+async function parseTar(buf: Uint8Array): Promise<TarEntry[]> {
 	const entries: TarEntry[] = [];
-	let offset = 0;
-	while (offset + 512 <= buf.length) {
-		if (buf[offset] === 0) break;
-		const path = dec.decode(buf.slice(offset, offset + 100)).replace(/\0.*$/, '');
-		const size = parseInt(dec.decode(buf.slice(offset + 124, offset + 136)).replace(/\0.*$/, '').trim(), 8);
-		offset += 512;
-		entries.push({ path, size, data: buf.slice(offset, offset + size) });
-		offset += size + (512 - (size % 512)) % 512;
+	for await (const entry of parseTarStream(streamFromChunks([buf]))) {
+		entries.push({ path: entry.name, size: entry.size, data: await streamToBuffer(entry.stream) });
 	}
 	return entries;
+}
+
+function makeTar(parts: Uint8Array[]): Uint8Array {
+	const total = parts.reduce((sum, part) => sum + part.byteLength, 0);
+	const out = new Uint8Array(total);
+	let offset = 0;
+	for (const part of parts) {
+		out.set(part, offset);
+		offset += part.byteLength;
+	}
+	return out;
+}
+
+function tarFile(name: string, content: Uint8Array): Uint8Array[] {
+	return [
+		createTarHeader(name, content.byteLength, 0),
+		content,
+		new Uint8Array((512 - (content.byteLength % 512)) % 512),
+	];
 }
 
 // ---- Mock FileSystem handles ----
@@ -135,6 +156,31 @@ function mockDir(entries: Array<[string, FileSystemHandle]>): FileSystemDirector
 }
 
 const enc = new TextEncoder();
+
+// ---- createTarHeader ----
+
+describe('createTarHeader', () => {
+	test('is publicly exported and returns a 512-byte ustar file header', () => {
+		const header = createTarHeader('folder/file.txt', 12, 1_700_000_000_000);
+		const text = new TextDecoder();
+		expect(header).toHaveLength(512);
+		expect(text.decode(header.subarray(0, 100)).replace(/\0.*$/, '')).toBe('folder/file.txt');
+		expect(parseInt(text.decode(header.subarray(124, 136)).replace(/\0.*$/, '').trim(), 8)).toBe(12);
+		expect(header[156]).toBe('0'.charCodeAt(0));
+		expect(text.decode(header.subarray(257, 262))).toBe('ustar');
+		const stored = parseInt(text.decode(header.subarray(148, 154)).trim(), 8);
+		const checksumHeader = header.slice();
+		checksumHeader.fill(32, 148, 156);
+		expect(stored).toBe(checksumHeader.reduce((sum, byte) => sum + byte, 0));
+	});
+
+	test('returns a directory header with directory mode and typeflag', () => {
+		const header = createTarHeader('folder/', 0, 0, '5');
+		const text = new TextDecoder();
+		expect(text.decode(header.subarray(100, 108)).replace(/\0.*$/, '')).toBe('0000755');
+		expect(header[156]).toBe('5'.charCodeAt(0));
+	});
+});
 
 // ---- createBgzfBlock ----
 
@@ -237,11 +283,26 @@ describe('TarArchiver', () => {
 		const archiver = await TarArchiver.create(dir);
 		const buf = await streamToBuffer(archiver.stream);
 
-		const entries = parseTar(buf);
+		const entries = await parseTar(buf);
 		expect(entries).toHaveLength(1);
 		expect(entries[0].path).toBe('hello.txt');
 		expect(entries[0].size).toBe(content.length);
 		expect(entries[0].data).toEqual(content);
+	});
+
+	test('createFromEntries() produces a valid tar stream', async () => {
+		const content = enc.encode('entry api');
+		const archiver = await TarArchiver.createFromEntries([
+			{ path: 'folder/entry.txt', file: new File([content], 'entry.txt') },
+		]);
+		const buf = await streamToBuffer(archiver.stream);
+		const index = await archiver.index;
+
+		const entries = await parseTar(buf);
+		expect(entries).toHaveLength(1);
+		expect(entries[0].path).toBe('folder/entry.txt');
+		expect(entries[0].data).toEqual(content);
+		expect(index[0].path).toBe('folder/entry.txt');
 	});
 
 	test('create() index has correct offset and size', async () => {
@@ -270,7 +331,7 @@ describe('TarArchiver', () => {
 		const buf = await streamToBuffer(archiver.stream);
 		const index = await archiver.index;
 
-		const entries = parseTar(buf);
+		const entries = await parseTar(buf);
 		expect(entries).toHaveLength(2);
 		for (const [i, f] of files.entries()) {
 			expect(entries[i].path).toBe(f.name);
@@ -288,9 +349,101 @@ describe('TarArchiver', () => {
 		const buf = await streamToBuffer(archiver.stream);
 		const index = await archiver.index;
 
-		const entries = parseTar(buf);
+		const entries = await parseTar(buf);
 		expect(entries[0].path).toBe('sub/c.txt');
 		expect(index[0].path).toBe('sub/c.txt');
+	});
+});
+
+// ---- Streaming tar parser ----
+
+describe('parseTarStream', () => {
+	test('yields regular files incrementally and skips directories', async () => {
+		const first = enc.encode('first');
+		const second = enc.encode('second file');
+		const tar = makeTar([
+			createTarHeader('dir/', 0, 0, '5'),
+			...tarFile('dir/a.txt', first),
+			...tarFile('b.txt', second),
+			new Uint8Array(1024),
+		]);
+
+		const parsed: TarEntry[] = [];
+		for await (const entry of parseTarStream(streamFromChunks([tar.subarray(0, 777), tar.subarray(777)]))) {
+			parsed.push({ path: entry.name, size: entry.size, data: await streamToBuffer(entry.stream) });
+		}
+
+		expect(parsed.map(entry => entry.path)).toEqual(['dir/a.txt', 'b.txt']);
+		expect(parsed[0].data).toEqual(first);
+		expect(parsed[1].data).toEqual(second);
+	});
+
+	test('stops on zero block', async () => {
+		const tar = makeTar([
+			...tarFile('a.txt', enc.encode('a')),
+			new Uint8Array(1024),
+			...tarFile('ignored.txt', enc.encode('ignored')),
+		]);
+
+		const entries = await parseTar(tar);
+		expect(entries.map(entry => entry.path)).toEqual(['a.txt']);
+	});
+
+	test('throws on truncated header or body', async () => {
+		await expect(async () => {
+			for await (const _entry of parseTarStream(streamFromChunks([new Uint8Array(100)]))) {
+				// consume
+			}
+		}).rejects.toThrow('Truncated tar stream');
+
+		const tar = makeTar([createTarHeader('bad.txt', 10, 0), enc.encode('short')]);
+		await expect(async () => {
+			for await (const entry of parseTarStream(streamFromChunks([tar]))) {
+				await streamToBuffer(entry.stream);
+			}
+		}).rejects.toThrow('Truncated tar');
+	});
+
+	test('reads GNU tar base-256 size', async () => {
+		const content = enc.encode('base256');
+		const header = createTarHeader('base.bin', 0, 0);
+		header.fill(0, 124, 136);
+		header[124] = 0x80;
+		header[135] = content.byteLength;
+		header.fill(32, 148, 156);
+		const checksum = header.reduce((sum, byte) => sum + byte, 0);
+		const checksumBytes = enc.encode(checksum.toString(8).padStart(6, '0'));
+		header.set(checksumBytes, 148);
+		header[154] = 0;
+		header[155] = 32;
+
+		const entries = await parseTar(makeTar([
+			header,
+			content,
+			new Uint8Array((512 - (content.byteLength % 512)) % 512),
+			new Uint8Array(1024),
+		]));
+		expect(entries[0].size).toBe(content.byteLength);
+		expect(entries[0].data).toEqual(content);
+	});
+
+	test('entry body stream can be read in chunks without buffering the full tar', async () => {
+		const content = new Uint8Array(150_000).fill(0x61);
+		const tar = makeTar([...tarFile('large.txt', content), new Uint8Array(1024)]);
+		const iterator = parseTarStream(streamFromChunks([
+			tar.subarray(0, 512),
+			tar.subarray(512, 70_000),
+			tar.subarray(70_000),
+		]))[Symbol.asyncIterator]();
+		const { value: entry } = await iterator.next();
+		expect(entry?.name).toBe('large.txt');
+		const reader = entry!.stream.getReader();
+		const first = await reader.read();
+		expect(first.done).toBe(false);
+		expect(first.value!.byteLength).toBeLessThan(content.byteLength);
+		reader.releaseLock();
+		await streamToBuffer(entry!.stream);
+		await iterator.next();
 	});
 });
 
@@ -330,13 +483,48 @@ describe('BgzfTarArchiver', () => {
 		const buf = await streamToBuffer(archiver.stream);
 
 		const tarData = await decompressBgzf(buf);
-		const entries = parseTar(tarData);
+		const entries = await parseTar(tarData);
 
 		expect(entries).toHaveLength(2);
 		for (const [i, f] of files.entries()) {
 			expect(entries[i].path).toBe(f.name);
 			expect(entries[i].data).toEqual(f.content);
 		}
+	});
+
+	test('createBgzfDecompressor output can be parsed as tar and matches the index', async () => {
+		const files = [
+			{ path: 'one.txt', content: enc.encode('one') },
+			{ path: 'two.txt', content: enc.encode('two two') },
+		];
+		const archiver = await BgzfTarArchiver.createFromEntries(files.map(file => ({
+			path: file.path,
+			file: new File([file.content], file.path),
+		})));
+		const decompressed = archiver.stream.pipeThrough(createBgzfDecompressor());
+		const entries: TarEntry[] = [];
+		for await (const entry of parseTarStream(decompressed)) {
+			entries.push({ path: entry.name, size: entry.size, data: await streamToBuffer(entry.stream) });
+		}
+		const index = await archiver.index;
+
+		expect(entries.map(entry => [entry.path, entry.size])).toEqual(files.map(file => [file.path, file.content.byteLength]));
+		expect(index.map(entry => [entry.path, entry.rStartOffset >= 0])).toEqual(files.map(file => [file.path, true]));
+	});
+
+	test('createFromEntries() emits a BGZF tar stream', async () => {
+		const content = enc.encode('entry bgzf');
+		const archiver = await BgzfTarArchiver.createFromEntries([
+			{ path: 'folder/entry.txt', file: new File([content], 'entry.txt') },
+		]);
+		const buf = await streamToBuffer(archiver.stream);
+		const index = await archiver.index;
+		const entries = await parseTar(await decompressBgzf(buf));
+
+		expect(entries).toHaveLength(1);
+		expect(entries[0].path).toBe('folder/entry.txt');
+		expect(entries[0].data).toEqual(content);
+		expect(index[0].path).toBe('folder/entry.txt');
 	});
 
 	test('index is resolved after stream consumption and has one entry per file', async () => {

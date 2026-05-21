@@ -1,6 +1,6 @@
 import * as v from 'valibot';
 import type { ApiEndpointDefinitionRecord } from '../api.types.js';
-import { ErrorResponse } from '../api.schemas.js';
+import { ErrorResponse, IdString } from '../api.schemas.js';
 import { KnownSettingListSchema, KnownSettingRecordSchema } from '../app-settings.js';
 
 const QuotaResponse = v.pipe(
@@ -14,44 +14,57 @@ const QuotaResponse = v.pipe(
 );
 
 const OkResponse = { 200: { description: 'Success', content: { 'application/json': { vSchema: v.object({ ok: v.literal(true) }) } } } };
+const WorkerCachePurgeResponse = v.pipe(
+	v.object({
+		ok: v.literal(true),
+		version: v.string(),
+	}),
+	v.metadata({ ref: 'WorkerCachePurgeResponse' }),
+);
 const AdminErrors = {};
 
 export const adminApiDef = {
 	'/api/admin/suspend-user': {
 		summary: 'Suspend a user',
 		tags: ['admin'],
-		req: v.object({ userId: v.string() }),
+		req: v.object({ userId: IdString }),
 		res: { ...OkResponse, ...AdminErrors, 400: { description: 'Bad request (missing userId)', content: { 'application/json': { vSchema: ErrorResponse } } }, 404: { description: 'User not found', content: { 'application/json': { vSchema: ErrorResponse } } } },
 	},
 	'/api/admin/unsuspend-user': {
 		summary: 'Unsuspend a user',
 		tags: ['admin'],
-		req: v.object({ userId: v.string() }),
+		req: v.object({ userId: IdString }),
 		res: { ...OkResponse, ...AdminErrors, 400: { description: 'Bad request (missing userId)', content: { 'application/json': { vSchema: ErrorResponse } } }, 404: { description: 'User not found', content: { 'application/json': { vSchema: ErrorResponse } } } },
 	},
 	'/api/admin/make-admin': {
 		summary: 'Make a user an admin',
 		tags: ['admin'],
-		req: v.object({ userId: v.string() }),
+		req: v.object({ userId: IdString }),
 		res: { ...OkResponse, ...AdminErrors, 400: { description: 'Bad request (missing userId)', content: { 'application/json': { vSchema: ErrorResponse } } }, 404: { description: 'User not found', content: { 'application/json': { vSchema: ErrorResponse } } } },
 	},
 	'/api/admin/delete-file': {
 		summary: 'Delete a file',
 		tags: ['admin'],
-		req: v.object({ fileId: v.string() }),
+		req: v.object({ fileId: IdString }),
 		res: { ...OkResponse, ...AdminErrors, 400: { description: 'Bad request (missing fileId)', content: { 'application/json': { vSchema: ErrorResponse } } }, 404: { description: 'File not found', content: { 'application/json': { vSchema: ErrorResponse } } } },
 	},
 	'/api/admin/delete-bucket': {
 		summary: 'Delete a bucket',
 		tags: ['admin'],
-		req: v.object({ bucketId: v.string() }),
+		req: v.object({ bucketId: IdString }),
 		res: { ...OkResponse, ...AdminErrors, 400: { description: 'Bad request (missing bucketId)', content: { 'application/json': { vSchema: ErrorResponse } } }, 404: { description: 'Bucket not found', content: { 'application/json': { vSchema: ErrorResponse } } } },
+	},
+	'/api/admin/purge-worker-cache': {
+		summary: 'Purge Worker cache',
+		tags: ['admin'],
+		req: v.object({}),
+		res: { 200: { description: 'Success', content: { 'application/json': { vSchema: WorkerCachePurgeResponse } } }, ...AdminErrors },
 	},
 	'/api/admin/set-user-quota': {
 		summary: 'Set quota for a user',
 		tags: ['admin'],
 		req: v.object({
-			userId: v.string(),
+			userId: IdString,
 			maxBuckets: v.optional(v.nullable(v.number())),
 			maxBucketSizeBytes: v.optional(v.nullable(v.number())),
 			maxFilesPerBucket: v.optional(v.nullable(v.number())),
@@ -73,7 +86,7 @@ export const adminApiDef = {
 	'/api/admin/get-user-quota': {
 		summary: 'Get quota for a user',
 		tags: ['admin'],
-		req: v.object({ userId: v.string() }),
+		req: v.object({ userId: IdString }),
 		res: { 200: { description: 'Success', content: { 'application/json': { vSchema: QuotaResponse } } }, ...AdminErrors, 404: { description: 'User not found', content: { 'application/json': { vSchema: ErrorResponse } } } },
 	},
 	'/api/admin/get-global-quota': {
@@ -85,7 +98,7 @@ export const adminApiDef = {
 	'/api/admin/delete-user-quota': {
 		summary: 'Delete user quota (reset to global)',
 		tags: ['admin'],
-		req: v.object({ userId: v.string() }),
+		req: v.object({ userId: IdString }),
 		res: { ...OkResponse, ...AdminErrors, 404: { description: 'User not found', content: { 'application/json': { vSchema: ErrorResponse } } } },
 	},
 	'/api/admin/list-users': {

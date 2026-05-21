@@ -1,14 +1,18 @@
 import * as v from 'valibot';
 import type { ApiEndpointDefinitionRecord } from '../api.types.js';
-import { ErrorResponse } from '../api.schemas.js';
+import { ErrorResponse, IdString } from '../api.schemas.js';
+import { MAX_BUCKET_NAME_LENGTH, MAX_FILE_PATH_LENGTH, MAX_PASSPHRASE_LENGTH, MAX_TURNSTILE_TOKEN_LENGTH } from '../const.js';
+
+const BucketNameString = v.pipe(v.string(), v.maxLength(MAX_BUCKET_NAME_LENGTH));
+const FilePathString = v.pipe(v.string(), v.maxLength(MAX_FILE_PATH_LENGTH));
 
 export const fileTokensApiDef = {
 	'/api/file-tokens/create': {
 		summary: 'Create a file access token',
 		tags: ['file-tokens'],
 		req: v.object({
-			bucketName: v.string(),
-			filePath: v.string(),
+			bucketName: BucketNameString,
+			filePath: FilePathString,
 			expiresIn: v.nullable(v.number()),
 		}),
 		res: {
@@ -21,8 +25,8 @@ export const fileTokensApiDef = {
 		summary: 'List file access tokens',
 		tags: ['file-tokens'],
 		req: v.object({
-			bucketName: v.string(),
-			filePath: v.string(),
+			bucketName: BucketNameString,
+			filePath: FilePathString,
 		}),
 		res: {
 			200: { description: 'Success', content: { 'application/json': { vSchema: v.object({
@@ -36,7 +40,7 @@ export const fileTokensApiDef = {
 		summary: 'Delete a file access token',
 		tags: ['file-tokens'],
 		req: v.object({
-			tokenId: v.string(),
+			tokenId: IdString,
 		}),
 		res: {
 			200: { description: 'Success', content: { 'application/json': { vSchema: v.object({ ok: v.literal(true) }) } } },
@@ -48,10 +52,10 @@ export const fileTokensApiDef = {
 		summary: 'Create a file access token by passphrase',
 		tags: ['file-tokens'],
 		req: v.object({
-			bucketName: v.string(),
-			filePath: v.string(),
-			passphrase: v.string(),
-			turnstileToken: v.optional(v.string()),
+			bucketName: BucketNameString,
+			filePath: FilePathString,
+			passphrase: v.pipe(v.string(), v.maxLength(MAX_PASSPHRASE_LENGTH)),
+			turnstileToken: v.optional(v.pipe(v.string(), v.maxLength(MAX_TURNSTILE_TOKEN_LENGTH))),
 		}),
 		res: {
 			200: { description: 'Success', content: { 'application/json': { vSchema: v.object({ id: v.string(), token: v.string(), expiresAt: v.number(), fileId: v.string() }) } } },

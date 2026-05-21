@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { Dialog } from '@vuetify/v0';
+import { ArrowLeft, ArrowRight, Check, Folder, FolderPlus, X } from '@lucide/vue';
 import { apiPost } from '../utils/api';
 
 const props = defineProps<{
 	open: boolean;
+	initialBucketName?: string;
+	initialPrefix?: string;
 }>();
 
 const emit = defineEmits<{
@@ -15,6 +18,7 @@ const emit = defineEmits<{
 interface Bucket {
 	id: string;
 	name: string;
+	usedBytes: number;
 }
 
 interface DirectoryEntry {
@@ -25,6 +29,7 @@ interface DirectoryEntry {
 
 const step = ref<'bucket' | 'directory'>('bucket');
 const buckets = ref<Bucket[]>([]);
+const maxBucketSizeBytes = ref<number | null>(null);
 const selectedBucketId = ref('');
 const selectedBucketName = ref('');
 const currentPath = ref('');
@@ -37,6 +42,25 @@ const newDirName = ref('');
 const mkdirError = ref('');
 const showNewDirInput = ref(false);
 
+function normalizePrefix(prefix: string | undefined): string {
+	if (!prefix) return '';
+	return prefix.endsWith('/') ? prefix : `${prefix}/`;
+}
+
+function formatBytes(bytes: number): string {
+	if (bytes === 0) return '0 B';
+	const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+	const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+	return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
+}
+
+function usagePercent(usedBytes: number): number {
+	if (maxBucketSizeBytes.value === null) return 0;
+	return Math.min(100, (usedBytes / maxBucketSizeBytes.value) * 100);
+}
+
+const selectedBucket = computed(() => buckets.value.find(bucket => bucket.id === selectedBucketId.value) ?? null);
+
 async function loadBuckets(): Promise<void> {
 	loadingBuckets.value = true;
 	bucketError.value = '';
@@ -47,10 +71,32 @@ async function loadBuckets(): Promise<void> {
 		return;
 	}
 	buckets.value = result.data.buckets;
+	maxBucketSizeBytes.value = result.data.maxBucketSizeBytes;
 	if (buckets.value.length > 0 && !selectedBucketId.value) {
 		selectedBucketId.value = buckets.value[0].id;
 		selectedBucketName.value = buckets.value[0].name;
 	}
+}
+
+async function initializeSelection(): Promise<void> {
+	selectedBucketId.value = '';
+	selectedBucketName.value = '';
+	currentPath.value = '';
+	step.value = 'bucket';
+
+	await loadBuckets();
+
+	const initialBucket = props.initialBucketName
+		? buckets.value.find(bucket => bucket.name === props.initialBucketName)
+		: null;
+
+	if (!initialBucket) return;
+
+	selectedBucketId.value = initialBucket.id;
+	selectedBucketName.value = initialBucket.name;
+	currentPath.value = normalizePrefix(props.initialPrefix);
+	step.value = 'directory';
+	await loadDirectory();
 }
 
 async function loadDirectory(): Promise<void> {
@@ -117,12 +163,10 @@ function close(): void {
 
 watch(() => props.open, async (val) => {
 	if (val) {
-		step.value = 'bucket';
-		currentPath.value = '';
 		newDirName.value = '';
 		mkdirError.value = '';
 		showNewDirInput.value = false;
-		await loadBuckets();
+		await initializeSelection();
 	}
 });
 </script>
@@ -133,7 +177,9 @@ watch(() => props.open, async (val) => {
       <div :class="$style.inner">
         <div :class="$style.header">
           <Dialog.Title :class="$style.title">アップロード先を選択</Dialog.Title>
-          <Dialog.Close class="btn btn-ghost" @click="close">✕</Dialog.Close>
+          <Dialog.Close class="btn btn-ghost btn-icon" aria-label="閉じる" @click="close">
+            <X :size="16" :stroke-width="2" />
+          </Dialog.Close>
         </div>
 
         <!-- Step 1: バケット選択 -->
@@ -154,7 +200,19 @@ watch(() => props.open, async (val) => {
                 :class="$style.radio"
                 @change="selectBucket(b)"
               >
-              <span>{{ b.name }}</span>
+              <span :class="$style.bucketInfo">
+                <span :class="$style.bucketName">{{ b.name }}</span>
+                <span :class="$style.bucketUsageText">
+                  {{ formatBytes(b.usedBytes) }}
+                  <template v-if="maxBucketSizeBytes !== null"> / {{ formatBytes(maxBucketSizeBytes) }}</template>
+                </span>
+                <span v-if="maxBucketSizeBytes !== null" :class="$style.bucketUsageBar">
+                  <span
+                    :class="[$style.bucketUsageBarFill, usagePercent(b.usedBytes) >= 90 && $style.bucketUsageBarFillDanger]"
+                    :style="{ width: `${usagePercent(b.usedBytes).toFixed(1)}%` }"
+                  />
+                </span>
+              </span>
             </label>
             <div v-if="buckets.length === 0" :class="$style.empty">バケットがありません</div>
           </div>
@@ -165,7 +223,7 @@ watch(() => props.open, async (val) => {
               :disabled="!selectedBucketId"
               @click="goToDirectory"
             >
-              次へ →
+              次へ <ArrowRight :size="16" :stroke-width="2" />
             </button>
           </div>
         </template>
@@ -181,7 +239,7 @@ watch(() => props.open, async (val) => {
               :class="[$style.directoryItem, $style.upItem]"
               @click="goUp"
             >
-              ← 上へ
+              <ArrowLeft :size="16" :stroke-width="2" />上へ
             </button>
             <button
               v-for="entry in dirEntries"
@@ -189,7 +247,7 @@ watch(() => props.open, async (val) => {
               :class="$style.directoryItem"
               @click="enterDir(entry.name)"
             >
-              📁 {{ entry.name }}
+              <Folder :size="16" :stroke-width="2" />{{ entry.name }}
             </button>
             <div v-if="dirEntries.length === 0 && currentPath === ''" :class="$style.empty">
               ディレクトリがありません
@@ -203,7 +261,7 @@ watch(() => props.open, async (val) => {
               class="btn btn-secondary btn-sm"
               @click="showNewDirInput = true"
             >
-              + 新規フォルダ作成
+              <FolderPlus :size="16" :stroke-width="2" />新規フォルダ作成
             </button>
             <div v-else :class="$style.mkdirRow">
               <input
@@ -218,7 +276,7 @@ watch(() => props.open, async (val) => {
                 :disabled="!newDirName.trim()"
                 @click="createDirectory"
               >
-                作成
+                <Check :size="16" :stroke-width="2" />作成
               </button>
               <button class="btn btn-ghost btn-sm" @click="showNewDirInput = false; newDirName = ''">
                 キャンセル
@@ -230,10 +288,14 @@ watch(() => props.open, async (val) => {
           <p :class="$style.currentPath">
             <span :class="$style.bucketPart">{{ selectedBucketName }}/</span><span>{{ currentPath }}</span>
           </p>
+          <p v-if="selectedBucket" :class="$style.currentBucketUsage">
+            使用量: {{ formatBytes(selectedBucket.usedBytes) }}
+            <template v-if="maxBucketSizeBytes !== null"> / {{ formatBytes(maxBucketSizeBytes) }} ({{ usagePercent(selectedBucket.usedBytes).toFixed(1) }}%)</template>
+          </p>
 
           <div :class="$style.actions">
-            <button class="btn btn-secondary" @click="step = 'bucket'">← バケット選択へ</button>
-            <button class="btn btn-primary" @click="confirmSelect">ここを選択</button>
+            <button class="btn btn-secondary" @click="step = 'bucket'"><ArrowLeft :size="16" :stroke-width="2" />バケット選択へ</button>
+            <button class="btn btn-primary" @click="confirmSelect"><Check :size="16" :stroke-width="2" />ここを選択</button>
           </div>
         </template>
       </div>
@@ -316,7 +378,7 @@ watch(() => props.open, async (val) => {
 
 .bucketItem {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   padding: 9px 12px;
   cursor: pointer;
@@ -331,6 +393,45 @@ watch(() => props.open, async (val) => {
   &:hover {
     background: var(--color-surface-hover, rgba(0, 0, 0, 0.04));
   }
+}
+
+.bucketInfo {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.bucketName {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bucketUsageText,
+.currentBucketUsage {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+}
+
+.bucketUsageBar {
+  display: block;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--color-border);
+}
+
+.bucketUsageBarFill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-primary);
+}
+
+.bucketUsageBarFillDanger {
+  background: var(--color-danger);
 }
 
 .bucketItemSelected {

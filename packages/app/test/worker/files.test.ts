@@ -399,6 +399,45 @@ describe('POST /api/files/update', () => {
 	});
 });
 
+describe('GET /api/files/meta', () => {
+	test('returns fileId for a private file when a valid file access token is provided', async () => {
+		const { token, bucketId } = await setupUserAndBucket();
+
+		const openRes = await app.request('/api/files/create/open', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ bucketId, path: 'secret.txt' }),
+		}, env);
+		const { fileId } = await openRes.json() as { fileId: string };
+
+		await env.R2.put(`${bucketId}/secret.txt`, 'Secret Content');
+		await app.request('/api/files/create/close', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ fileId, visibility: 'passphrase', passphrase: 'secret' }),
+		}, env);
+
+		const tokenRes = await app.request('/api/file-tokens/create', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ bucketName: 'test_bucket', filePath: 'secret.txt', expiresIn: 3600 }),
+		}, env);
+		expect(tokenRes.status).toBe(200);
+		const { token: fileToken } = await tokenRes.json() as { token: string };
+
+		const metaWithoutTokenRes = await app.request('/api/files/meta?bucketName=test_bucket&path=secret.txt', {}, env);
+		expect(metaWithoutTokenRes.status).toBe(200);
+		const metaWithoutToken = await metaWithoutTokenRes.json() as { fileId?: string };
+		expect(metaWithoutToken.fileId).toBeUndefined();
+
+		const metaRes = await app.request(`/api/files/meta?bucketName=test_bucket&path=secret.txt&token=${encodeURIComponent(fileToken)}`, {}, env);
+		expect(metaRes.status).toBe(200);
+		const meta = await metaRes.json() as { fileId?: string; visibility: string };
+		expect(meta.fileId).toBe(fileId);
+		expect(meta.visibility).toBe('passphrase');
+	});
+});
+
 describe('POST /api/files/delete', () => {
 	test('owner can delete own file', async () => {
 		const { token, bucketId } = await setupUserAndBucket();

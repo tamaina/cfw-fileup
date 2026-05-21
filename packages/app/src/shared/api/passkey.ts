@@ -1,6 +1,9 @@
 import * as v from 'valibot';
 import type { ApiEndpointDefinitionRecord } from '../api.types.js';
-import { ErrorResponse } from '../api.schemas.js';
+import { ErrorResponse, IdString } from '../api.schemas.js';
+import { MAX_PASSPHRASE_LENGTH, MAX_TURNSTILE_TOKEN_LENGTH, MAX_USERNAME_LENGTH, MAX_WEBAUTHN_FIELD_LENGTH } from '../const.js';
+
+const WebauthnString = v.pipe(v.string(), v.maxLength(MAX_WEBAUTHN_FIELD_LENGTH));
 
 // ── Shared credential schemas ────────────────────────────────────────────────
 
@@ -11,12 +14,12 @@ const AuthenticatorTransportFuture = v.picklist([
 /** AuthenticatorAttestationResponseJSON */
 const AuthenticatorAttestationResponseJSON = v.pipe(
 	v.object({
-		clientDataJSON: v.string(),
-		attestationObject: v.string(),
-		authenticatorData: v.optional(v.string()),
+		clientDataJSON: WebauthnString,
+		attestationObject: WebauthnString,
+		authenticatorData: v.optional(WebauthnString),
 		transports: v.optional(v.array(AuthenticatorTransportFuture)),
 		publicKeyAlgorithm: v.optional(v.number()),
-		publicKey: v.optional(v.string()),
+		publicKey: v.optional(WebauthnString),
 	}),
 	v.metadata({ ref: 'AuthenticatorAttestationResponseJSON' }),
 );
@@ -24,10 +27,10 @@ const AuthenticatorAttestationResponseJSON = v.pipe(
 /** AuthenticatorAssertionResponseJSON */
 const AuthenticatorAssertionResponseJSON = v.pipe(
 	v.object({
-		clientDataJSON: v.string(),
-		authenticatorData: v.string(),
-		signature: v.string(),
-		userHandle: v.optional(v.string()),
+		clientDataJSON: WebauthnString,
+		authenticatorData: WebauthnString,
+		signature: WebauthnString,
+		userHandle: v.optional(WebauthnString),
 	}),
 	v.metadata({ ref: 'AuthenticatorAssertionResponseJSON' }),
 );
@@ -40,8 +43,8 @@ const AuthenticationExtensionsClientOutputs = v.pipe(
 /** RegistrationResponseJSON — body from startRegistration() */
 export const RegistrationResponseJSON = v.pipe(
 	v.object({
-		id: v.string(),
-		rawId: v.string(),
+		id: WebauthnString,
+		rawId: WebauthnString,
 		response: AuthenticatorAttestationResponseJSON,
 		authenticatorAttachment: v.optional(v.picklist(['cross-platform', 'platform'])),
 		clientExtensionResults: AuthenticationExtensionsClientOutputs,
@@ -53,8 +56,8 @@ export const RegistrationResponseJSON = v.pipe(
 /** AuthenticationResponseJSON — body from startAuthentication() */
 export const AuthenticationResponseJSON = v.pipe(
 	v.object({
-		id: v.string(),
-		rawId: v.string(),
+		id: WebauthnString,
+		rawId: WebauthnString,
 		response: AuthenticatorAssertionResponseJSON,
 		authenticatorAttachment: v.optional(v.picklist(['cross-platform', 'platform'])),
 		clientExtensionResults: AuthenticationExtensionsClientOutputs,
@@ -109,9 +112,9 @@ export const passkeyApiDef = {
 		summary: 'Finish passkey registration',
 		tags: ['passkey'],
 		req: v.object({
-			challengeId: v.string(),
+			challengeId: IdString,
 			credential: RegistrationResponseJSON,
-			name: v.optional(v.pipe(v.string(), v.maxLength(64))),
+			name: v.optional(IdString),
 		}),
 		res: {
 			200: { description: 'Registration successful', content: { 'application/json': { vSchema: v.object({ ok: v.literal(true) }) } } },
@@ -131,7 +134,7 @@ export const passkeyApiDef = {
 		summary: 'Finish passkey authentication',
 		tags: ['passkey'],
 		req: v.object({
-			challengeId: v.string(),
+			challengeId: IdString,
 			credential: AuthenticationResponseJSON,
 		}),
 		res: {
@@ -153,7 +156,7 @@ export const passkeyApiDef = {
 		summary: 'Delete a passkey',
 		tags: ['passkey'],
 		req: v.object({
-			passkeyId: v.string(),
+			passkeyId: IdString,
 		}),
 		res: {
 			200: { description: 'Deleted', content: { 'application/json': { vSchema: v.object({ ok: v.literal(true) }) } } },
@@ -183,9 +186,9 @@ export const passkeyApiDef = {
 		summary: 'Login with a backup code',
 		tags: ['passkey'],
 		req: v.object({
-			username: v.string(),
-			password: v.string(),
-			code: v.string(),
+			username: v.pipe(v.string(), v.maxLength(MAX_USERNAME_LENGTH)),
+			password: v.pipe(v.string(), v.maxLength(MAX_PASSPHRASE_LENGTH)),
+			code: v.pipe(v.string(), v.maxLength(128)),
 		}),
 		res: {
 			200: { description: 'Login successful', content: { 'application/json': { vSchema: v.object({ token: v.string() }) } } },
@@ -197,8 +200,9 @@ export const passkeyApiDef = {
 		summary: 'Begin passkey signup',
 		tags: ['passkey'],
 		req: v.object({
-			username: v.pipe(v.string(), v.minLength(1), v.maxLength(32)),
-			passphrase: v.optional(v.string()),
+			username: v.pipe(v.string(), v.minLength(1), v.maxLength(MAX_USERNAME_LENGTH)),
+			passphrase: v.optional(v.pipe(v.string(), v.maxLength(MAX_PASSPHRASE_LENGTH))),
+			turnstileToken: v.optional(v.pipe(v.string(), v.maxLength(MAX_TURNSTILE_TOKEN_LENGTH))),
 		}),
 		res: {
 			200: { description: 'Signup options', content: { 'application/json': { vSchema: v.object({ challengeId: v.string(), options: PublicKeyCredentialCreationOptionsJSON }) } } },
@@ -211,9 +215,9 @@ export const passkeyApiDef = {
 		summary: 'Finish passkey signup',
 		tags: ['passkey'],
 		req: v.object({
-			challengeId: v.string(),
+			challengeId: IdString,
 			credential: RegistrationResponseJSON,
-			passkeyName: v.optional(v.pipe(v.string(), v.maxLength(64))),
+			passkeyName: v.optional(IdString),
 		}),
 		res: {
 			200: { description: 'Account created and token issued', content: { 'application/json': { vSchema: v.object({ token: v.string() }) } } },

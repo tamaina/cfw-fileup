@@ -3,24 +3,26 @@ import { HTTPException } from 'hono/http-exception';
 import { describeResponse, describeRoute, validator } from 'hono-openapi';
 import { eq, and, gte, desc, sql, count, like } from 'drizzle-orm';
 import { filetypemime } from 'magic-bytes.js';
-import { buckets, files, targzFiles, tarFiles, uploadParts, directories, tokens, users, DEFAULT_PART_SIZE, MIN_PART_SIZE } from '../scheme/index';
+import { buckets, files, targzFiles, tarFiles, uploadParts, directories, tokens, users, fileAccessTokens, DEFAULT_PART_SIZE, MIN_PART_SIZE } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { getQuotaForUser } from '../utils/rate-limit';
 import { authMiddleware } from '../middleware/auth';
+import { shortGetCache } from '../middleware/short-get-cache';
 import { genEaidx } from '../../shared/eaid-x';
 import { apiDef, getResponseDefWithAuth, type JsonCtx } from '../../shared/api';
 import { omitResAndReq } from '../utils/omit';
+import { MAX_BUCKET_NAME_LENGTH, MAX_FILE_PATH_LENGTH, MAX_ID_LENGTH } from '../../shared/const';
 
 const app = new Hono<{ Bindings: Env }>();
 
-async function listFiles(c: { env: Env; req: { header(name: string): string | undefined } }, bucketName: string, path = '', forceOwner = false) {
+async function listFiles(c: { env: Env; req: { header(name: string): string | undefined } }, bucketName: string, path = '', forceOwner = false, allowBearerAuth = true) {
 	const db = getDb(c.env);
 	const normalizedPath = path === '' || path.endsWith('/') ? path : `${path}/`;
 	const bucket = await db.select().from(buckets).where(eq(buckets.name, bucketName)).get();
 	if (!bucket) throw new HTTPException(404, { message: 'Bucket not found' });
 
 	let isOwnerOrAdmin = forceOwner;
-	if (!isOwnerOrAdmin) {
+	if (!isOwnerOrAdmin && allowBearerAuth) {
 		const authorization = c.req.header('Authorization');
 		if (authorization?.startsWith('Bearer ')) {
 			const token = authorization.slice(7);
@@ -97,16 +99,25 @@ async function listFiles(c: { env: Env; req: { header(name: string): string | un
 	return { type: 'directory' as const, entries };
 }
 
+app.use('/ls', shortGetCache({ maxAgeSeconds: 10 }));
+
 app.get('/ls', async (c) => {
 	const bucketName = c.req.query('bucketName');
 	if (!bucketName) throw new HTTPException(400, { message: 'bucketName is required' });
-	return c.json(await listFiles(c, bucketName, c.req.query('path') ?? ''), 200);
+	const path = c.req.query('path') ?? '';
+	if (bucketName.length > MAX_BUCKET_NAME_LENGTH) throw new HTTPException(400, { message: `bucketName must be at most ${MAX_BUCKET_NAME_LENGTH} characters` });
+	if (path.length > MAX_FILE_PATH_LENGTH) throw new HTTPException(400, { message: `path must be at most ${MAX_FILE_PATH_LENGTH} characters` });
+	return c.json(await listFiles(c, bucketName, path, false, false), 200);
 });
 
 app.get('/meta', async (c) => {
 	const bucketName = c.req.query('bucketName');
 	const path = c.req.query('path');
+	const fileToken = c.req.query('token');
 	if (!bucketName || path == null) throw new HTTPException(400, { message: 'bucketName and path are required' });
+	if (bucketName.length > MAX_BUCKET_NAME_LENGTH) throw new HTTPException(400, { message: `bucketName must be at most ${MAX_BUCKET_NAME_LENGTH} characters` });
+	if (path.length > MAX_FILE_PATH_LENGTH) throw new HTTPException(400, { message: `path must be at most ${MAX_FILE_PATH_LENGTH} characters` });
+	if (fileToken && fileToken.length > MAX_ID_LENGTH) throw new HTTPException(400, { message: `token must be at most ${MAX_ID_LENGTH} characters` });
 
 	const db = getDb(c.env);
 	const bucket = await db.select().from(buckets).where(eq(buckets.name, bucketName)).get();
@@ -137,6 +148,18 @@ app.get('/meta', async (c) => {
 	const base = { visibility: file.visibility, isTargz: file.isTargz, isTar: file.isTar, size: file.size };
 	if (file.visibility === 'public' || isOwnerOrAdmin) {
 		return c.json({ ...base, fileId: file.id, bucketId: bucket.id });
+	}
+	if (fileToken) {
+		const fileTokenRecord = await db
+			.select()
+			.from(fileAccessTokens)
+			.where(and(eq(fileAccessTokens.token, fileToken), eq(fileAccessTokens.fileId, file.id)))
+			.get();
+		if (!fileTokenRecord) throw new HTTPException(403, { message: 'Forbidden' });
+		if (fileTokenRecord.expiresAt !== null && fileTokenRecord.expiresAt < Date.now()) {
+			throw new HTTPException(403, { message: 'Forbidden' });
+		}
+		return c.json({ ...base, fileId: file.id });
 	}
 	return c.json(base);
 });
@@ -568,8 +591,8 @@ app.post(
 		const user = c.get('user');
 		const body = c.req.valid('json');
 
-		if (!body.bucketId || !body.path) {
-			throw new HTTPException(400, { message: 'bucketId and path are required' });
+		if (!body.bucketId) {
+			throw new HTTPException(400, { message: 'bucketId is required' });
 		}
 
 		const bucket = await db.select().from(buckets).where(eq(buckets.id, body.bucketId)).get();
@@ -582,29 +605,84 @@ app.post(
 			throw new HTTPException(403, { message: 'Forbidden' });
 		}
 
-		const file = await db
-			.select()
-			.from(files)
-			.where(and(eq(files.bucketId, bucket.id), eq(files.path, body.path)))
-			.get();
-
-		if (!file) {
-			throw new HTTPException(404, { message: 'File not found' });
+		const targets = body.targets ?? (body.path ? [{ type: 'file' as const, path: body.path }] : []);
+		if (targets.length === 0) {
+			throw new HTTPException(400, { message: 'path or targets are required' });
 		}
 
-		try {
-			await c.env.R2.delete(file.r2Key);
-		} catch (error) {
-			console.error('Failed to delete R2 object:', file.r2Key, error);
+		const filesToDelete = new Map<string, {
+			id: string;
+			r2Key: string;
+			isClosed: boolean;
+			size: number | null;
+		}>();
+		const directoryPrefixes = new Set<string>();
+
+		for (const target of targets) {
+			if (target.type === 'file') {
+				const file = await db
+					.select()
+					.from(files)
+					.where(and(eq(files.bucketId, bucket.id), eq(files.path, target.path)))
+					.get();
+				if (!file) throw new HTTPException(404, { message: `File not found: ${target.path}` });
+				filesToDelete.set(file.id, file);
+				continue;
+			}
+
+			const prefix = target.path === '' ? '' : target.path.endsWith('/') ? target.path : `${target.path}/`;
+			const excludePaths = target.excludePaths ?? [];
+			const childFiles = await db
+				.select({ id: files.id, r2Key: files.r2Key, isClosed: files.isClosed, size: files.size, path: files.path })
+				.from(files)
+				.where(and(eq(files.bucketId, bucket.id), like(files.path, `${prefix}%`)));
+
+			for (const file of childFiles) {
+				if (excludePaths.some((excludePath) => {
+					if (excludePath.endsWith('/')) return file.path.startsWith(excludePath);
+					return file.path === excludePath;
+				})) continue;
+				filesToDelete.set(file.id, file);
+			}
+
+			if (excludePaths.length === 0) {
+				directoryPrefixes.add(prefix);
+			}
+			const childDirectories = await db
+				.select({ path: directories.path })
+				.from(directories)
+				.where(and(eq(directories.bucketId, bucket.id), like(directories.path, `${prefix}%`)));
+			for (const dir of childDirectories) {
+				if (excludePaths.some((excludePath) => {
+					const normalizedExcludePath = excludePath.endsWith('/') ? excludePath : `${excludePath}/`;
+					return dir.path === normalizedExcludePath || dir.path.startsWith(normalizedExcludePath) || normalizedExcludePath.startsWith(dir.path);
+				})) continue;
+				directoryPrefixes.add(dir.path);
+			}
 		}
 
-		await db.delete(files).where(eq(files.id, file.id));
+		for (const file of filesToDelete.values()) {
+			try {
+				await c.env.R2.delete(file.r2Key);
+			} catch (error) {
+				console.error('Failed to delete R2 object:', file.r2Key, error);
+			}
+		}
 
-		if (file.isClosed && file.size) {
+		for (const file of filesToDelete.values()) {
+			await db.delete(files).where(eq(files.id, file.id));
+		}
+
+		const sizeToDecrement = Array.from(filesToDelete.values()).reduce((sum, file) => sum + (file.isClosed && file.size ? file.size : 0), 0);
+		if (sizeToDecrement > 0) {
 			await db
 				.update(buckets)
-				.set({ usedBytes: sql`MAX(0, ${buckets.usedBytes} - ${file.size})` })
+				.set({ usedBytes: sql`MAX(0, ${buckets.usedBytes} - ${sizeToDecrement})` })
 				.where(eq(buckets.id, bucket.id));
+		}
+
+		for (const prefix of directoryPrefixes) {
+			await db.delete(directories).where(and(eq(directories.bucketId, bucket.id), like(directories.path, `${prefix}%`)));
 		}
 
 		return c.json({ ok: true }, 200);

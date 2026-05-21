@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { Button, Popover } from '@vuetify/v0';
+import { EllipsisVertical } from '@lucide/vue';
 import { authStore } from '../store/auth';
 import { apiPost } from '../utils/api';
 import NirA from '@/components/nira.vue';
@@ -149,7 +150,7 @@ async function executeMakeAdmin(): Promise<void> {
                   <NirA :to="`/admin/users/${u.id}`" class="btn btn-secondary">クォータ設定</NirA>
                   <Popover.Root v-if="u.id !== authStore.user?.id">
                     <Popover.Activator class="btn btn-ghost btn-icon" aria-label="操作メニュー">
-                      …
+                      <EllipsisVertical :size="16" :stroke-width="2" />
                     </Popover.Activator>
                     <Popover.Content class="action-menu">
                       <div class="action-menu-inner">

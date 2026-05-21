@@ -6,6 +6,7 @@ import NirA from '@/components/nira.vue';
 import { authStore } from '@/store/auth';
 import { apiPost } from '@/utils/api';
 import ConfirmDialog from '@/components/confirm-dialog.vue';
+import { connectUploadWorker, uploadWorkerJobs } from '@/store/upload-worker';
 
 interface UploadEntry {
 	id: string;
@@ -24,6 +25,7 @@ const entries = ref<UploadEntry[]>([]);
 const loading = ref(true);
 const error = ref('');
 const deleteErrors = ref<Record<string, string>>({});
+const activeTab = ref<'server' | 'browser'>('server');
 
 const deleteDialog = ref(false);
 const deleteTarget = ref<UploadEntry | null>(null);
@@ -42,6 +44,19 @@ function fileLabel(e: UploadEntry): string {
 
 function browseLink(e: UploadEntry): string {
 	return `/v/${e.bucketName}/${e.path}`;
+}
+
+function browserUploadLink(bucketName: string, path: string): string {
+	return `/v/${bucketName}/${path}`;
+}
+
+function formatDate(timestamp: number): string {
+	return new Date(timestamp).toLocaleString();
+}
+
+function progressPercent(uploadedBytes: number, totalBytes: number): number {
+	if (totalBytes <= 0) return 0;
+	return Math.min(100, Math.round(uploadedBytes / totalBytes * 100));
 }
 
 async function load(): Promise<void> {
@@ -78,7 +93,11 @@ async function executeDelete(): Promise<void> {
 	await load();
 }
 
-onMounted(load);
+onMounted(() => {
+	activeTab.value = new URLSearchParams(location.search).get('tab') === 'browser' ? 'browser' : 'server';
+	connectUploadWorker();
+	void load();
+});
 </script>
 
 <template>
@@ -89,7 +108,72 @@ onMounted(load);
 
     <div v-if="!authStore.user" class="alert alert-info">ログインが必要です。</div>
     <template v-else>
-      <div v-if="loading" class="page-loading">
+      <div class="tab-bar mb-4">
+        <button type="button" class="tab-btn" :class="{ 'tab-btn-active': activeTab === 'browser' }" @click="activeTab = 'browser'">このブラウザ</button>
+        <button type="button" class="tab-btn" :class="{ 'tab-btn-active': activeTab === 'server' }" @click="activeTab = 'server'">サーバー</button>
+      </div>
+
+      <div v-if="activeTab === 'browser'">
+        <div v-if="uploadWorkerJobs.length === 0" class="empty-state">
+          <p>ブラウザから実行中のアップロードはありません。</p>
+        </div>
+        <div v-else :class="[$style.tableCard, 'card']">
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>状態</th>
+                  <th>バケット</th>
+                  <th>対象</th>
+                  <th class="col-right">ファイル数</th>
+                  <th class="col-usage">進捗</th>
+                  <th class="col-right">転送量</th>
+                  <th>更新日時</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="job in uploadWorkerJobs" :key="job.id">
+                  <td>
+                    <span :class="job.status === 'done' ? 'badge badge-success' : job.status === 'error' ? 'badge badge-danger' : job.status === 'queued' ? 'badge badge-muted' : 'badge badge-info'">
+                      {{ job.status === 'done' ? '完了' : job.status === 'error' ? 'エラー' : job.status === 'queued' ? '待機中' : 'アップロード中' }}
+                    </span>
+                  </td>
+                  <td class="col-muted">{{ job.bucketName }}</td>
+                  <td>
+                    <NirA v-if="job.status === 'done' && job.completedPath" :to="browserUploadLink(job.bucketName, job.completedPath)" class="font-mono">
+                      {{ job.completedPath }}
+                    </NirA>
+                    <span v-else class="font-mono">{{ job.filename || job.prefix || '-' }}</span>
+                    <div v-if="job.error" class="text-danger">{{ job.error }}</div>
+                  </td>
+                  <td class="col-right col-muted">
+                    <template v-if="job.totalFiles > 0">{{ job.fileIndex }}/{{ job.totalFiles }}</template>
+                  </td>
+                  <td>
+                    <div class="bucket-usage">
+                      <div class="bucket-usage-bar">
+                        <div class="bucket-usage-bar-fill" :style="{ width: `${progressPercent(job.uploadedBytes, job.totalBytes)}%` }" />
+                      </div>
+                      <span class="bucket-usage-pct">{{ progressPercent(job.uploadedBytes, job.totalBytes) }}%</span>
+                    </div>
+                  </td>
+                  <td class="col-right col-muted">
+                    <template v-if="progressPercent(job.uploadedBytes, job.totalBytes) >= 100">
+                      {{ formatBytes(job.totalBytes) }}
+                    </template>
+                    <template v-else>
+                      {{ formatBytes(job.uploadedBytes) }} / {{ formatBytes(job.totalBytes) }}
+                    </template>
+                  </td>
+                  <td class="col-muted">{{ formatDate(job.updatedAt) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div v-else-if="loading" class="page-loading">
         <span class="spinner" />読み込み中...
       </div>
       <div v-else-if="error" class="alert alert-error">{{ error }}</div>

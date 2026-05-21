@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { Button, Popover } from '@vuetify/v0';
+import { EllipsisVertical } from '@lucide/vue';
 import ConfirmDialog from '@/components/confirm-dialog.vue';
 import { apiPost } from '@/utils/api';
 import type { FileVisibility } from '../../shared/file-visibility';
@@ -35,6 +36,7 @@ const creating = ref(false);
 const createError = ref('');
 const createdToken = ref<{ id: string; token: string; expiresAt: number | null } | null>(null);
 const copied = ref(false);
+const publicCopied = ref(false);
 
 const deleteDialogOpen = ref(false);
 const deletingId = ref('');
@@ -103,15 +105,23 @@ async function createToken(): Promise<void> {
 	}
 }
 
-function downloadUrl(token: string): string {
-	return `${location.origin}/d/${props.bucketName}/${props.filePath}?token=${token}`;
+function viewUrl(token?: string): string {
+	const url = new URL(`/v/${props.bucketName}/${props.filePath}`, location.origin);
+	if (token) url.searchParams.set('token', token);
+	return url.toString();
 }
 
 async function copyUrl(): Promise<void> {
 	if (!createdToken.value) return;
-	await navigator.clipboard.writeText(downloadUrl(createdToken.value.token));
+	await navigator.clipboard.writeText(viewUrl(createdToken.value.token));
 	copied.value = true;
 	setTimeout(() => { copied.value = false; }, 2000);
+}
+
+async function copyPublicUrl(): Promise<void> {
+	await navigator.clipboard.writeText(viewUrl());
+	publicCopied.value = true;
+	setTimeout(() => { publicCopied.value = false; }, 2000);
 }
 
 function openDeleteDialog(id: string): void {
@@ -210,10 +220,16 @@ onMounted(loadTokens);
 
     <!-- 発行フォーム -->
     <div v-if="fileVisibility === 'public'" :class="[$style.sectionCard, 'card', 'mb-3']">
-      <div :class="['text-muted', $style.smallText]">公開ファイルにはアクセストークンは不要です。</div>
+      <div :class="[$style.sectionHeading, 'text-muted', 'mb-2']">共有URL</div>
+      <div class="flex items-center gap-2 flex-wrap">
+        <code :class="$style.tokenUrl">{{ viewUrl() }}</code>
+        <Button.Root class="btn btn-secondary" @click="copyPublicUrl">
+          <Button.Content>{{ publicCopied ? 'コピー済み' : 'コピー' }}</Button.Content>
+        </Button.Root>
+      </div>
     </div>
     <div v-else :class="[$style.sectionCard, 'card', 'mb-3']">
-      <div :class="[$style.sectionHeading, 'text-muted', 'mb-2']">新しいトークンを発行</div>
+      <div :class="[$style.sectionHeading, 'text-muted', 'mb-2']">新しい共有URLを発行</div>
 
       <div class="flex items-center gap-3 flex-wrap">
         <select v-model="expiryMode" :class="[$style.expiryModeSelect, 'form-input']">
@@ -252,9 +268,9 @@ onMounted(loadTokens);
       <!-- 発行後のトークン表示 -->
       <template v-if="createdToken">
         <div :class="[$style.createdTokenBox, 'mt-3']">
-          <div :class="['text-muted', $style.createdTokenLabel, 'mb-1']">ダウンロードURL（この画面を閉じると再表示できません）</div>
+          <div :class="['text-muted', $style.createdTokenLabel, 'mb-1']">共有URL（この画面を閉じると再表示できません）</div>
           <div class="flex items-center gap-2 flex-wrap">
-            <code :class="$style.tokenUrl">{{ downloadUrl(createdToken.token) }}</code>
+            <code :class="$style.tokenUrl">{{ viewUrl(createdToken.token) }}</code>
             <Button.Root class="btn btn-secondary" @click="copyUrl">
               <Button.Content>{{ copied ? 'コピー済み' : 'コピー' }}</Button.Content>
             </Button.Root>
@@ -268,10 +284,10 @@ onMounted(loadTokens);
 
     <!-- トークン一覧 -->
     <div v-if="fileVisibility !== 'public'" :class="[$style.sectionCard, 'card']">
-      <div :class="[$style.sectionHeading, 'text-muted', 'mb-2']">発行済みトークン</div>
+      <div :class="[$style.sectionHeading, 'text-muted', 'mb-2']">発行済み共有URL</div>
       <div v-if="loading" :class="['text-muted', $style.smallText]">読み込み中...</div>
       <div v-else-if="listError" :class="$style.listError">{{ listError }}</div>
-      <div v-else-if="tokens.length === 0" :class="['text-muted', $style.smallText]">トークンはありません</div>
+      <div v-else-if="tokens.length === 0" :class="['text-muted', $style.smallText]">共有URLはありません</div>
       <div v-else :class="$style.tokenTableScroller">
         <table :class="[$style.tokenTable, 'data-table']">
           <thead>
@@ -303,7 +319,7 @@ onMounted(loadTokens);
               <td>
                 <Popover.Root>
                   <Popover.Activator class="btn btn-ghost btn-icon" aria-label="操作メニュー">
-                    …
+                    <EllipsisVertical :size="16" :stroke-width="2" />
                   </Popover.Activator>
                   <Popover.Content class="action-menu">
                     <Button.Root class="btn btn-ghost-danger w-full" :class="$style.menuItem" @click="openDeleteDialog(t.id)">
@@ -321,8 +337,8 @@ onMounted(loadTokens);
 
     <ConfirmDialog
       v-model:open="deleteDialogOpen"
-      title="トークンを削除"
-      message="このアクセストークンを削除します。削除後は使用できなくなります。"
+      title="共有URLを削除"
+      message="この共有URLを削除します。削除後は使用できなくなります。"
       confirm-label="削除"
       :danger="true"
       @confirm="executeDelete"

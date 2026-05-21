@@ -23,6 +23,7 @@ async function setupUserAndBucket(username = 'user1') {
 	const { bucketId } = await res.json() as { bucketId: string };
 	return { token, bucketId, bucketName: `${username}_bucket` };
 }
+
 async function createClosedFile(
 	token: string,
 	bucketId: string,

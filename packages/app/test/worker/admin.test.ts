@@ -1,5 +1,6 @@
 import { describe, test, expect, beforeAll, beforeEach } from 'vitest';
 import { env, app, setupDb, clearDb, signup, signin, authHeaders } from './helpers';
+import { getWorkerCacheName, workerCacheBaseNames } from '../../src/worker/utils/cache-names';
 
 beforeAll(async () => {
 	await setupDb();
@@ -31,6 +32,7 @@ describe('Admin access control', () => {
 			{ path: '/api/admin/make-admin', body: { userId: 'x' } },
 			{ path: '/api/admin/delete-file', body: { fileId: 'x' } },
 			{ path: '/api/admin/delete-bucket', body: { bucketId: 'x' } },
+			{ path: '/api/admin/purge-worker-cache', body: {} },
 			{ path: '/api/admin/update-setting', body: { key: 'registration_mode', value: 'closed' } },
 		];
 
@@ -42,6 +44,27 @@ describe('Admin access control', () => {
 			}, env);
 			expect(res.status).toBe(403);
 		}
+	});
+});
+
+describe('POST /api/admin/purge-worker-cache', () => {
+	test('admin can rotate Worker cache names', async () => {
+		const { adminToken } = await setupAdminAndUser();
+		const beforeName = await getWorkerCacheName(env, workerCacheBaseNames.download);
+
+		const res = await app.request('/api/admin/purge-worker-cache', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({}),
+		}, env);
+		expect(res.status).toBe(200);
+		const body = await res.json() as { ok: boolean; version: string };
+		expect(body.ok).toBe(true);
+		expect(body.version.length).toBeGreaterThan(0);
+
+		const afterName = await getWorkerCacheName(env, workerCacheBaseNames.download);
+		expect(afterName).not.toBe(beforeName);
+		expect(afterName).toBe(`${workerCacheBaseNames.download}-v${body.version}`);
 	});
 });
 
