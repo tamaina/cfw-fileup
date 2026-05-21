@@ -852,8 +852,15 @@ watch([isPartiallySelected, isAllSelected], async () => {
     </div>
 
     <div :class="$style.viewToggle" aria-label="表示形式">
+      <div v-if="isArchive && archivePath !== ''" class="mb-2">
+        <button :class="$style.upButton" type="button" @click="navigateArchiveUp">..</button>
+      </div>
+      <div v-else-if="parentPath()" class="mb-2">
+        <NirA :to="parentPath()!" :class="$style.upLink">..</NirA>
+      </div>
+
       <button
-        :class="[$style.viewToggleButton, viewMode === 'list' && $style.viewToggleButtonActive]"
+        :class="['ms-auto', $style.viewToggleButton, $style.viewListButton, viewMode === 'list' && $style.viewToggleButtonActive]"
         type="button"
         title="リストビュー"
         @click="setViewMode('list')"
@@ -861,7 +868,7 @@ watch([isPartiallySelected, isAllSelected], async () => {
         リスト
       </button>
       <button
-        :class="[$style.viewToggleButton, viewMode === 'grid' && $style.viewToggleButtonActive]"
+        :class="[$style.viewToggleButton, $style.viewGridButton, viewMode === 'grid' && $style.viewToggleButtonActive]"
         type="button"
         title="グリッドビュー"
         @click="setViewMode('grid')"
@@ -911,16 +918,6 @@ watch([isPartiallySelected, isAllSelected], async () => {
               </tr>
             </thead>
             <tbody>
-              <tr v-if="isArchive && archivePath !== ''">
-                <td :colspan="3">
-                  <button :class="$style.upButton" @click="navigateArchiveUp">..</button>
-                </td>
-              </tr>
-              <tr v-else-if="parentPath()">
-                <td :colspan="tableColspan">
-                  <NirA :to="parentPath()!" :class="$style.upLink">..</NirA>
-                </td>
-              </tr>
               <tr v-for="entry in entries" :key="entry.key">
                 <!-- チェックボックスセル -->
                 <td v-if="!isArchive" :class="$style.checkboxCell">
@@ -970,13 +967,6 @@ watch([isPartiallySelected, isAllSelected], async () => {
           </div>
         </div>
         <template v-else>
-          <div v-if="isArchive && archivePath !== ''" class="mb-2">
-            <button :class="$style.upButton" type="button" @click="navigateArchiveUp">..</button>
-          </div>
-          <div v-else-if="parentPath()" class="mb-2">
-            <NirA :to="parentPath()!" :class="$style.upLink">..</NirA>
-          </div>
-
           <div v-if="entries.length === 0" class="empty-state card">
             <p>エントリがありません。</p>
           </div>
@@ -1147,11 +1137,11 @@ watch([isPartiallySelected, isAllSelected], async () => {
   border: 1px solid var(--color-border, #d5dbe3);
 }
 
-.viewToggleButton:first-child {
+.viewListButton {
   border-radius: 6px 0 0 6px;
 }
 
-.viewToggleButton + .viewToggleButton {
+.viewGridButton {
   margin-left: -1px;
   border-radius: 0 6px 6px 0;
 }
@@ -1196,7 +1186,7 @@ watch([isPartiallySelected, isAllSelected], async () => {
   font-weight: 700;
   color: var(--color-primary);
   background: var(--color-surface, #fff);
-  border: 1px solid var(--color-primary);
+  border: 1px solid var(--color-border, #d5dbe3);
   border-radius: 6px;
   cursor: pointer;
   text-decoration: none;
@@ -1212,7 +1202,7 @@ watch([isPartiallySelected, isAllSelected], async () => {
   font-weight: 700;
   color: var(--color-primary);
   background: var(--color-surface, #fff);
-  border: 1px solid var(--color-primary);
+  border: 1px solid var(--color-border, #d5dbe3);
   border-radius: 6px;
   text-decoration: none;
 }
@@ -1221,6 +1211,7 @@ watch([isPartiallySelected, isAllSelected], async () => {
 .upLink:hover {
   color: #fff;
   background: var(--color-primary);
+  text-decoration: none;
 }
 
 .nameCell {
@@ -1287,11 +1278,12 @@ watch([isPartiallySelected, isAllSelected], async () => {
   background: var(--color-surface, #fff);
   border: 1px solid var(--color-border, #e0e0e0);
   border-radius: 8px;
+  box-shadow: inset 0 0 0 0 transparent;
 }
 
 .gridCardSelected {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 1px var(--color-primary);
+  border-color: var(--color-border, #e0e0e0);
+  box-shadow: inset 0 0 0 2px var(--color-primary);
 }
 
 .gridCheckboxCell {
