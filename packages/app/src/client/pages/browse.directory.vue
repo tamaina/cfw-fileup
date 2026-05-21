@@ -3,7 +3,7 @@ import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import * as v from 'valibot';
 import type { FileVisibility } from '../../shared/file-visibility';
 import { Button, Popover } from '@vuetify/v0';
-import { FileIcon, Folder } from '@lucide/vue';
+import { FileIcon, Folder, LayoutGrid, List } from '@lucide/vue';
 import NirA from '@/components/nira.vue';
 import { authStore, authHeaders } from '@/store/auth';
 import { apiPost } from '@/utils/api';
@@ -865,7 +865,8 @@ watch([isPartiallySelected, isAllSelected], async () => {
         title="リストビュー"
         @click="setViewMode('list')"
       >
-        リスト
+        <List class="inline-icon" :size="16" :stroke-width="2" />
+        <span>リスト</span>
       </button>
       <button
         :class="[$style.viewToggleButton, $style.viewGridButton, viewMode === 'grid' && $style.viewToggleButtonActive]"
@@ -873,7 +874,8 @@ watch([isPartiallySelected, isAllSelected], async () => {
         title="グリッドビュー"
         @click="setViewMode('grid')"
       >
-        グリッド
+        <LayoutGrid class="inline-icon" :size="16" :stroke-width="2" />
+        <span>グリッド</span>
       </button>
     </div>
 
@@ -1007,8 +1009,8 @@ watch([isPartiallySelected, isAllSelected], async () => {
                   :src="entry.previewUrl"
                   :alt="entry.name"
                   :class="$style.gridCardImage"
-                  width="150"
-                  height="150"
+                  width="300"
+                  height="300"
                   loading="lazy"
                   decoding="async"
                 >
@@ -1138,6 +1140,9 @@ watch([isPartiallySelected, isAllSelected], async () => {
 }
 
 .viewToggleButton {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
   min-width: 72px;
   padding: 6px 12px;
   font: inherit;
@@ -1355,6 +1360,7 @@ watch([isPartiallySelected, isAllSelected], async () => {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  background: var(--color-bg);
 }
 
 .gridCardIcon {

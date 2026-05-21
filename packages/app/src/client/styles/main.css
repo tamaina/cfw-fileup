@@ -159,7 +159,10 @@ code { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.9em; 
   background: var(--color-danger-hover);
 }
 
-.btn-lg { padding: 10px 20px; font-size: 1rem; }
+.btn-lg {
+  padding: 10px 20px;
+  font-size: 1rem;
+}
 .btn-icon {
   padding: 7px;
   aspect-ratio: 1;
@@ -482,6 +485,14 @@ code { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.9em; 
 }
 .tab-btn:hover { color: var(--color-text); }
 .tab-btn-active { color: var(--color-primary); border-bottom-color: var(--color-primary); }
+
+/* ===== Icon ===== */
+.inline-icon {
+  display: inline-block;
+  width: 1.1em;
+  height: 1.1em;
+  vertical-align: -0.125em;
+}
 
 /* ===== Utilities ===== */
 .flex { display: flex; }
