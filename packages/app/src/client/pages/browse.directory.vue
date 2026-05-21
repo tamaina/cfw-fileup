@@ -559,10 +559,12 @@ function buildArchiveEntries(): void {
 		const rest = e.path.slice(archivePath.value.length);
 		const slashIdx = rest.indexOf('/');
 		if (slashIdx === -1) {
+			//const previewUrl = isImageMime(e.mimeType) ? `/d/${props.fileId}?file=${encodeURIComponent(e.path)}` : undefined;
 			result.push({
 				key: e.id,
 				name: rest,
 				link: `/v/${props.bucketName}/${props.filePath}?file=${encodeURIComponent(e.path)}`,
+				//previewUrl,
 				isDir: false,
 				fullPath: e.path,
 				size: e.size,
