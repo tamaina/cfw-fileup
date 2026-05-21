@@ -648,7 +648,7 @@ async function load(): Promise<void> {
 					};
 				}
 				const mime = e.isTargz ? 'application/gzip' : e.isTar ? 'application/x-tar' : (e.mimeType ?? '');
-				const previewUrl = isImageMime(mime) && e.fileId ? `/d/${e.fileId}` : undefined;
+				const previewUrl = isImageMime(mime) && e.visibility === 'public' && e.fileId ? `/d/${e.fileId}` : undefined;
 				return {
 					key: `file:${e.name}`,
 					name: e.name,
@@ -1007,6 +1007,8 @@ watch([isPartiallySelected, isAllSelected], async () => {
                   :src="entry.previewUrl"
                   :alt="entry.name"
                   :class="$style.gridCardImage"
+                  width="400px"
+                  height="400px"
                   loading="lazy"
                   decoding="async"
                 >
@@ -1334,8 +1336,7 @@ watch([isPartiallySelected, isAllSelected], async () => {
   align-items: center;
   justify-content: center;
   width: 100%;
-  height: auto;
-  aspect-ratio: 1 / 1;
+  height: 150px;
   color: var(--color-text-muted);
   text-decoration: none;
   background: var(--color-bg);
@@ -1370,6 +1371,7 @@ watch([isPartiallySelected, isAllSelected], async () => {
   flex-direction: column;
   gap: 5px;
   min-width: 0;
+  height: 100%;
   padding: 8px;
 }
 
