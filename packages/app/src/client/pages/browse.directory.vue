@@ -976,6 +976,19 @@ watch([isPartiallySelected, isAllSelected], async () => {
               :key="entry.key"
               :class="[$style.gridCard, isEntrySelected(entry) && $style.gridCardSelected]"
             >
+              <button
+                v-if="isArchive && entry.isDir"
+                :class="$style.gridCardLink"
+                type="button"
+                :aria-label="entry.name"
+                @click="navigateArchiveDir(entry.fullPath)"
+              />
+              <NirA
+                v-else
+                :to="entry.link"
+                :class="$style.gridCardLink"
+                :aria-label="entry.name"
+              />
               <div v-if="!isArchive" :class="$style.gridCheckboxCell">
                 <input
                   type="checkbox"
@@ -985,12 +998,9 @@ watch([isPartiallySelected, isAllSelected], async () => {
                   @change="toggleSelect(entry.fullPath)"
                 >
               </div>
-              <component
-                :is="isArchive && entry.isDir ? 'button' : NirA"
+              <div
                 :class="[$style.gridCardPreview, isArchive && entry.isDir ? $style.gridCardPreviewButton : '']"
-                :to="!(isArchive && entry.isDir) ? entry.link : undefined"
                 type="button"
-                @click="isArchive && entry.isDir ? navigateArchiveDir(entry.fullPath) : undefined"
               >
                 <img
                   v-if="entry.previewUrl"
@@ -1004,7 +1014,7 @@ watch([isPartiallySelected, isAllSelected], async () => {
                   <Folder v-if="entry.isDir" :size="42" :stroke-width="1.8" aria-hidden="true" />
                   <FileIcon v-else :size="34" :stroke-width="1.8" aria-hidden="true" />
                 </div>
-              </component>
+              </div>
               <div :class="$style.gridCardInfo">
                 <div :class="$style.gridCardName" :title="entry.name">{{ entry.name }}</div>
                 <div :class="$style.gridCardMeta">
@@ -1294,6 +1304,17 @@ watch([isPartiallySelected, isAllSelected], async () => {
   border-radius: 7px;
 }
 
+.gridCardLink {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  padding: 0;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+}
+
 .gridCheckboxCell {
   position: absolute;
   z-index: 3;
@@ -1374,7 +1395,10 @@ watch([isPartiallySelected, isAllSelected], async () => {
 }
 
 .gridCardActions {
-  margin-top: 2px;
+  position: relative;
+  z-index: 3;
+  margin-top: auto;
+  padding-top: 2px;
 }
 
 .gridCardDeleteButton {
