@@ -1278,17 +1278,25 @@ watch([isPartiallySelected, isAllSelected], async () => {
   background: var(--color-surface, #fff);
   border: 1px solid var(--color-border, #e0e0e0);
   border-radius: 8px;
-  box-shadow: inset 0 0 0 0 transparent;
 }
 
 .gridCardSelected {
   border-color: var(--color-border, #e0e0e0);
-  box-shadow: inset 0 0 0 2px var(--color-primary);
+}
+
+.gridCardSelected::after {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  content: "";
+  border: 2px solid var(--color-primary);
+  border-radius: 7px;
 }
 
 .gridCheckboxCell {
   position: absolute;
-  z-index: 1;
+  z-index: 3;
   top: 6px;
   left: 6px;
   display: flex;
