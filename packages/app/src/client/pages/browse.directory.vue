@@ -1007,8 +1007,8 @@ watch([isPartiallySelected, isAllSelected], async () => {
                   :src="entry.previewUrl"
                   :alt="entry.name"
                   :class="$style.gridCardImage"
-                  width="400px"
-                  height="400px"
+                  width="150"
+                  height="150"
                   loading="lazy"
                   decoding="async"
                 >
