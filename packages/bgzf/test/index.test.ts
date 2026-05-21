@@ -23,7 +23,7 @@ function u32le(buf: Uint8Array, off: number): number {
 	return (buf[off] | buf[off + 1] << 8 | buf[off + 2] << 16 | buf[off + 3] << 24) >>> 0;
 }
 
-async function streamToBuffer(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
+async function streamToBuffer(stream: ReadableStream<Uint8Array<ArrayBuffer>>): Promise<Uint8Array<ArrayBuffer>> {
 	const chunks: Uint8Array[] = [];
 	const reader = stream.getReader();
 	try {
@@ -54,7 +54,7 @@ function parseBgzfBlock(buf: Uint8Array, offset: number) {
 }
 
 // Decompresses raw deflate data
-async function decompressRaw(data: Uint8Array): Promise<Uint8Array> {
+async function decompressRaw(data: Uint8Array): Promise<Uint8Array<ArrayBuffer>> {
 	const ds = new DecompressionStream('deflate-raw');
 	const writer = ds.writable.getWriter();
 	await writer.write(new Uint8Array(data));
@@ -78,7 +78,7 @@ async function decompressRaw(data: Uint8Array): Promise<Uint8Array> {
 }
 
 // Decompresses a complete BGZF stream (stops at EOF marker block with ISIZE=0)
-async function decompressBgzf(buf: Uint8Array): Promise<Uint8Array> {
+async function decompressBgzf(buf: Uint8Array): Promise<Uint8Array<ArrayBuffer>> {
 	const chunks: Uint8Array[] = [];
 	let offset = 0;
 	while (offset < buf.length) {
@@ -94,9 +94,9 @@ async function decompressBgzf(buf: Uint8Array): Promise<Uint8Array> {
 	return out;
 }
 
-interface TarEntry { path: string; size: number; data: Uint8Array }
+interface TarEntry { path: string; size: number; data: Uint8Array<ArrayBuffer> }
 
-function streamFromChunks(chunks: Uint8Array[]): ReadableStream<Uint8Array> {
+function streamFromChunks(chunks: Uint8Array[]): ReadableStream<Uint8Array<ArrayBuffer>> {
 	return new ReadableStream({
 		start(controller) {
 			for (const chunk of chunks) controller.enqueue(chunk);
@@ -113,7 +113,7 @@ async function parseTar(buf: Uint8Array): Promise<TarEntry[]> {
 	return entries;
 }
 
-function makeTar(parts: Uint8Array[]): Uint8Array {
+function makeTar(parts: Uint8Array[]): Uint8Array<ArrayBuffer> {
 	const total = parts.reduce((sum, part) => sum + part.byteLength, 0);
 	const out = new Uint8Array(total);
 	let offset = 0;

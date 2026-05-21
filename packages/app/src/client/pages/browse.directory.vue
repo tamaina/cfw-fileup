@@ -18,6 +18,7 @@ import type { DownloadTransformWorkerMessage, DownloadTransformWorkerRequest } f
 import { getOpfsTempFile, removeOpfsTempFile } from '@/workers/opfs-temp';
 import { completeDownloadStatus, failDownloadStatus, startDownloadStatus, updateDownloadStatus } from '@/store/download-status';
 import { registerDownloadedOpfsFile } from '@/store/download-cleanup';
+import type { DistributiveOmit } from '../../shared/type-hack';
 
 const props = defineProps<{
 	bucketName: string;
@@ -252,7 +253,7 @@ function getArchiveDownloadWorker(): Worker {
 	return archiveDownloadWorker;
 }
 
-function runArchiveDownloadWorker(request: Omit<ArchiveDownloadWorkerRequest, 'id'>): Promise<{ opfsName: string; filename: string; mimeType: string }> {
+function runArchiveDownloadWorker(request: DistributiveOmit<ArchiveDownloadWorkerRequest, 'id'>): Promise<{ opfsName: string; filename: string; mimeType: string }> {
 	const id = String(++archiveDownloadRequestId);
 	return new Promise((resolve, reject) => {
 		archiveDownloadRequests.set(id, { resolve, reject });

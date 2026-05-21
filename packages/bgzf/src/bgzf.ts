@@ -82,7 +82,7 @@ function calculateCrc32(data: Uint8Array): number {
 	return (crc ^ 0xffffffff) >>> 0;
 }
 
-async function compressDeflate(data: Uint8Array<ArrayBuffer>): Promise<Uint8Array> {
+async function compressDeflate(data: Uint8Array<ArrayBuffer>): Promise<Uint8Array<ArrayBuffer>> {
 	const cs = new CompressionStream('deflate-raw');
 	const chunks: Uint8Array[] = [];
 
@@ -115,7 +115,7 @@ async function compressDeflate(data: Uint8Array<ArrayBuffer>): Promise<Uint8Arra
 	return out;
 }
 
-function storeDeflateRaw(data: Uint8Array): Uint8Array {
+function storeDeflateRaw(data: Uint8Array): Uint8Array<ArrayBuffer> {
 	const out = new Uint8Array(5 + data.length);
 	out[0] = 0x01;
 	out[1] = data.length & 0xff;
@@ -129,7 +129,7 @@ function storeDeflateRaw(data: Uint8Array): Uint8Array {
 
 const BGZF_OVERHEAD = 26;
 
-export async function createBgzfBlock(uncompressed: Uint8Array<ArrayBuffer>): Promise<Uint8Array> {
+export async function createBgzfBlock(uncompressed: Uint8Array<ArrayBuffer>): Promise<Uint8Array<ArrayBuffer>> {
 	let deflated = await compressDeflate(uncompressed);
 	const crc32 = calculateCrc32(uncompressed);
 

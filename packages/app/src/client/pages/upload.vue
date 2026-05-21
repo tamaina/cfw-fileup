@@ -723,7 +723,7 @@ onUnmounted(() => {
 
 // ---- OPFS helpers ----
 
-async function streamToOpfs(stream: ReadableStream<Uint8Array>, name: string): Promise<FileSystemFileHandle> {
+async function streamToOpfs(stream: ReadableStream<Uint8Array<ArrayBuffer>>, name: string): Promise<FileSystemFileHandle> {
 	const root = await navigator.storage.getDirectory();
 	const handle = await root.getFileHandle(name, { create: true });
 	const writable = await handle.createWritable();
@@ -851,7 +851,7 @@ async function uploadBlob(blob: Blob, path: string, onProgress?: (uploaded: numb
 }
 
 /** Write stream to OPFS, upload as blob, delete temp file. */
-async function uploadStream(stream: ReadableStream<Uint8Array>, path: string, onProgress?: (uploaded: number) => void): Promise<boolean> {
+async function uploadStream(stream: ReadableStream<Uint8Array<ArrayBuffer>>, path: string, onProgress?: (uploaded: number) => void): Promise<boolean> {
 	const tmpName = `__up_${Date.now()}`;
 	const handle = await streamToOpfs(stream, tmpName);
 	const file = await handle.getFile();
@@ -993,7 +993,7 @@ class TusChunkQueue {
 
 /** Open upload then stream in partSize pieces via OPFS. Returns fileId or null on error. */
 async function uploadChunkedStream(
-	stream: ReadableStream<Uint8Array>,
+	stream: ReadableStream<Uint8Array<ArrayBuffer>>,
 	path: string,
 	onUploadedBytes?: (total: number) => void,
 ): Promise<string | null> {
@@ -1056,7 +1056,7 @@ async function uploadChunkedStream(
 
 /** Upload tar stream in chunks, then register index. */
 async function uploadTarStream(
-	stream: ReadableStream<Uint8Array>,
+	stream: ReadableStream<Uint8Array<ArrayBuffer>>,
 	index: Promise<TarIndex[]>,
 	archivePath: string,
 	onUploadedBytes?: (total: number) => void,
@@ -1082,7 +1082,7 @@ async function uploadTarStream(
 
 /** Upload BGZF stream in chunks, then register index. */
 async function uploadBgzfStream(
-	stream: ReadableStream<Uint8Array>,
+	stream: ReadableStream<Uint8Array<ArrayBuffer>>,
 	index: Promise<TarGzIndex[]>,
 	archivePath: string,
 	onUploadedBytes?: (total: number) => void,

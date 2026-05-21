@@ -202,13 +202,13 @@ async function uploadBlob(blob: Blob, path: string, request: UploadJobRequest, o
 	}
 }
 
-async function uploadStream(stream: ReadableStream<Uint8Array>, path: string, request: UploadJobRequest, onProgress: (uploaded: number) => void): Promise<void> {
+async function uploadStream(stream: ReadableStream<Uint8Array<ArrayBuffer>>, path: string, request: UploadJobRequest, onProgress: (uploaded: number) => void): Promise<void> {
 	const fileId = await uploadChunkedStream(stream, path, request, onProgress);
 	await closeUpload(fileId, request);
 }
 
 async function uploadArchiveStream(
-	stream: ReadableStream<Uint8Array>,
+	stream: ReadableStream<Uint8Array<ArrayBuffer>>,
 	index: Promise<TarIndex[] | TarGzIndex[]>,
 	archivePath: string,
 	indexEndpoint: '/api/files/create/tar-index' | '/api/files/create/targz-index',
@@ -227,7 +227,7 @@ async function uploadArchiveStream(
 }
 
 async function uploadChunkedStream(
-	stream: ReadableStream<Uint8Array>,
+	stream: ReadableStream<Uint8Array<ArrayBuffer>>,
 	path: string,
 	request: UploadJobRequest,
 	onProgress: (uploaded: number) => void,
@@ -245,7 +245,7 @@ async function uploadChunkedStream(
 async function writeStreamParts(
 	fileId: string,
 	partSize: number,
-	stream: ReadableStream<Uint8Array>,
+	stream: ReadableStream<Uint8Array<ArrayBuffer>>,
 	path: string,
 	request: UploadJobRequest,
 	onProgress: (uploaded: number) => void,

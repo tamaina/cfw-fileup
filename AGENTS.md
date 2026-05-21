@@ -43,6 +43,9 @@ DeepWikiに問い合わせると、npmパッケージの内容理解に役立つ
 
 - `pnpm run --filter app dev`
 - `pnpm run --filter app typecheck`
+- `pnpm run --filter app typecheck:worker`
+- `pnpm run --filter app typecheck:client`
+- `pnpm run --filter app typecheck:sw`
 - `pnpm run --filter app test:e2e`
 - `pnpm run --filter app test:e2e:fresh`
 

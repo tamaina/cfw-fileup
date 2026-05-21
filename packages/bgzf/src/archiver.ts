@@ -2,7 +2,7 @@ import { createBgzfBlock } from './bgzf';
 import { createTarHeader } from './tar';
 import type { ArchiveProgress, FileEntry, TarGzIndex, TarIndex } from './types';
 
-async function readFirstBytes(stream: ReadableStream<Uint8Array>, maxBytes: number): Promise<Uint8Array> {
+async function readFirstBytes(stream: ReadableStream<Uint8Array<ArrayBuffer>>, maxBytes: number): Promise<Uint8Array<ArrayBuffer>> {
 	const reader = stream.getReader();
 	const chunks: Uint8Array[] = [];
 	let total = 0;
@@ -59,10 +59,10 @@ interface PreparedEntry {
 }
 
 class TarArchiverBase<TIdx> {
-	readonly stream: ReadableStream<Uint8Array>;
+	readonly stream: ReadableStream<Uint8Array<ArrayBuffer>>;
 	readonly index: Promise<TIdx[]>;
 
-	protected constructor(stream: ReadableStream<Uint8Array>, index: Promise<TIdx[]>) {
+	protected constructor(stream: ReadableStream<Uint8Array<ArrayBuffer>>, index: Promise<TIdx[]>) {
 		this.stream = stream;
 		this.index = index;
 	}
@@ -170,7 +170,7 @@ export class BgzfTarArchiver extends TarArchiverBase<TarGzIndex> {
 			let bufLen = 0;
 			const fileBounds: { path: string; mimeType: string; start: number; end: number }[] = [];
 
-			async function* writeBytes(data: Uint8Array): AsyncGenerator<Uint8Array> {
+			async function* writeBytes(data: Uint8Array): AsyncGenerator<Uint8Array<ArrayBuffer>> {
 				let pos = 0;
 				while (pos < data.length) {
 					const n = Math.min(BGZF_BLOCK_SIZE - bufLen, data.length - pos);

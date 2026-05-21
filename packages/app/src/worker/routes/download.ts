@@ -110,7 +110,7 @@ function putMissingFileCache(env: Env, fileId: string, response: Response, waitU
 	}
 }
 
-async function decompressGzipChunk(data: Uint8Array): Promise<Uint8Array> {
+async function decompressGzipChunk(data: Uint8Array): Promise<Uint8Array<ArrayBuffer>> {
 	const decompressor = new DecompressionStream('gzip');
 	const chunks: Uint8Array[] = [];
 
@@ -364,7 +364,7 @@ app.get('/d/:fileId', async (c) => {
 				: firstDecompressed.slice(indexEntry.rStartOffset);
 			const firstBgzfBlock = await createBgzfBlock(firstTrimmed);
 
-			const combinedStream = new ReadableStream<Uint8Array>({
+			const combinedStream = new ReadableStream<Uint8Array<ArrayBuffer>>({
 				async start(controller) {
 					controller.enqueue(firstBgzfBlock);
 

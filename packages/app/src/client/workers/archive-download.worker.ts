@@ -18,27 +18,29 @@ type DirectoryTarget =
 	| { type: 'file'; path: string; fileId: string; size: number }
 	| { type: 'directory'; path: string };
 
-export type ArchiveDownloadWorkerRequest =
-	| {
-		readonly id: string;
-		readonly mode: 'directory';
-		readonly format: ArchiveFormat;
-		readonly bucketName: string;
-		readonly basePath: string;
-		readonly targets: DirectoryTarget[];
-		readonly excludePaths: string[];
-		readonly authHeaders: Record<string, string>;
-		readonly filename: string;
-	}
-	| {
-		readonly id: string;
-		readonly mode: 'archive-to-zip';
-		readonly fileId: string;
-		readonly token?: string;
-		readonly isTargz: boolean;
-		readonly filename: string;
-		readonly authHeaders: Record<string, string>;
-	};
+type ArchiveDownloadWorkerDirectoryRequest = {
+	readonly id: string;
+	readonly mode: 'directory';
+	readonly format: ArchiveFormat;
+	readonly bucketName: string;
+	readonly basePath: string;
+	readonly targets: DirectoryTarget[];
+	readonly excludePaths: string[];
+	readonly authHeaders: Record<string, string>;
+	readonly filename: string;
+};
+
+type ArchiveDownloadWorkerToZipRequest = {
+	readonly id: string;
+	readonly mode: 'archive-to-zip';
+	readonly fileId: string;
+	readonly token?: string;
+	readonly isTargz: boolean;
+	readonly filename: string;
+	readonly authHeaders: Record<string, string>;
+};
+
+export type ArchiveDownloadWorkerRequest = ArchiveDownloadWorkerDirectoryRequest | ArchiveDownloadWorkerToZipRequest;
 
 export type ArchiveDownloadProgress = {
 	phase: 'resolving' | 'reading' | 'writing' | 'done';
@@ -159,7 +161,7 @@ async function fetchFile(fileId: string, headers: Record<string, string>): Promi
 	return res;
 }
 
-async function pipeToWritable(stream: ReadableStream<Uint8Array>, writable: FileSystemWritableFileStream): Promise<void> {
+async function pipeToWritable(stream: ReadableStream<Uint8Array<ArrayBuffer>>, writable: FileSystemWritableFileStream): Promise<void> {
 	const reader = stream.getReader();
 	try {
 		while (true) {
@@ -260,15 +262,15 @@ async function writeArchiveAsZip(fileHandle: FileSystemFileHandle, request: Extr
 	}
 }
 
-async function createTarStreamFromGzip(stream: ReadableStream<Uint8Array>): Promise<ReadableStream<Uint8Array>> {
+async function createTarStreamFromGzip(stream: ReadableStream<Uint8Array<ArrayBuffer>>): Promise<ReadableStream<Uint8Array<ArrayBuffer>>> {
 	const { rebuilt, bgzf } = await peekArchiveStream(stream);
 	return bgzf
 		? rebuilt.pipeThrough(createBgzfDecompressor())
 		: rebuilt.pipeThrough(new DecompressionStream('gzip'));
 }
 
-async function peekArchiveStream(stream: ReadableStream<Uint8Array>): Promise<{
-	readonly rebuilt: ReadableStream<Uint8Array>;
+async function peekArchiveStream(stream: ReadableStream<Uint8Array<ArrayBuffer>>): Promise<{
+	readonly rebuilt: ReadableStream<Uint8Array<ArrayBuffer>>;
 	readonly gzip: boolean;
 	readonly bgzf: boolean;
 }> {
@@ -276,7 +278,7 @@ async function peekArchiveStream(stream: ReadableStream<Uint8Array>): Promise<{
 	const first = await reader.read();
 	reader.releaseLock();
 	if (first.done || !first.value) throw new Error('Archive is empty');
-	const rebuilt = new ReadableStream<Uint8Array>({
+	const rebuilt = new ReadableStream<Uint8Array<ArrayBuffer>>({
 		start(controller) {
 			controller.enqueue(first.value!);
 			void stream.pipeTo(new WritableStream({

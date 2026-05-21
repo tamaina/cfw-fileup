@@ -5,7 +5,7 @@
 ## Good
 
 ```typescript
-async function compressDeflate(data: Uint8Array<ArrayBuffer>): Promise<Uint8Array> {
+async function compressDeflate(data: Uint8Array<ArrayBuffer>): Promise<Uint8Array<ArrayBuffer>> {
 	const cs = new CompressionStream('deflate-raw');
 	const chunks: Uint8Array[] = [];
 
@@ -41,7 +41,7 @@ async function compressDeflate(data: Uint8Array<ArrayBuffer>): Promise<Uint8Arra
 ## Bad（writeを全部終わらせてからreadするとストール）
 
 ```typescript
-async function compressDeflate(data: Uint8Array): Promise<Uint8Array> {
+async function compressDeflate(data: Uint8Array): Promise<Uint8Array<ArrayBuffer>> {
 	const cs = new CompressionStream('deflate-raw');
 	const writer = cs.writable.getWriter();
 	await writer.write(new Uint8Array(data));

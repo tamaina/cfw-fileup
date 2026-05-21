@@ -70,7 +70,7 @@ async function writeDownload(fileHandle: FileSystemFileHandle, request: Extract<
 	}
 }
 
-async function transformStream(stream: ReadableStream<Uint8Array>, transform: Extract<DownloadTransformWorkerRequest, { mode: 'download' }>['transform']): Promise<ReadableStream<Uint8Array>> {
+async function transformStream(stream: ReadableStream<Uint8Array<ArrayBuffer>>, transform: Extract<DownloadTransformWorkerRequest, { mode: 'download' }>['transform']): Promise<ReadableStream<Uint8Array<ArrayBuffer>>> {
 	if (transform === 'none') return stream;
 	const { rebuilt, gzip, bgzf } = await peekStream(stream);
 	if (transform === 'decompress-gzip') {
@@ -83,8 +83,8 @@ async function transformStream(stream: ReadableStream<Uint8Array>, transform: Ex
 	return rebuilt.pipeThrough(createBgzfDecompressor()).pipeThrough(new CompressionStream('gzip'));
 }
 
-async function peekStream(stream: ReadableStream<Uint8Array>): Promise<{
-	readonly rebuilt: ReadableStream<Uint8Array>;
+async function peekStream(stream: ReadableStream<Uint8Array<ArrayBuffer>>): Promise<{
+	readonly rebuilt: ReadableStream<Uint8Array<ArrayBuffer>>;
 	readonly gzip: boolean;
 	readonly bgzf: boolean;
 }> {
@@ -92,7 +92,7 @@ async function peekStream(stream: ReadableStream<Uint8Array>): Promise<{
 	const first = await reader.read();
 	reader.releaseLock();
 	if (first.done || !first.value) throw new Error('Download is empty');
-	const rebuilt = new ReadableStream<Uint8Array>({
+	const rebuilt = new ReadableStream<Uint8Array<ArrayBuffer>>({
 		start(controller) {
 			controller.enqueue(first.value!);
 			void stream.pipeTo(new WritableStream({
@@ -112,7 +112,7 @@ async function peekStream(stream: ReadableStream<Uint8Array>): Promise<{
 	return { rebuilt, gzip, bgzf: gzip && isBgzf(first.value) };
 }
 
-async function pipeToWritable(stream: ReadableStream<Uint8Array>, writable: FileSystemWritableFileStream): Promise<void> {
+async function pipeToWritable(stream: ReadableStream<Uint8Array<ArrayBuffer>>, writable: FileSystemWritableFileStream): Promise<void> {
 	const reader = stream.getReader();
 	try {
 		while (true) {

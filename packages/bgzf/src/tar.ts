@@ -9,7 +9,7 @@ function writeOctal(buf: Uint8Array, offset: number, value: number, len: number)
 	writeString(buf, offset, value.toString(8).padStart(len - 1, '0'), len);
 }
 
-export function createTarHeader(name: string, size: number, mtime: number, type: '0' | '5' = '0'): Uint8Array {
+export function createTarHeader(name: string, size: number, mtime: number, type: '0' | '5' = '0'): Uint8Array<ArrayBuffer> {
 	const header = new Uint8Array(512);
 	writeString(header, 0, name, 100);
 	writeString(header, 100, type === '5' ? '0000755\0' : '0000644\0', 8);
@@ -32,7 +32,7 @@ export interface TarFileEntry {
 	name: string;
 	size: number;
 	type: 'file';
-	stream: ReadableStream<Uint8Array>;
+	stream: ReadableStream<Uint8Array<ArrayBuffer>>;
 }
 
 interface TarHeader {
@@ -72,15 +72,15 @@ function parseHeader(block: Uint8Array): TarHeader {
 }
 
 class TarStreamReader {
-	private readonly reader: ReadableStreamDefaultReader<Uint8Array>;
+	private readonly reader: ReadableStreamDefaultReader<Uint8Array<ArrayBuffer>>;
 	private buffer = new Uint8Array(0);
 	private done = false;
 
-	constructor(stream: ReadableStream<Uint8Array>) {
+	constructor(stream: ReadableStream<Uint8Array<ArrayBuffer>>) {
 		this.reader = stream.getReader();
 	}
 
-	async readExact(length: number): Promise<Uint8Array | null> {
+	async readExact(length: number): Promise<Uint8Array<ArrayBuffer> | null> {
 		while (!this.done && this.buffer.length < length) {
 			const { done, value } = await this.reader.read();
 			if (done) {
@@ -103,7 +103,7 @@ class TarStreamReader {
 	}
 }
 
-function createEntryStream(reader: TarStreamReader, size: number): ReadableStream<Uint8Array> {
+function createEntryStream(reader: TarStreamReader, size: number): ReadableStream<Uint8Array<ArrayBuffer>> {
 	let remaining = size;
 	return new ReadableStream({
 		async pull(controller) {
@@ -122,7 +122,7 @@ function createEntryStream(reader: TarStreamReader, size: number): ReadableStrea
 	});
 }
 
-async function drain(stream: ReadableStream<Uint8Array>): Promise<void> {
+async function drain(stream: ReadableStream<Uint8Array<ArrayBuffer>>): Promise<void> {
 	const reader = stream.getReader();
 	try {
 		while (true) {
@@ -134,7 +134,7 @@ async function drain(stream: ReadableStream<Uint8Array>): Promise<void> {
 	}
 }
 
-export async function* parseTarStream(stream: ReadableStream<Uint8Array>): AsyncGenerator<TarFileEntry> {
+export async function* parseTarStream(stream: ReadableStream<Uint8Array<ArrayBuffer>>): AsyncGenerator<TarFileEntry> {
 	const reader = new TarStreamReader(stream);
 
 	while (true) {
