@@ -2,7 +2,7 @@
   "name": "app",
   "type": "module",
   "scripts": {
-    "postinstall": "playwright install chromium --with-deps || playwright install chromium",
+    "postinstall": "playwright install chromium",
     "dev": "vite dev",
     "build": "vite build",
     "preview": "vite preview",
