@@ -22,6 +22,7 @@ type AuthContext =
 const publicCacheControl = `public, max-age=${10 * 365 * 24 * 60 * 60}, immutable`;
 const internalStatusHeader = 'X-Cfw-Fileup-Cache-Status';
 const internalStatusTextHeader = 'X-Cfw-Fileup-Cache-Status-Text';
+const downloadVaryHeaders = ['Authentication', 'Authorization', 'Accept-Encoding'] as const;
 
 export const downloadCacheInternalHeaders = {
 	status: internalStatusHeader,
@@ -39,6 +40,27 @@ function toAsciiFilenameFallback(filename: string): string {
 function buildContentDisposition(filename: string): string {
 	const fallback = toAsciiFilenameFallback(filename);
 	return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+}
+
+function appendVary(headers: Headers, values: readonly string[]): void {
+	const existing = headers.get('Vary');
+	const existingValues = new Set(
+		existing
+			?.split(',')
+			.map((value) => value.trim())
+			.filter((value) => value.length > 0)
+			.map((value) => value.toLowerCase()) ?? [],
+	);
+	const nextValues = existing
+		?.split(',')
+		.map((value) => value.trim())
+		.filter((value) => value.length > 0) ?? [];
+	for (const value of values) {
+		if (existingValues.has(value.toLowerCase())) continue;
+		nextValues.push(value);
+		existingValues.add(value.toLowerCase());
+	}
+	headers.set('Vary', nextValues.join(', '));
 }
 
 export function createDownloadCacheRequest(options: {
@@ -138,21 +160,16 @@ export class DownloadContext {
 
 	withDownloadHeaders(headers: HeadersInit): HeadersInit {
 		const expiresAt = this.authContext.type === 'file-token' ? this.authContext.token.expiresAt : null;
-		const nextHeaders = {
-			...headers,
-			'Last-Modified': this.lastModified.toUTCString(),
-		};
+		const nextHeaders = new Headers(headers);
+		nextHeaders.set('Last-Modified', this.lastModified.toUTCString());
+		appendVary(nextHeaders, downloadVaryHeaders);
 		if (this.authContext.type === 'public') {
-			return {
-				...nextHeaders,
-				'Cache-Control': publicCacheControl,
-			};
+			nextHeaders.set('Cache-Control', publicCacheControl);
+			return nextHeaders;
 		}
 		if (expiresAt === null) return nextHeaders;
-		return {
-			...nextHeaders,
-			'Expires': new Date(expiresAt).toUTCString(),
-		};
+		nextHeaders.set('Expires', new Date(expiresAt).toUTCString());
+		return nextHeaders;
 	}
 
 	getInternalCacheControl(): string {

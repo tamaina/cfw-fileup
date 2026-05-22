@@ -91,6 +91,7 @@ describe('GET /d/:fileId', () => {
 		expect(res.headers.get('Cache-Control')).toBe('public, max-age=315360000, immutable');
 		expect(res.headers.get('Content-Disposition')).toBe('attachment; filename="hello.txt"; filename*=UTF-8\'\'hello.txt');
 		expect(res.headers.get('Last-Modified')).toBe(parseEaidx(fileId).date.toUTCString());
+		expect(res.headers.get('Vary')).toBe('Authentication, Authorization, Accept-Encoding');
 		const text = await res.text();
 		expect(text).toBe('Hello World');
 	});
@@ -110,6 +111,7 @@ describe('GET /d/:fileId', () => {
 		expect(cachedRes.headers.get('Cache-Control')).toBe('public, max-age=315360000, immutable');
 		expect(cachedRes.headers.get('Content-Disposition')).toBe('attachment; filename="hello.txt"; filename*=UTF-8\'\'hello.txt');
 		expect(cachedRes.headers.get('Last-Modified')).toBe(parseEaidx(fileId).date.toUTCString());
+		expect(cachedRes.headers.get('Vary')).toBe('Authentication, Authorization, Accept-Encoding');
 		expect(await cachedRes.text()).toBe('Hello World');
 	});
 
@@ -264,6 +266,7 @@ describe('GET /d/:fileId', () => {
 		expect(res.status).toBe(200);
 		expect(res.headers.get('Expires')).toBe(new Date(expiresAt).toUTCString());
 		expect(res.headers.get('Cache-Control')).toBeNull();
+		expect(res.headers.get('Vary')).toBe('Authentication, Authorization, Accept-Encoding');
 		expect(await res.text()).toBe('Secret Content');
 	});
 
