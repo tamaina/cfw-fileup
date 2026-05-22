@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeAll, beforeEach } from 'vitest';
+import { createBgzfBlock } from 'bgzf';
 import { genEaidx, parseEaidx } from '../../src/shared/eaid-x';
 import { env, app, setupDb, clearDb, signup, authHeaders } from './helpers';
 
@@ -91,7 +92,7 @@ describe('GET /d/:fileId', () => {
 		expect(res.headers.get('Cache-Control')).toBe('public, max-age=315360000, immutable');
 		expect(res.headers.get('Content-Disposition')).toBe('attachment; filename="hello.txt"; filename*=UTF-8\'\'hello.txt');
 		expect(res.headers.get('Last-Modified')).toBe(parseEaidx(fileId).date.toUTCString());
-		expect(res.headers.get('Vary')).toBe('Authentication, Authorization, Accept-Encoding');
+		expect(res.headers.get('Vary')).toBe('Authorization, Accept-Encoding');
 		const text = await res.text();
 		expect(text).toBe('Hello World');
 	});
@@ -111,7 +112,7 @@ describe('GET /d/:fileId', () => {
 		expect(cachedRes.headers.get('Cache-Control')).toBe('public, max-age=315360000, immutable');
 		expect(cachedRes.headers.get('Content-Disposition')).toBe('attachment; filename="hello.txt"; filename*=UTF-8\'\'hello.txt');
 		expect(cachedRes.headers.get('Last-Modified')).toBe(parseEaidx(fileId).date.toUTCString());
-		expect(cachedRes.headers.get('Vary')).toBe('Authentication, Authorization, Accept-Encoding');
+		expect(cachedRes.headers.get('Vary')).toBe('Authorization, Accept-Encoding');
 		expect(await cachedRes.text()).toBe('Hello World');
 	});
 
@@ -266,7 +267,7 @@ describe('GET /d/:fileId', () => {
 		expect(res.status).toBe(200);
 		expect(res.headers.get('Expires')).toBe(new Date(expiresAt).toUTCString());
 		expect(res.headers.get('Cache-Control')).toBeNull();
-		expect(res.headers.get('Vary')).toBe('Authentication, Authorization, Accept-Encoding');
+		expect(res.headers.get('Vary')).toBe('Authorization, Accept-Encoding');
 		expect(await res.text()).toBe('Secret Content');
 	});
 
@@ -543,5 +544,76 @@ describe('GET /d/:fileId?file= (tar individual file)', () => {
 
 		const res = await app.request(`/d/${fileId}?file=nonexistent.txt`, {}, env);
 		expect(res.status).toBe(404);
+	});
+});
+
+describe('GET /d/:fileId?file= (tar.gz individual file)', () => {
+	test('keeps original filename for gzip-capable clients and appends .gz otherwise', async () => {
+		const { data } = await signup('user1');
+		const token = String(data.token);
+
+		const bucketRes = await app.request('/api/buckets/create', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ bucketName: 'targz_bucket' }),
+		}, env);
+		const { bucketId } = await bucketRes.json() as { bucketId: string };
+
+		const openRes = await app.request('/api/files/create/open', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ bucketId, path: 'archive.tar.gz' }),
+		}, env);
+		const { fileId } = await openRes.json() as { fileId: string };
+
+		const block = await createBgzfBlock(new TextEncoder().encode('Hello from tar.gz!'));
+		await env.R2.put(`${bucketId}/archive.tar.gz`, block);
+
+		await app.request('/api/files/create/targz-index', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({
+				fileId,
+				files: [{
+					path: 'hello.txt',
+					mimeType: 'text/plain',
+					aStart: 0,
+					aFirstEnd: block.length,
+					aFinalStart: 0,
+					aEnd: block.length,
+					rStartOffset: 0,
+					rEndOffset: 0,
+				}],
+			}),
+		}, env);
+
+		await app.request('/api/files/create/close', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ fileId, visibility: 'public' }),
+		}, env);
+
+		const gzipRes = await app.request(`/d/${fileId}?file=hello.txt`, {
+			headers: { 'Accept-Encoding': 'gzip' },
+		}, env);
+		expect(gzipRes.status).toBe(200);
+		expect(gzipRes.headers.get('Content-Encoding')).toBe('gzip');
+		expect(gzipRes.headers.get('Content-Disposition')).toBe('attachment; filename="hello.txt"; filename*=UTF-8\'\'hello.txt');
+		await gzipRes.arrayBuffer();
+
+		const ungzipRes = await app.request(`/d/${fileId}?file=hello.txt`, {}, env);
+		expect(ungzipRes.status).toBe(200);
+		expect(ungzipRes.headers.get('Content-Encoding')).toBeNull();
+		expect(ungzipRes.headers.get('Content-Disposition')).toBe('attachment; filename="hello.txt.gz"; filename*=UTF-8\'\'hello.txt.gz');
+
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		await env.R2.delete(`${bucketId}/archive.tar.gz`);
+
+		const cachedGzipRes = await app.request(`/d/${fileId}?file=hello.txt`, {
+			headers: { 'Accept-Encoding': 'gzip' },
+		}, env);
+		expect(cachedGzipRes.status).toBe(200);
+		expect(cachedGzipRes.headers.get('Content-Encoding')).toBe('gzip');
+		expect(cachedGzipRes.headers.get('Content-Disposition')).toBe('attachment; filename="hello.txt"; filename*=UTF-8\'\'hello.txt');
 	});
 });

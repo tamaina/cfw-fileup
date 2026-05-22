@@ -22,7 +22,7 @@ type AuthContext =
 const publicCacheControl = `public, max-age=${10 * 365 * 24 * 60 * 60}, immutable`;
 const internalStatusHeader = 'X-Cfw-Fileup-Cache-Status';
 const internalStatusTextHeader = 'X-Cfw-Fileup-Cache-Status-Text';
-const downloadVaryHeaders = ['Authentication', 'Authorization', 'Accept-Encoding'] as const;
+const downloadVaryHeaders = ['Authorization', 'Accept-Encoding'] as const;
 
 export const downloadCacheInternalHeaders = {
 	status: internalStatusHeader,
@@ -104,7 +104,11 @@ export class DownloadContext {
 		request: Request,
 	) {
 		this.url = new URL(request.url);
-		this.acceptsGzip = request.headers.get('Accept-Encoding')?.includes('gzip') ?? false;
+		const clientAcceptEncoding = typeof request.cf?.clientAcceptEncoding === 'string'
+			? request.cf.clientAcceptEncoding
+			: undefined;
+		const acceptEncoding = clientAcceptEncoding ?? request.headers.get('Accept-Encoding');
+		this.acceptsGzip = acceptEncoding?.includes('gzip') ?? false;
 		this.fileQuery = this.url.searchParams.get('file');
 		this.isListMode = this.url.searchParams.has('list');
 		this.isMetaMode = this.url.searchParams.has('meta');

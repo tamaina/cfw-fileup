@@ -23,16 +23,20 @@ function toDownloadBasename(path: string): string {
 	return path.split('/').pop() ?? 'download';
 }
 
-function addGzipExtension(filename: string): string {
-	return `${filename}.gz`;
+function addGzipExtensionForUngzipClients(filename: string, download: DownloadContext): string {
+	return download.acceptsGzip ? filename : `${filename}.gz`;
 }
 
 function getTargzEntryHeaders(download: DownloadContext, path: string, mimeType: string): HeadersInit {
-	return download.withDownloadHeaders({
+	const headers = new Headers({
 		'Content-Type': mimeType,
-		'Content-Disposition': download.createContentDisposition(path, addGzipExtension),
+		'Content-Disposition': download.createContentDisposition(path, addGzipExtensionForUngzipClients),
 		'ETag': download.getETag(path),
 	});
+	if (download.acceptsGzip) {
+		headers.set('Content-Encoding', 'gzip');
+	}
+	return download.withDownloadHeaders(headers);
 }
 
 function stripInternalCacheHeaders(cached: Response): Response {
