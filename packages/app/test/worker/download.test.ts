@@ -603,8 +603,8 @@ describe('GET /d/:fileId?list (tar.gz index)', () => {
 	});
 });
 
-describe('GET /d/:fileId?file= (tar individual file)', () => {
-	test('?file= downloads the correct bytes from a plain tar', async () => {
+describe('GET /d/:fileId/%3Aentries/:entryPath (tar individual file)', () => {
+	test('entries route downloads the correct bytes from a plain tar', async () => {
 		const { data } = await signup('user1');
 		const token = String(data.token);
 
@@ -643,13 +643,56 @@ describe('GET /d/:fileId?file= (tar individual file)', () => {
 			body: JSON.stringify({ fileId, visibility: 'public' }),
 		}, env);
 
-		const res = await app.request(`/d/${fileId}?file=hello.txt`, {}, env);
+		const res = await app.request(`/d/${fileId}/%3Aentries/hello.txt`, {}, env);
 		expect(res.status).toBe(200);
 		const body = await res.arrayBuffer();
 		expect(new Uint8Array(body)).toEqual(fileContent);
 	});
 
-	test('?file= ignores byte ranges for a plain tar entry', async () => {
+	test('entries route supports nested archive paths encoded as one URL segment', async () => {
+		const { data } = await signup('user1');
+		const token = String(data.token);
+
+		const bucketRes = await app.request('/api/buckets/create', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ bucketName: 'tar_bucket' }),
+		}, env);
+		const { bucketId } = await bucketRes.json() as { bucketId: string };
+
+		const openRes = await app.request('/api/files/create/open', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ bucketId, path: 'archive.tar' }),
+		}, env);
+		const { fileId } = await openRes.json() as { fileId: string };
+
+		const fileContent = new TextEncoder().encode('Nested hello');
+		const tar = new Uint8Array(512 + fileContent.length);
+		tar.set(fileContent, 512);
+		await env.R2.put(`${bucketId}/archive.tar`, tar);
+
+		await app.request('/api/files/create/tar-index', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({
+				fileId,
+				files: [{ path: 'dir/hello.txt', mimeType: 'text/plain', offset: 512, size: fileContent.length }],
+			}),
+		}, env);
+
+		await app.request('/api/files/create/close', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ fileId, visibility: 'public' }),
+		}, env);
+
+		const res = await app.request(`/d/${fileId}/%3Aentries/${encodeURIComponent('dir/hello.txt')}`, {}, env);
+		expect(res.status).toBe(200);
+		expect(new Uint8Array(await res.arrayBuffer())).toEqual(fileContent);
+	});
+
+	test('entries route ignores byte ranges for a plain tar entry', async () => {
 		const { data } = await signup('user1');
 		const token = String(data.token);
 
@@ -687,7 +730,7 @@ describe('GET /d/:fileId?file= (tar individual file)', () => {
 			body: JSON.stringify({ fileId, visibility: 'public' }),
 		}, env);
 
-		const res = await app.request(`/d/${fileId}?file=hello.txt`, {
+		const res = await app.request(`/d/${fileId}/%3Aentries/hello.txt`, {
 			headers: { Range: 'bytes=6-9' },
 		}, env);
 		expect(res.status).toBe(200);
@@ -696,7 +739,7 @@ describe('GET /d/:fileId?file= (tar individual file)', () => {
 		expect(new Uint8Array(body)).toEqual(fileContent);
 	});
 
-	test('?file= returns 404 for unknown path', async () => {
+	test('entries route returns 404 for unknown path', async () => {
 		const { data } = await signup('user1');
 		const token = String(data.token);
 
@@ -731,12 +774,12 @@ describe('GET /d/:fileId?file= (tar individual file)', () => {
 			body: JSON.stringify({ fileId, visibility: 'public' }),
 		}, env);
 
-		const res = await app.request(`/d/${fileId}?file=nonexistent.txt`, {}, env);
+		const res = await app.request(`/d/${fileId}/%3Aentries/nonexistent.txt`, {}, env);
 		expect(res.status).toBe(404);
 	});
 });
 
-describe('GET /d/:fileId?file= (tar.gz individual file)', () => {
+describe('GET /d/:fileId/%3Aentries/:entryPath (tar.gz individual file)', () => {
 	test('keeps original filename for gzip-capable clients and appends .gz otherwise', async () => {
 		const { data } = await signup('user1');
 		const token = String(data.token);
@@ -782,7 +825,7 @@ describe('GET /d/:fileId?file= (tar.gz individual file)', () => {
 			body: JSON.stringify({ fileId, visibility: 'public' }),
 		}, env);
 
-		const gzipRes = await app.request(`/d/${fileId}?file=hello.txt`, {
+		const gzipRes = await app.request(`/d/${fileId}/%3Aentries/hello.txt`, {
 			headers: { 'Accept-Encoding': 'gzip' },
 		}, env);
 		expect(gzipRes.status).toBe(200);
@@ -790,14 +833,14 @@ describe('GET /d/:fileId?file= (tar.gz individual file)', () => {
 		expect(gzipRes.headers.get('Content-Disposition')).toBe('attachment; filename="hello.txt"; filename*=UTF-8\'\'hello.txt');
 		await gzipRes.arrayBuffer();
 
-		const rangeRes = await app.request(`/d/${fileId}?file=hello.txt`, {
+		const rangeRes = await app.request(`/d/${fileId}/%3Aentries/hello.txt`, {
 			headers: { 'Accept-Encoding': 'gzip', Range: 'bytes=0-3' },
 		}, env);
 		expect(rangeRes.status).toBe(200);
 		expect(rangeRes.headers.get('Content-Range')).toBeNull();
 		expect(new Uint8Array(await rangeRes.arrayBuffer())).toEqual(block);
 
-		const ungzipRes = await app.request(`/d/${fileId}?file=hello.txt`, {}, env);
+		const ungzipRes = await app.request(`/d/${fileId}/%3Aentries/hello.txt`, {}, env);
 		expect(ungzipRes.status).toBe(200);
 		expect(ungzipRes.headers.get('Content-Encoding')).toBeNull();
 		expect(ungzipRes.headers.get('Content-Disposition')).toBe('attachment; filename="hello.txt.gz"; filename*=UTF-8\'\'hello.txt.gz');
@@ -805,7 +848,7 @@ describe('GET /d/:fileId?file= (tar.gz individual file)', () => {
 		await new Promise((resolve) => setTimeout(resolve, 0));
 		await env.R2.delete(`${bucketId}/archive.tar.gz`);
 
-		const cachedGzipRes = await app.request(`/d/${fileId}?file=hello.txt`, {
+		const cachedGzipRes = await app.request(`/d/${fileId}/%3Aentries/hello.txt`, {
 			headers: { 'Accept-Encoding': 'gzip' },
 		}, env);
 		expect(cachedGzipRes.status).toBe(200);

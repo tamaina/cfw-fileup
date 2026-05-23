@@ -56,4 +56,22 @@ describe('POST /api/directories/create', () => {
 		}, env);
 		expect(res.status).toBe(400);
 	});
+
+	test('directory path that conflicts with a file returns 409', async () => {
+		const { token, bucketId } = await setupUserAndBucket();
+
+		const openRes = await app.request('/api/files/create/open', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ bucketId, path: 'docs' }),
+		}, env);
+		expect(openRes.status).toBe(200);
+
+		const res = await app.request('/api/directories/create', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ bucketId, path: 'docs/' }),
+		}, env);
+		expect(res.status).toBe(409);
+	});
 });

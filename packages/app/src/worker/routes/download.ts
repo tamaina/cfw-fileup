@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { eq, and, like } from 'drizzle-orm';
 import { createBgzfBlock } from 'bgzf';
 import parseRange from 'range-parser';
@@ -12,6 +12,7 @@ import { apiError, createApiErrorResponse } from '../utils/api-error';
 
 const app = new Hono<{ Bindings: Env }>();
 const tenYearsInSeconds = 10 * 365 * 24 * 60 * 60;
+type AppContext = Context<{ Bindings: Env }>;
 
 type ByteRange = {
 	start: number;
@@ -457,9 +458,9 @@ async function decompressGzipChunk(data: Uint8Array): Promise<Uint8Array<ArrayBu
 	return result;
 }
 
-app.get('/d/:fileId', async (c) => {
+async function handleDownload(c: AppContext, entryPath: string | null): Promise<Response> {
 	const db = getDb(c.env);
-	const fileId = c.req.param('fileId');
+	const fileId = c.req.param('fileId') ?? '';
 	if (fileId.length > MAX_ID_LENGTH) throw apiError(400, 'FILE_ID_IS_REQUIRED', `fileId must be at most ${MAX_ID_LENGTH} characters`);
 	if (!aidxRegExp.test(fileId)) throw apiError(400, 'INVALID_FILE_ID');
 	const cachedMissingFile = await matchMissingFileCache(c.env, fileId);
@@ -474,10 +475,10 @@ app.get('/d/:fileId', async (c) => {
 	const bucket = await db.select().from(buckets).where(eq(buckets.id, file.bucketId)).get();
 	if (!bucket) throw apiError(404, 'BUCKET_NOT_FOUND');
 
-	const download = new DownloadContext(file, c.req.raw);
+	const download = new DownloadContext(file, c.req.raw, { entryPath });
 	const rangeHeader = c.req.header('Range') ?? null;
 	const ifRangeHeader = c.req.header('If-Range') ?? null;
-	if (download.fileQuery !== null && download.fileQuery.length > MAX_FILE_PATH_LENGTH) {
+	if (download.entryPath !== null && download.entryPath.length > MAX_FILE_PATH_LENGTH) {
 		throw apiError(400, 'INVALID_FILE_PATH', `file must be at most ${MAX_FILE_PATH_LENGTH} characters`);
 	}
 
@@ -632,12 +633,12 @@ app.get('/d/:fileId', async (c) => {
 		}
 	}
 
-	const fileQuery = download.fileQuery;
-	if (download.isTarFileEntry && fileQuery !== null) {
+	const requestedEntryPath = download.entryPath;
+	if (download.isTarFileEntry && requestedEntryPath !== null) {
 		const indexEntry = await db
 			.select()
 			.from(tarFiles)
-			.where(and(eq(tarFiles.fileId, file.id), eq(tarFiles.path, fileQuery)))
+			.where(and(eq(tarFiles.fileId, file.id), eq(tarFiles.path, requestedEntryPath)))
 			.get();
 
 		if (!indexEntry) {
@@ -658,15 +659,15 @@ app.get('/d/:fileId', async (c) => {
 				'Content-Length': String(indexEntry.size),
 			}),
 		});
-		putDownloadCache(response, 'tar-entry', fileQuery);
+		putDownloadCache(response, 'tar-entry', requestedEntryPath);
 		return response;
 	}
 
-	if (download.isTargzFileEntry && fileQuery !== null) {
+	if (download.isTargzFileEntry && requestedEntryPath !== null) {
 		const indexEntry = await db
 			.select()
 			.from(targzFiles)
-			.where(and(eq(targzFiles.fileId, file.id), eq(targzFiles.path, fileQuery)))
+			.where(and(eq(targzFiles.fileId, file.id), eq(targzFiles.path, requestedEntryPath)))
 			.get();
 
 		if (!indexEntry) {
@@ -743,7 +744,7 @@ app.get('/d/:fileId', async (c) => {
 				headers: getTargzEntryHeaders(download, indexEntry.path, indexEntry.mimeType),
 				encodeBody: 'manual',
 			});
-			putDownloadCache(response, 'targz-entry', fileQuery);
+			putDownloadCache(response, 'targz-entry', requestedEntryPath);
 			return response;
 		} catch (error) {
 			console.error('Failed to fetch from R2:', error);
@@ -829,6 +830,14 @@ app.get('/d/:fileId', async (c) => {
 	return rangeHeader === null && ifRangeHeader === null
 		? addAcceptRangesForFullResponse(response)
 		: applyRangeRequest(response, rangeHeader, ifRangeHeader);
+}
+
+app.get('/d/:fileId/:entryMarker/:entryPath{.+}', async (c) => {
+	const entryMarker = c.req.param('entryMarker');
+	if (entryMarker !== ':entries') throw apiError(404, 'FILE_NOT_FOUND');
+	return handleDownload(c, c.req.param('entryPath'));
 });
+
+app.get('/d/:fileId', async (c) => handleDownload(c, null));
 
 export const downloadRoutes = app;

@@ -13,16 +13,45 @@ import NirA from '@/components/nira.vue';
 import { authStore, authHeaders, updateTermsAgreedAt } from '@/store/auth';
 import { apiPost } from '@/utils/api';
 import { mainRouter } from '@/router';
+import { Nirax, type RouteDef } from '@/nirax';
 
 const props = withDefaults(defineProps<{
 	bucketName: string;
 	filePath?: string;
 }>(), { filePath: '' });
 
+const archiveEntryMount = '/:entries';
+const archiveEntryRouteDef = [
+	{
+		path: '/:entryPath(*)?',
+		component: BrowseDirectory,
+	},
+] as const satisfies RouteDef[];
+
+function resolveArchiveEntryRoute(path: string): string {
+	const router = new Nirax(archiveEntryRouteDef, path, false, BrowseDirectory);
+	const entryPath = router.current.props.get('entryPath');
+	return typeof entryPath === 'string' ? entryPath : '';
+}
+
+const archiveRoute = computed(() => {
+	const markerIndex = props.filePath.indexOf(archiveEntryMount);
+	if (markerIndex === -1) {
+		return { baseFilePath: props.filePath, entryPath: null };
+	}
+	const entryRoutePath = props.filePath.slice(markerIndex + archiveEntryMount.length) || '/';
+	return {
+		baseFilePath: props.filePath.slice(0, markerIndex),
+		entryPath: resolveArchiveEntryRoute(entryRoutePath),
+	};
+});
+
+const baseFilePath = computed(() => {
+	return archiveRoute.value.baseFilePath;
+});
+
 const entryPath = computed(() => {
-	const qs = mainRouter.currentRef.value?._parsedRoute?.queryString;
-	if (!qs) return null;
-	return new URLSearchParams(qs).get('file');
+	return archiveRoute.value.entryPath;
 });
 const queryToken = computed(() => {
 	const qs = mainRouter.currentRef.value?._parsedRoute?.queryString;
@@ -37,8 +66,8 @@ const innerMeta = ref<{ mimeType: string; size?: number } | null>(null);
 
 const innerDownloadUrl = computed(() => {
 	if (!fileId.value) return '';
-	const base = `/d/${fileId.value}?file=${encodeURIComponent(entryPath.value ?? '')}`;
-	return autoToken.value ? `${base}&token=${autoToken.value}` : base;
+	const base = `/d/${fileId.value}/${encodeURIComponent(':entries')}/${encodeURIComponent(entryPath.value ?? '')}`;
+	return autoToken.value ? `${base}?token=${autoToken.value}` : base;
 });
 
 const isInnerImage = computed(() => {
@@ -69,7 +98,7 @@ const isInnerTextLike = computed(() => {
 });
 
 const breadcrumbs = computed(() => {
-	const parts = props.filePath ? props.filePath.replace(/\/$/, '').split('/') : [];
+	const parts = baseFilePath.value ? baseFilePath.value.replace(/\/$/, '').split('/') : [];
 	const result: { name: string; link: string | null }[] = [];
 	const hasEntry = entryPath.value !== null;
 
@@ -98,7 +127,7 @@ const breadcrumbs = computed(() => {
 			const innerSoFar = innerParts.slice(0, i + 1).join('/');
 			result.push({
 				name: innerParts[i],
-				link: isLast ? null : `/v/${props.bucketName}/${props.filePath}?file=${encodeURIComponent(innerSoFar + '/')}`,
+				link: isLast ? null : `/v/${props.bucketName}/${baseFilePath.value}/${encodeURIComponent(':entries')}/${encodeURIComponent(innerSoFar + '/')}`,
 			});
 		}
 	}
@@ -106,7 +135,7 @@ const breadcrumbs = computed(() => {
 	return result;
 });
 
-const isDirectory = computed(() => props.filePath === '' || props.filePath.endsWith('/'));
+const isDirectory = computed(() => entryPath.value === null && (baseFilePath.value === '' || baseFilePath.value.endsWith('/')));
 
 function formatSize(bytes: number): string {
 	if (bytes < 1024) return `${bytes} B`;
@@ -276,7 +305,7 @@ async function fetchMeta(): Promise<void> {
 	try {
 		const metaUrl = new URL('/api/files/meta', location.origin);
 		metaUrl.searchParams.set('bucketName', props.bucketName);
-		metaUrl.searchParams.set('path', props.filePath);
+		metaUrl.searchParams.set('path', baseFilePath.value);
 		if (queryToken.value) metaUrl.searchParams.set('token', queryToken.value);
 		const [metaRes, apiMetaRes] = await Promise.all([
 			fetch(metaUrl, { headers: authHeaders() }),
@@ -345,7 +374,7 @@ async function submitPassphrase({ valid }: { valid: boolean }): Promise<void> {
 	try {
 		const result = await apiPost('/api/file-tokens/create-by-passphrase', {
 			bucketName: props.bucketName,
-			filePath: props.filePath,
+			filePath: baseFilePath.value,
 			passphrase: passphraseInput.value,
 			turnstileToken: turnstileEnabled.value && turnstileToken.value ? turnstileToken.value : undefined,
 		});
@@ -370,7 +399,7 @@ async function submitPassphrase({ valid }: { valid: boolean }): Promise<void> {
 }
 
 function autoTokenCacheKey(): string {
-	return `autoToken:${props.bucketName}/${props.filePath}`;
+	return `autoToken:${props.bucketName}/${baseFilePath.value}`;
 }
 
 function clearExpiryTimer(): void {
@@ -426,7 +455,7 @@ async function issueAutoToken(): Promise<void> {
 	autoTokenId.value = null;
 	autoTokenLoading.value = true;
 	autoTokenPromise = (async () => {
-		const result = await apiPost('/api/file-tokens/create', { bucketName: props.bucketName, filePath: props.filePath, expiresIn: 3600 });
+		const result = await apiPost('/api/file-tokens/create', { bucketName: props.bucketName, filePath: baseFilePath.value, expiresIn: 3600 });
 		if (result.ok && requestKey === autoTokenCacheKey()) {
 			autoToken.value = result.data.token;
 			autoTokenId.value = result.data.id;
@@ -560,15 +589,15 @@ watch(() => [entryPath.value, queryToken.value], () => {
 
         <!-- 詳細タブ: ファイル表示 -->
         <template v-if="activeTab === 'info'">
-          <BrowseDirectory v-if="isTargz || isTar" :bucketName="bucketName" :filePath="filePath" :isTargz="isTargz" :isTar="isTar" :entryPath="entryPath ?? ''" :token="autoToken ?? undefined" :fileId="fileId ?? undefined" />
-          <BrowseFile v-else :bucketName="bucketName" :filePath="filePath" :token="autoToken ?? undefined" :fileId="fileId ?? ''" :bucketId="fileBucketId" />
+          <BrowseDirectory v-if="isTargz || isTar" :bucketName="bucketName" :filePath="baseFilePath" :isTargz="isTargz" :isTar="isTar" :entryPath="entryPath ?? ''" :token="autoToken ?? undefined" :fileId="fileId ?? undefined" />
+          <BrowseFile v-else :bucketName="bucketName" :filePath="baseFilePath" :token="autoToken ?? undefined" :fileId="fileId ?? ''" :bucketId="fileBucketId" />
         </template>
 
         <!-- 共有タブ: 公開設定 + 共有URL管理 -->
         <BrowseFileTokens
           v-else-if="activeTab === 'tokens'"
           :bucketName="bucketName"
-          :filePath="filePath"
+          :filePath="baseFilePath"
           :fileVisibility="fileVisibility"
           :autoTokenId="autoTokenId"
           @update:fileVisibility="fileVisibilityChanged"
@@ -609,8 +638,8 @@ watch(() => [entryPath.value, queryToken.value], () => {
 
       <!-- ログインなし or ディレクトリ or (非公開 + トークンあり): タブなし -->
       <template v-else>
-        <BrowseDirectory v-if="isDirectory || isTargz || isTar" :bucketName="bucketName" :filePath="filePath" :isTargz="isTargz" :isTar="isTar" :entryPath="entryPath ?? ''" :token="autoToken ?? undefined" :fileId="fileId ?? undefined" />
-        <BrowseFile v-else-if="!isDirectory" :bucketName="bucketName" :filePath="filePath" :token="autoToken ?? undefined" :fileId="fileId ?? ''" :bucketId="fileBucketId" />
+        <BrowseDirectory v-if="isDirectory || isTargz || isTar" :bucketName="bucketName" :filePath="baseFilePath" :isTargz="isTargz" :isTar="isTar" :entryPath="entryPath ?? ''" :token="autoToken ?? undefined" :fileId="fileId ?? undefined" />
+        <BrowseFile v-else-if="!isDirectory" :bucketName="bucketName" :filePath="baseFilePath" :token="autoToken ?? undefined" :fileId="fileId ?? ''" :bucketId="fileBucketId" />
       </template>
     </template>
   </div>

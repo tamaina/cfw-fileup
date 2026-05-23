@@ -53,6 +53,10 @@ const downloadUrl = computed(() => {
 	return props.token ? `${base}?token=${props.token}` : base;
 });
 
+function archiveEntryBrowseUrl(path: string): string {
+	return `/v/${props.bucketName}/${props.filePath}/${encodeURIComponent(':entries')}/${encodeURIComponent(path)}`;
+}
+
 const entries = ref<DisplayEntry[]>([]);
 const error = ref('');
 const loading = ref(true);
@@ -614,11 +618,11 @@ function buildArchiveEntries(): void {
 		const rest = e.path.slice(archivePath.value.length);
 		const slashIdx = rest.indexOf('/');
 		if (slashIdx === -1) {
-			//const previewUrl = isImageMime(e.mimeType) ? `/d/${props.fileId}?file=${encodeURIComponent(e.path)}` : undefined;
+			//const previewUrl = isImageMime(e.mimeType) ? `/d/${props.fileId}/${encodeURIComponent(':entries')}/${encodeURIComponent(e.path)}` : undefined;
 			result.push({
 				key: e.id,
 				name: rest,
-				link: `/v/${props.bucketName}/${props.filePath}?file=${encodeURIComponent(e.path)}`,
+				link: archiveEntryBrowseUrl(e.path),
 				//previewUrl,
 				isDir: false,
 				fullPath: e.path,
@@ -633,7 +637,7 @@ function buildArchiveEntries(): void {
 				result.push({
 					key: `dir:${archivePath.value}${dirName}`,
 					name: dirName,
-					link: `/v/${props.bucketName}/${props.filePath}?file=${encodeURIComponent(`${archivePath.value}${dirName}/`)}`,
+					link: archiveEntryBrowseUrl(`${archivePath.value}${dirName}/`),
 					isDir: true,
 					fullPath: `${archivePath.value}${dirName}/`,
 					label: 'フォルダ',
@@ -651,7 +655,7 @@ function buildArchiveEntries(): void {
 }
 
 function navigateArchiveDir(path: string): void {
-	mainRouter.pushByPath(`/v/${props.bucketName}/${props.filePath}?file=${encodeURIComponent(path)}`);
+	mainRouter.pushByPath(archiveEntryBrowseUrl(path));
 }
 
 function navigateArchiveUp(): void {
@@ -661,7 +665,7 @@ function navigateArchiveUp(): void {
 	if (newPath === '') {
 		mainRouter.pushByPath(`/v/${props.bucketName}/${props.filePath}`);
 	} else {
-		mainRouter.pushByPath(`/v/${props.bucketName}/${props.filePath}?file=${encodeURIComponent(newPath)}`);
+		mainRouter.pushByPath(archiveEntryBrowseUrl(newPath));
 	}
 }
 

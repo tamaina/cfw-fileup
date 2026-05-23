@@ -11,6 +11,7 @@ import { MAX_FILE_PATH_LENGTH } from '../../shared/const';
 import { isValidDirectoryPath } from '../../shared/name-validation';
 import { validateDirectoryPathForbiddenNames } from '../utils/name-validation';
 import { apiError } from '../utils/api-error';
+import { hasFileDirectoryConflictForDirectory } from '../utils/path-conflicts';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -42,6 +43,9 @@ app.post(
 		const bucket = await db.select().from(buckets).where(eq(buckets.id, body.bucketId)).get();
 		if (!bucket) throw apiError(404, 'BUCKET_NOT_FOUND');
 		if (bucket.userId !== user.id && !user.isAdmin) throw apiError(403, 'FORBIDDEN');
+		if (await hasFileDirectoryConflictForDirectory(db, bucket.id, normalizedPath)) {
+			throw apiError(409, 'TARGET_ALREADY_EXISTS');
+		}
 
 		await db.insert(directories).values({
 			id: genEaidx(Date.now()),

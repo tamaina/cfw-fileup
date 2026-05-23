@@ -114,6 +114,42 @@ describe('POST /api/files/create/open', () => {
 			expect(res.status).toBe(400);
 		}
 	});
+
+	test('file path that conflicts with a directory returns 409', async () => {
+		const { token, bucketId } = await setupUserAndBucket();
+
+		const mkdirRes = await app.request('/api/directories/create', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ bucketId, path: 'docs/' }),
+		}, env);
+		expect(mkdirRes.status).toBe(200);
+
+		const fileAtDirRes = await app.request('/api/files/create/open', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ bucketId, path: 'docs' }),
+		}, env);
+		expect(fileAtDirRes.status).toBe(409);
+	});
+
+	test('file below an existing file path returns 409', async () => {
+		const { token, bucketId } = await setupUserAndBucket();
+
+		const parentRes = await app.request('/api/files/create/open', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ bucketId, path: 'docs' }),
+		}, env);
+		expect(parentRes.status).toBe(200);
+
+		const childRes = await app.request('/api/files/create/open', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ bucketId, path: 'docs/readme.txt' }),
+		}, env);
+		expect(childRes.status).toBe(409);
+	});
 });
 
 describe('POST /api/files/ls', () => {
@@ -249,6 +285,30 @@ describe('POST /api/files/create/tar-index', () => {
 			}),
 		}, env);
 		expect(res.status).toBe(400);
+	});
+
+	test('tar index path that conflicts with a virtual directory returns 409', async () => {
+		const { token, bucketId } = await setupUserAndBucket();
+
+		const openRes = await app.request('/api/files/create/open', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ bucketId, path: 'archive.tar' }),
+		}, env);
+		const { fileId } = await openRes.json() as { fileId: string };
+
+		const res = await app.request('/api/files/create/tar-index', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({
+				fileId,
+				files: [
+					{ path: 'dir', mimeType: 'text/plain', offset: 0, size: 1 },
+					{ path: 'dir/file.txt', mimeType: 'text/plain', offset: 1, size: 1 },
+				],
+			}),
+		}, env);
+		expect(res.status).toBe(409);
 	});
 });
 

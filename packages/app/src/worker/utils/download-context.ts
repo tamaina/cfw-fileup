@@ -92,7 +92,7 @@ export function createDownloadCacheRequest(options: {
 export class DownloadContext {
 	readonly url: URL;
 	readonly acceptsGzip: boolean;
-	readonly fileQuery: string | null;
+	readonly entryPath: string | null;
 	readonly isListMode: boolean;
 	readonly isMetaMode: boolean;
 	readonly lastModified: Date;
@@ -102,6 +102,7 @@ export class DownloadContext {
 	constructor(
 		readonly file: FileRecord,
 		request: Request,
+		options: { entryPath?: string | null } = {},
 	) {
 		this.url = new URL(request.url);
 		const clientAcceptEncoding = typeof request.cf?.clientAcceptEncoding === 'string'
@@ -109,7 +110,7 @@ export class DownloadContext {
 			: undefined;
 		const acceptEncoding = clientAcceptEncoding ?? request.headers.get('Accept-Encoding');
 		this.acceptsGzip = acceptEncoding?.includes('gzip') ?? false;
-		this.fileQuery = this.url.searchParams.get('file');
+		this.entryPath = options.entryPath ?? null;
 		this.isListMode = this.url.searchParams.has('list');
 		this.isMetaMode = this.url.searchParams.has('meta');
 		this.lastModified = parseEaidx(file.id).date;
@@ -117,11 +118,11 @@ export class DownloadContext {
 	}
 
 	get isTarFileEntry(): boolean {
-		return this.file.isTar && this.fileQuery !== null;
+		return this.file.isTar && this.entryPath !== null;
 	}
 
 	get isTargzFileEntry(): boolean {
-		return this.file.isTargz && this.fileQuery !== null;
+		return this.file.isTargz && this.entryPath !== null;
 	}
 
 	get canUseCache(): boolean {
@@ -130,11 +131,11 @@ export class DownloadContext {
 
 	get cacheTarget(): CacheTarget | null {
 		if (this.isListMode) return null;
-		if (this.isTarFileEntry && this.fileQuery !== null) {
-			return { mode: 'tar-entry', entryPath: this.fileQuery };
+		if (this.isTarFileEntry && this.entryPath !== null) {
+			return { mode: 'tar-entry', entryPath: this.entryPath };
 		}
-		if (this.isTargzFileEntry && this.fileQuery !== null) {
-			return { mode: 'targz-entry', entryPath: this.fileQuery };
+		if (this.isTargzFileEntry && this.entryPath !== null) {
+			return { mode: 'targz-entry', entryPath: this.entryPath };
 		}
 		return { mode: 'plain' };
 	}

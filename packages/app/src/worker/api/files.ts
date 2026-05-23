@@ -15,6 +15,7 @@ import { MAX_BUCKET_NAME_LENGTH, MAX_FILE_PATH_LENGTH, MAX_ID_LENGTH } from '../
 import { detectExecutableMimeType, hasSuspiciousFileType, inferMimeTypeByExtension, isExecutableMimeType, looksLikeUtf8Text } from '../utils/mime-by-extension';
 import { isValidDirectoryPath, isValidFilePath } from '../../shared/name-validation';
 import { validateDirectoryPathForbiddenNames } from '../utils/name-validation';
+import { findArchiveEntryPathConflict, hasFileDirectoryConflictForDirectory, hasFileDirectoryConflictForFile } from '../utils/path-conflicts';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -243,6 +244,9 @@ app.post(
 		if (existingFile && existingFile.isClosed) {
 			throw apiError(409, 'FILE_ALREADY_EXISTS');
 		}
+		if (await hasFileDirectoryConflictForFile(db, bucket.id, body.path)) {
+			throw apiError(409, 'TARGET_ALREADY_EXISTS');
+		}
 
 		const quota = await getQuotaForUser(c.env, user.id);
 
@@ -302,6 +306,10 @@ app.post(
 		if (invalidEntry) {
 			throw apiError(400, 'INVALID_FILE_PATH', `Invalid file path: ${invalidEntry.path}`);
 		}
+		const conflictEntryPath = findArchiveEntryPathConflict(body.files.map(entry => entry.path));
+		if (conflictEntryPath !== null) {
+			throw apiError(409, 'TARGET_ALREADY_EXISTS');
+		}
 
 		const file = await db.select().from(files).where(eq(files.id, body.fileId)).get();
 
@@ -359,6 +367,10 @@ app.post(
 		const invalidEntry = body.files.find(entry => !isValidFilePath(entry.path));
 		if (invalidEntry) {
 			throw apiError(400, 'INVALID_FILE_PATH', `Invalid file path: ${invalidEntry.path}`);
+		}
+		const conflictEntryPath = findArchiveEntryPathConflict(body.files.map(entry => entry.path));
+		if (conflictEntryPath !== null) {
+			throw apiError(409, 'TARGET_ALREADY_EXISTS');
 		}
 
 		const file = await db.select().from(files).where(eq(files.id, body.fileId)).get();
@@ -799,6 +811,12 @@ app.post(
 				.get()
 			: null;
 		if (targetFile || targetDirectory || targetVirtualDirectoryFile) {
+			throw apiError(409, 'TARGET_ALREADY_EXISTS');
+		}
+		const hasTargetConflict = body.type === 'directory'
+			? await hasFileDirectoryConflictForDirectory(db, targetBucket.id, normalizedTargetPath)
+			: await hasFileDirectoryConflictForFile(db, targetBucket.id, normalizedTargetPath);
+		if (hasTargetConflict) {
 			throw apiError(409, 'TARGET_ALREADY_EXISTS');
 		}
 

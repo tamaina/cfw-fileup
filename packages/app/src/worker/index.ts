@@ -13,6 +13,7 @@ import { fileTokenRoutes } from './api/file-tokens';
 import { passkeyRoutes } from './api/passkey';
 import { googleAuthRoutes } from './api/google-auth';
 import { indieAuthRoutes } from './api/indieauth';
+import { activityPubRoutes } from './routes/activitypub';
 import { downloadRoutes } from './routes/download';
 import { uploadRoutes } from './routes/upload';
 import { ApiError, createApiErrorResponse } from './utils/api-error';
@@ -50,6 +51,7 @@ app.route('/api/file-tokens', fileTokenRoutes);
 app.route('/api/passkey', passkeyRoutes);
 app.route('/api/auth/google', googleAuthRoutes);
 app.route('/api/auth/indieauth', indieAuthRoutes);
+app.route('/', activityPubRoutes);
 app.route('/', downloadRoutes);
 app.route('/', uploadRoutes);
 
