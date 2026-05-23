@@ -12,6 +12,13 @@ const QuotaResponse = v.pipe(
 	}),
 	v.metadata({ ref: 'Quota' }),
 );
+const UserCustomQuotaResponse = v.pipe(
+	v.object({
+		exists: v.boolean(),
+		quota: QuotaResponse,
+	}),
+	v.metadata({ ref: 'UserCustomQuota' }),
+);
 const QuotaInput = {
 	maxBuckets: v.optional(v.nullable(v.number())),
 	maxBucketSizeBytes: v.optional(v.nullable(v.number())),
@@ -111,6 +118,12 @@ export const adminApiDef = {
 		tags: ['admin'],
 		req: v.object({ userId: IdString }),
 		res: { 200: { description: 'Success', content: { 'application/json': { vSchema: QuotaResponse } } }, ...AdminErrors, 404: { description: 'User not found', content: { 'application/json': { vSchema: ErrorResponse } } } },
+	},
+	'/api/admin/get-user-custom-quota': {
+		summary: 'Get custom quota for a user',
+		tags: ['admin'],
+		req: v.object({ userId: IdString }),
+		res: { 200: { description: 'Success', content: { 'application/json': { vSchema: UserCustomQuotaResponse } } }, ...AdminErrors, 404: { description: 'User not found', content: { 'application/json': { vSchema: ErrorResponse } } } },
 	},
 	'/api/admin/get-global-quota': {
 		summary: 'Get global quota',

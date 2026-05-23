@@ -257,6 +257,31 @@ app.post(
 );
 
 app.post(
+	'/get-user-custom-quota',
+	describeRoute(omitResAndReq(apiDef['/api/admin/get-user-custom-quota'])),
+	validator('json', apiDef['/api/admin/get-user-custom-quota'].req),
+	describeResponse(async (c: JsonCtx<'/api/admin/get-user-custom-quota', Env>) => {
+		const db = getDb(c.env);
+		const body = c.req.valid('json');
+		const user = await db.select({ id: users.id }).from(users).where(eq(users.id, body.userId)).get();
+		if (!user) {
+			throw apiError(404, 'USER_NOT_FOUND');
+		}
+
+		const userQuota = await db.select().from(userQuotas).where(eq(userQuotas.userId, body.userId)).get();
+		return c.json({
+			exists: userQuota != null,
+			quota: {
+				maxBuckets: userQuota?.maxBuckets ?? null,
+				maxBucketSizeBytes: userQuota?.maxBucketSizeBytes ?? null,
+				maxFilesPerBucket: userQuota?.maxFilesPerBucket ?? null,
+				maxDailyUploads: userQuota?.maxDailyUploads ?? null,
+			},
+		}, 200);
+	}, getResponseDefWithAuth('/api/admin/get-user-custom-quota')),
+);
+
+app.post(
 	'/get-global-quota',
 	describeRoute(omitResAndReq(apiDef['/api/admin/get-global-quota'])),
 	validator('json', apiDef['/api/admin/get-global-quota'].req),
