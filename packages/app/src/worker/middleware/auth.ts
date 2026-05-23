@@ -10,6 +10,7 @@ export type AuthUser = {
 	isAdmin: boolean;
 	isSuspended: boolean;
 	termsAgreedAt: number | null;
+	reauthenticatedAt: number | null;
 };
 
 declare module 'hono' {
@@ -34,6 +35,7 @@ export const authMiddleware = createMiddleware<{ Bindings: Env }>(async (c, next
 			isAdmin: users.isAdmin,
 			isSuspended: users.isSuspended,
 			termsAgreedAt: users.termsAgreedAt,
+			reauthenticatedAt: tokens.reauthenticatedAt,
 		})
 		.from(tokens)
 		.innerJoin(users, eq(tokens.userId, users.id))
@@ -54,6 +56,7 @@ export const authMiddleware = createMiddleware<{ Bindings: Env }>(async (c, next
 		isAdmin: tokenRecord.isAdmin,
 		isSuspended: tokenRecord.isSuspended,
 		termsAgreedAt: tokenRecord.termsAgreedAt,
+		reauthenticatedAt: tokenRecord.reauthenticatedAt,
 	});
 
 	await next();

@@ -5,6 +5,10 @@ export interface AuthUser {
 	username: string;
 	isAdmin: boolean;
 	termsAgreedAt: number | null;
+	hasGoogle: boolean;
+	hasMisskey: boolean;
+	hasPassword: boolean;
+	recentlyAuthenticated: boolean;
 }
 
 const TOKEN_KEY = 'cfw_fileup_token';
@@ -14,8 +18,8 @@ function loadStoredUser(): AuthUser | null {
 	try {
 		const raw = localStorage.getItem(USER_KEY);
 		if (!raw) return null;
-		const user = JSON.parse(raw) as Omit<AuthUser, 'termsAgreedAt'> & { termsAgreedAt?: number | null };
-		return { ...user, termsAgreedAt: user.termsAgreedAt ?? null };
+		const user = JSON.parse(raw) as Omit<AuthUser, 'termsAgreedAt' | 'hasGoogle' | 'hasMisskey' | 'hasPassword' | 'recentlyAuthenticated'> & { termsAgreedAt?: number | null; hasGoogle?: boolean; hasMisskey?: boolean; hasPassword?: boolean; recentlyAuthenticated?: boolean };
+		return { ...user, termsAgreedAt: user.termsAgreedAt ?? null, hasGoogle: user.hasGoogle ?? false, hasMisskey: user.hasMisskey ?? false, hasPassword: user.hasPassword ?? true, recentlyAuthenticated: user.recentlyAuthenticated ?? false };
 	} catch {
 		return null;
 	}

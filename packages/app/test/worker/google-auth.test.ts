@@ -36,11 +36,20 @@ describe('GET /api/auth/google', () => {
 		expect(location).toContain('state=');
 	});
 
-	test('stores signup data in OAuth state', async () => {
+	test('rejects signup data in query parameters', async () => {
 		const res = await app.request('/api/auth/google?passphrase=secret&username=alice', { method: 'GET' }, googleEnv);
-		expect(res.status).toBe(302);
+		expect(res.status).toBe(400);
+	});
 
-		const location = res.headers.get('Location') ?? '';
+	test('stores signup data in OAuth state from POST body', async () => {
+		const res = await app.request('/api/auth/google/begin', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ passphrase: 'secret', username: 'alice' }),
+		}, googleEnv);
+		expect(res.status).toBe(200);
+
+		const { url: location } = await res.json() as { url: string };
 		const state = new URL(location).searchParams.get('state');
 		expect(state).toBeTruthy();
 
@@ -50,6 +59,72 @@ describe('GET /api/auth/google', () => {
 			.first<{ signup_passphrase: string | null; signup_username: string | null }>();
 		expect(row?.signup_passphrase).toBe('secret');
 		expect(row?.signup_username).toBe('alice');
+	});
+});
+
+describe('POST /api/account/link/google/begin', () => {
+	test('requires current password', async () => {
+		const { data } = await signup('user1');
+		const token = String(data.token);
+
+		const res = await app.request('/api/account/link/google/begin', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ currentPassword: 'wrongpassword' }),
+		}, googleEnv);
+		expect(res.status).toBe(401);
+	});
+
+	test('passwordless user requires recent passkey authentication', async () => {
+		const { data } = await signup('user1');
+		const token = String(data.token);
+		const userId = String(data.userId);
+		await env.DB.prepare('UPDATE users SET password_hash = NULL WHERE id = ?').bind(userId).run();
+
+		const res = await app.request('/api/account/link/google/begin', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({}),
+		}, googleEnv);
+		expect(res.status).toBe(401);
+	});
+
+	test('recently reauthenticated passwordless user can begin linking', async () => {
+		const { data } = await signup('user1');
+		const token = String(data.token);
+		const userId = String(data.userId);
+		await env.DB.prepare('UPDATE users SET password_hash = NULL WHERE id = ?').bind(userId).run();
+		await env.DB.prepare('UPDATE tokens SET reauthenticated_at = ? WHERE token = ?').bind(Date.now(), token).run();
+
+		const res = await app.request('/api/account/link/google/begin', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({}),
+		}, googleEnv);
+		expect(res.status).toBe(200);
+	});
+
+	test('stores current user id in OAuth state', async () => {
+		const { data } = await signup('user1');
+		const token = String(data.token);
+		const userId = String(data.userId);
+
+		const res = await app.request('/api/account/link/google/begin', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ currentPassword: 'password123' }),
+		}, googleEnv);
+		expect(res.status).toBe(200);
+
+		const body = await res.json() as { url: string };
+		const state = new URL(body.url).searchParams.get('state');
+		expect(state).toBeTruthy();
+
+		const row = await env.DB
+			.prepare('SELECT link_user_id FROM oauth_states WHERE state = ?')
+			.bind(state)
+			.first<{ link_user_id: string | null }>();
+		expect(row?.link_user_id).toBe(userId);
 	});
 });
 
