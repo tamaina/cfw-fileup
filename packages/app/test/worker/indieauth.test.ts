@@ -30,6 +30,11 @@ describe('GET /api/auth/indieauth/begin', () => {
 		expect(res.status).toBe(400);
 	});
 
+	test('returns 400 for private network URL', async () => {
+		const res = await app.request('/api/auth/indieauth/begin?profile_url=https%3A%2F%2F127.0.0.1%2F%40aqz', { method: 'GET' }, env);
+		expect(res.status).toBe(400);
+	});
+
 	test('redirects to Misskey OAuth authorization endpoint discovered from well-known metadata', async () => {
 		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
 			const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
@@ -64,7 +69,16 @@ describe('GET /api/auth/indieauth/begin', () => {
 		expect(url.searchParams.get('state')).toBeTruthy();
 	});
 
-	test('stores signup data in OAuth state', async () => {
+	test('rejects signup data in query parameters', async () => {
+		const res = await app.request(
+			'http://localhost:8788/api/auth/indieauth/begin?profile_url=https%3A%2F%2Fp1.a9z.dev%2F%40aqz&passphrase=secret&username=alice',
+			{ method: 'GET' },
+			env,
+		);
+		expect(res.status).toBe(400);
+	});
+
+	test('stores signup data in OAuth state from POST body', async () => {
 		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
 			const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
 			if (url === 'https://p1.a9z.dev/.well-known/oauth-authorization-server') {
@@ -77,14 +91,14 @@ describe('GET /api/auth/indieauth/begin', () => {
 			return new Response('not found', { status: 404 });
 		});
 
-		const res = await app.request(
-			'http://localhost:8788/api/auth/indieauth/begin?profile_url=https%3A%2F%2Fp1.a9z.dev%2F%40aqz&passphrase=secret&username=alice',
-			{ method: 'GET' },
-			env,
-		);
-		expect(res.status).toBe(302);
+		const res = await app.request('http://localhost:8788/api/auth/indieauth/begin', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ profileUrl: 'https://p1.a9z.dev/@aqz', passphrase: 'secret', username: 'alice' }),
+		}, env);
+		expect(res.status).toBe(200);
 
-		const location = res.headers.get('Location') ?? '';
+		const { url: location } = await res.json() as { url: string };
 		const state = new URL(location).searchParams.get('state');
 		expect(state).toBeTruthy();
 
@@ -94,6 +108,81 @@ describe('GET /api/auth/indieauth/begin', () => {
 			.first<{ signup_passphrase: string | null; signup_username: string | null }>();
 		expect(row?.signup_passphrase).toBe('secret');
 		expect(row?.signup_username).toBe('alice');
+	});
+});
+
+describe('POST /api/account/link/indieauth/begin', () => {
+	test('requires current password', async () => {
+		const { data } = await signup('user1');
+		const token = String(data.token);
+
+		const res = await app.request('http://localhost:8788/api/account/link/indieauth/begin', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ profileUrl: 'https://p1.a9z.dev/@aqz', currentPassword: 'wrongpassword' }),
+		}, env);
+		expect(res.status).toBe(401);
+	});
+
+	test('stores current user id in OAuth state', async () => {
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+			const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+			if (url === 'https://p1.a9z.dev/.well-known/oauth-authorization-server') {
+				return Response.json({
+					issuer: 'https://p1.a9z.dev',
+					authorization_endpoint: 'https://p1.a9z.dev/oauth/authorize',
+					token_endpoint: 'https://p1.a9z.dev/oauth/token',
+				});
+			}
+			return new Response('not found', { status: 404 });
+		});
+
+		const { data } = await signup('user1');
+		const token = String(data.token);
+		const userId = String(data.userId);
+
+		const res = await app.request('http://localhost:8788/api/account/link/indieauth/begin', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ profileUrl: 'https://p1.a9z.dev/@aqz', currentPassword: 'password123' }),
+		}, env);
+		expect(res.status).toBe(200);
+
+		const body = await res.json() as { url: string };
+		const state = new URL(body.url).searchParams.get('state');
+		expect(state).toBeTruthy();
+
+		const row = await env.DB
+			.prepare('SELECT link_user_id FROM oauth_states WHERE state = ?')
+			.bind(state)
+			.first<{ link_user_id: string | null }>();
+		expect(row?.link_user_id).toBe(userId);
+	});
+});
+
+describe('POST /api/account/linked-misskey/list', () => {
+	test('returns multiple linked Misskey accounts for current user', async () => {
+		const { data } = await signup('user1');
+		const token = String(data.token);
+		const userId = String(data.userId);
+
+		await env.DB.prepare('INSERT INTO misskey_accounts (id, user_id, misskey_id, issuer, username, name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+			.bind('mk1', userId, 'https://misskey.example/users/1', 'https://misskey.example', 'alice', 'Alice', 1000)
+			.run();
+		await env.DB.prepare('INSERT INTO misskey_accounts (id, user_id, misskey_id, issuer, username, name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+			.bind('mk2', userId, 'https://misskey2.example/users/2', 'https://misskey2.example', 'alice2', null, 2000)
+			.run();
+
+		const res = await app.request('/api/account/linked-misskey/list', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({}),
+		}, env);
+		expect(res.status).toBe(200);
+		const accounts = await res.json() as Array<{ misskeyId: string; username: string | null }>;
+		expect(accounts).toHaveLength(2);
+		expect(accounts.map((account) => account.misskeyId)).toContain('https://misskey.example/users/1');
+		expect(accounts.map((account) => account.username)).toContain('alice2');
 	});
 });
 

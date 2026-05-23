@@ -1,13 +1,16 @@
 import { Hono } from 'hono';
+import { describeResponse, validator } from 'hono-openapi';
 import { eq, count, lt } from 'drizzle-orm';
 import { apiError } from '../utils/api-error';
-import { users, tokens, appSettings, oauthStates, usedUsernames } from '../scheme/index';
+import { misskeyAccounts, users, tokens, appSettings, oauthStates, usedUsernames } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { generateToken } from '../utils/crypto';
 import { genEaidx } from '../../shared/eaid-x';
 import { validateUsername } from '../utils/name-validation';
 import { isValidNameFormat } from '../../shared/name-validation';
 import { MAX_ID_LENGTH, MAX_PASSPHRASE_LENGTH, MAX_USERNAME_LENGTH } from '../../shared/const';
+import { apiDef, type JsonCtx } from '../../shared/api';
+import { assertPublicHttpsUrl, fetchPublicHttps } from '../utils/public-url';
 
 const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const MISSKEY_OAUTH_SCOPE = 'read:account';
@@ -77,7 +80,8 @@ async function discoverOAuthMetadata(profileUrl: string): Promise<OAuthDiscovery
 
 	let res: Response;
 	try {
-		res = await fetch(`${origin}/.well-known/oauth-authorization-server`, {
+		assertPublicHttpsUrl(origin, 'INDIEAUTH_DISCOVERY_FAILED');
+		res = await fetchPublicHttps(`${origin}/.well-known/oauth-authorization-server`, {
 			headers: { Accept: 'application/json' },
 		});
 	} catch {
@@ -96,9 +100,9 @@ async function discoverOAuthMetadata(profileUrl: string): Promise<OAuthDiscovery
 	if (!metadata.authorization_endpoint || !metadata.token_endpoint) return null;
 
 	return {
-		authorizationEndpoint: new URL(metadata.authorization_endpoint, origin).toString(),
-		tokenEndpoint: new URL(metadata.token_endpoint, origin).toString(),
-		issuer: metadata.issuer ?? origin,
+		authorizationEndpoint: assertPublicHttpsUrl(new URL(metadata.authorization_endpoint, origin).toString(), 'INDIEAUTH_DISCOVERY_FAILED').toString(),
+		tokenEndpoint: assertPublicHttpsUrl(new URL(metadata.token_endpoint, origin).toString(), 'INDIEAUTH_DISCOVERY_FAILED').toString(),
+		issuer: assertPublicHttpsUrl(metadata.issuer ?? origin, 'INDIEAUTH_DISCOVERY_FAILED').origin,
 	};
 }
 
@@ -113,9 +117,8 @@ async function discoverAuthorizationServer(profileUrl: string): Promise<OAuthDis
 
 	let res: Response;
 	try {
-		res = await fetch(profileUrl, {
+		res = await fetchPublicHttps(profileUrl, {
 			headers: { Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
-			redirect: 'follow',
 		});
 	} catch {
 		return null;
@@ -165,9 +168,9 @@ async function discoverAuthorizationServer(profileUrl: string): Promise<OAuthDis
 	if (!authorizationEndpoint) return null;
 
 	return {
-		authorizationEndpoint,
-		tokenEndpoint,
-		issuer: getOrigin(profileUrl) ?? profileUrl,
+		authorizationEndpoint: assertPublicHttpsUrl(authorizationEndpoint, 'INDIEAUTH_DISCOVERY_FAILED').toString(),
+		tokenEndpoint: tokenEndpoint ? assertPublicHttpsUrl(tokenEndpoint, 'INDIEAUTH_DISCOVERY_FAILED').toString() : null,
+		issuer: assertPublicHttpsUrl(getOrigin(profileUrl) ?? profileUrl, 'INDIEAUTH_DISCOVERY_FAILED').origin,
 	};
 }
 
@@ -175,7 +178,7 @@ async function discoverAuthorizationServer(profileUrl: string): Promise<OAuthDis
  * Normalize and validate a profile URL.
  * Returns the canonical profile URL, or null if invalid.
  */
-function normalizeProfileUrl(input: string): string | null {
+export function normalizeProfileUrl(input: string): string | null {
 	let url: URL;
 	try {
 		// Try parsing as-is; if no protocol, try adding https://
@@ -189,10 +192,14 @@ function normalizeProfileUrl(input: string): string | null {
 		return null;
 	}
 
-	if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+	if (url.protocol !== 'https:') return null;
 	if (!url.hostname) return null;
 
-	return url.toString();
+	try {
+		return assertPublicHttpsUrl(url.toString()).toString();
+	} catch {
+		return null;
+	}
 }
 
 /**
@@ -209,7 +216,7 @@ function getServerHost(profileUrl: string): string {
 /**
  * Check if the server of a profile URL is blocked by admin settings.
  */
-async function isServerBlocked(env: Env, profileUrl: string): Promise<boolean> {
+export async function isServerBlocked(env: Env, profileUrl: string): Promise<boolean> {
 	const db = getDb(env);
 	const host = getServerHost(profileUrl);
 	if (!host) return true;
@@ -241,7 +248,7 @@ function getClientId(requestUrl: URL): string {
 async function fetchMisskeyAccount(issuer: string, accessToken: string): Promise<MisskeyAccount | null> {
 	let res: Response;
 	try {
-		res = await fetch(`${issuer}/api/i`, {
+		res = await fetchPublicHttps(`${issuer}/api/i`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ i: accessToken }),
@@ -260,6 +267,56 @@ async function fetchMisskeyAccount(issuer: string, accessToken: string): Promise
 }
 
 const app = new Hono<{ Bindings: Env }>();
+
+export async function createIndieAuthUrl(env: Env, requestUrl: URL, profileUrlRaw: string, linkUserId?: string, signupPassphrase?: string, signupUsername?: string): Promise<string> {
+	const profileUrl = normalizeProfileUrl(profileUrlRaw);
+	if (!profileUrl) {
+		throw apiError(400, 'INVALID_PROFILE_URL');
+	}
+
+	if (await isServerBlocked(env, profileUrl)) {
+		throw apiError(403, 'THIS_MISSKEY_SERVER_IS_NOT_ALLOWED');
+	}
+
+	const server = await discoverAuthorizationServer(profileUrl);
+	if (!server) {
+		throw apiError(400, 'INDIEAUTH_DISCOVERY_FAILED');
+	}
+
+	const db = getDb(env);
+	await db.delete(oauthStates).where(lt(oauthStates.expiresAt, Date.now()));
+
+	const state = generateToken();
+	const codeVerifier = generateCodeVerifier();
+	const codeChallenge = await generateCodeChallenge(codeVerifier);
+	const stateId = genEaidx(Date.now());
+	const expiresAt = Date.now() + STATE_TTL_MS;
+
+	await db.insert(oauthStates).values({
+		id: stateId,
+		state,
+		codeVerifier,
+		profileUrl,
+		linkUserId,
+		signupPassphrase,
+		signupUsername,
+		expiresAt,
+	});
+
+	const redirectUri = getCallbackUri(requestUrl);
+	const clientId = getClientId(requestUrl);
+
+	const authUrl = new URL(server.authorizationEndpoint);
+	authUrl.searchParams.set('response_type', 'code');
+	authUrl.searchParams.set('client_id', clientId);
+	authUrl.searchParams.set('redirect_uri', redirectUri);
+	authUrl.searchParams.set('state', state);
+	authUrl.searchParams.set('code_challenge', codeChallenge);
+	authUrl.searchParams.set('code_challenge_method', 'S256');
+	authUrl.searchParams.set('scope', MISSKEY_OAUTH_SCOPE);
+
+	return authUrl.toString();
+}
 
 app.get('/client', (c) => {
 	const requestUrl = new URL(c.req.url);
@@ -285,6 +342,9 @@ app.get('/begin', async (c) => {
 	const profileUrlRaw = c.req.query('profile_url');
 	const passphrase = c.req.query('passphrase');
 	const signupUsername = c.req.query('username');
+	if (passphrase || signupUsername) {
+		throw apiError(400, 'USE_POST_FOR_OAUTH_SIGNUP');
+	}
 	if (!profileUrlRaw) {
 		throw apiError(400, 'PROFILE_URL_IS_REQUIRED');
 	}
@@ -295,56 +355,21 @@ app.get('/begin', async (c) => {
 		throw apiError(400, 'INVALID_USERNAME_FORMAT', `username must be at most ${MAX_USERNAME_LENGTH} characters`);
 	}
 
-	const profileUrl = normalizeProfileUrl(profileUrlRaw);
-	if (!profileUrl) {
-		throw apiError(400, 'INVALID_PROFILE_URL');
-	}
-
-	if (await isServerBlocked(c.env, profileUrl)) {
-		throw apiError(403, 'THIS_MISSKEY_SERVER_IS_NOT_ALLOWED');
-	}
-
-	const server = await discoverAuthorizationServer(profileUrl);
-	if (!server) {
-		throw apiError(400, 'INDIEAUTH_DISCOVERY_FAILED');
-	}
-
-	const db = getDb(c.env);
-
-	// Clean up expired states
-	await db.delete(oauthStates).where(lt(oauthStates.expiresAt, Date.now()));
-
-	const state = generateToken();
-	const codeVerifier = generateCodeVerifier();
-	const codeChallenge = await generateCodeChallenge(codeVerifier);
-	const stateId = genEaidx(Date.now());
-	const expiresAt = Date.now() + STATE_TTL_MS;
-
-	await db.insert(oauthStates).values({
-		id: stateId,
-		state,
-		codeVerifier,
-		profileUrl,
-		signupPassphrase: passphrase,
-		signupUsername,
-		expiresAt,
-	});
-
 	const requestUrl = new URL(c.req.url);
-	const redirectUri = getCallbackUri(requestUrl);
-	const clientId = getClientId(requestUrl);
-
-	const authUrl = new URL(server.authorizationEndpoint);
-	authUrl.searchParams.set('response_type', 'code');
-	authUrl.searchParams.set('client_id', clientId);
-	authUrl.searchParams.set('redirect_uri', redirectUri);
-	authUrl.searchParams.set('state', state);
-	authUrl.searchParams.set('code_challenge', codeChallenge);
-	authUrl.searchParams.set('code_challenge_method', 'S256');
-	authUrl.searchParams.set('scope', MISSKEY_OAUTH_SCOPE);
-
-	return c.redirect(authUrl.toString(), 302);
+	return c.redirect(await createIndieAuthUrl(c.env, requestUrl, profileUrlRaw, undefined, passphrase, signupUsername), 302);
 });
+
+app.post(
+	'/begin',
+	validator('json', apiDef['/api/auth/indieauth/begin'].req),
+	describeResponse(async (c: JsonCtx<'/api/auth/indieauth/begin', Env>) => {
+		const body = c.req.valid('json');
+		const requestUrl = new URL(c.req.url);
+		return c.json({
+			url: await createIndieAuthUrl(c.env, requestUrl, body.profileUrl, undefined, body.passphrase, body.username),
+		}, 200);
+	}, apiDef['/api/auth/indieauth/begin'].res),
+);
 
 app.get('/callback', async (c) => {
 	const db = getDb(c.env);
@@ -421,18 +446,58 @@ app.get('/callback', async (c) => {
 	}
 
 	const tokenData = (await tokenRes.json()) as MisskeyTokenResponse;
-	const account = tokenData.access_token
-		? await fetchMisskeyAccount(server.issuer, tokenData.access_token)
-		: null;
+	if (!tokenData.access_token) {
+		return c.redirect('/signin?indieauth_error=missing_access_token', 302);
+	}
 
-	const canonicalMe = tokenData.me
-		?? (account?.id ? `${server.issuer}/users/${account.id}` : profileUrl);
+	const account = await fetchMisskeyAccount(server.issuer, tokenData.access_token);
+	if (!account?.id) {
+		return c.redirect('/signin?indieauth_error=userinfo_failed', 302);
+	}
 
-	// Use the profile URL as the misskey_id (canonical identifier)
-	const misskeyId = canonicalMe;
+	const misskeyId = `${server.issuer}/users/${account.id}`;
+	if (tokenData.me) {
+		try {
+			const meUrl = assertPublicHttpsUrl(tokenData.me, 'INDIEAUTH_DISCOVERY_FAILED');
+			if (meUrl.origin !== server.issuer) {
+				return c.redirect('/signin?indieauth_error=invalid_identity', 302);
+			}
+		} catch {
+			return c.redirect('/signin?indieauth_error=invalid_identity', 302);
+		}
+	}
+
+	const linkedAccount = await db.select().from(misskeyAccounts).where(eq(misskeyAccounts.misskeyId, misskeyId)).get();
+
+	if (storedState.linkUserId) {
+		if (linkedAccount && linkedAccount.userId !== storedState.linkUserId) {
+			return c.redirect('/my/account?link_error=account_already_linked', 302);
+		}
+
+		const currentUser = await db.select().from(users).where(eq(users.id, storedState.linkUserId)).get();
+		if (!currentUser || currentUser.isSuspended) {
+			return c.redirect('/my/account?link_error=link_failed', 302);
+		}
+		if (!linkedAccount) {
+			const linkedAccountId = genEaidx(Date.now());
+			await db.insert(misskeyAccounts).values({
+				id: linkedAccountId,
+				userId: storedState.linkUserId,
+				misskeyId,
+				issuer: server.issuer,
+				username: account.username ?? null,
+				name: account.name ?? null,
+				createdAt: Date.now(),
+			});
+		}
+
+		return c.redirect('/my/account?link_success=misskey', 302);
+	}
 
 	// Check if user exists with this misskeyId
-	let user = await db.select().from(users).where(eq(users.misskeyId, misskeyId)).get();
+	let user = linkedAccount
+		? await db.select().from(users).where(eq(users.id, linkedAccount.userId)).get()
+		: undefined;
 
 	if (user) {
 		if (user.isSuspended) {
@@ -482,15 +547,26 @@ app.get('/callback', async (c) => {
 		}
 
 		const userId = genEaidx(Date.now());
-		await db.insert(users).values({
-			id: userId,
-			username,
-			passwordHash: null,
-			googleId: null,
-			misskeyId,
-			isAdmin: isFirstUser,
-			isSuspended: false,
-		});
+			await db.insert(users).values({
+				id: userId,
+				username,
+				passwordHash: null,
+				googleId: null,
+				misskeyId: null,
+				isAdmin: isFirstUser,
+				isSuspended: false,
+			});
+
+			const linkedAccountId = genEaidx(Date.now());
+			await db.insert(misskeyAccounts).values({
+				id: linkedAccountId,
+				userId,
+				misskeyId,
+				issuer: server.issuer,
+				username: account.username ?? null,
+				name: account.name ?? null,
+				createdAt: Date.now(),
+			});
 
 		await db
 			.insert(usedUsernames)

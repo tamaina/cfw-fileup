@@ -308,7 +308,7 @@ app.post(
 
 		const tokenId = genEaidx(Date.now());
 		const tokenValue = generateToken();
-		await db.insert(tokens).values({ id: tokenId, userId: user.id, token: tokenValue });
+		await db.insert(tokens).values({ id: tokenId, userId: user.id, token: tokenValue, reauthenticatedAt: Date.now() });
 
 		return c.json({ token: tokenValue }, 200);
 	}, apiDef['/api/passkey/authenticate/finish'].res),
@@ -636,7 +636,7 @@ app.post(
 
 		const tokenId = genEaidx(Date.now());
 		const tokenValue = generateToken();
-		await db.insert(tokens).values({ id: tokenId, userId, token: tokenValue });
+		await db.insert(tokens).values({ id: tokenId, userId, token: tokenValue, reauthenticatedAt: Date.now() });
 
 		return c.json({ token: tokenValue }, 200);
 	}, apiDef['/api/passkey/signup/finish'].res),

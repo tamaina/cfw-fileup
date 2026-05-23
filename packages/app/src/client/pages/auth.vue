@@ -262,7 +262,7 @@ async function handleIndieAuthCallback(): Promise<void> {
 handleGoogleCallback();
 handleIndieAuthCallback();
 
-function signinWithGoogle(): void {
+async function signinWithGoogle(): Promise<void> {
 	if (activeMode.value === 'signup' && !signupPrerequisitesMet.value) {
 		signupError.value = '登録前に必要な確認を完了してください';
 		return;
@@ -272,17 +272,32 @@ function signinWithGoogle(): void {
 		return;
 	}
 	googleLoading.value = true;
-	const params = new URLSearchParams();
-	if (activeMode.value === 'signup') {
-		params.set('username', signupForm.username.trim());
-		if (signupForm.passphrase) {
-			params.set('passphrase', signupForm.passphrase);
+	try {
+		if (activeMode.value === 'signup') {
+			const result = await apiPost('/api/auth/google/begin', {
+				username: signupForm.username.trim(),
+				passphrase: signupForm.passphrase || undefined,
+			});
+			if (!result.ok) {
+				signupError.value = result.data.message;
+				return;
+			}
+			location.href = result.data.url;
+			return;
 		}
+		location.href = '/api/auth/google';
+	} catch (e) {
+		if (activeMode.value === 'signup') {
+			signupError.value = String(e);
+		} else {
+			signinError.value = String(e);
+		}
+	} finally {
+		googleLoading.value = false;
 	}
-	location.href = `/api/auth/google${params.size > 0 ? `?${params.toString()}` : ''}`;
 }
 
-function signinWithIndieAuth(): void {
+async function signinWithIndieAuth(): Promise<void> {
 	if (activeMode.value === 'signup' && !signupPrerequisitesMet.value) {
 		signupError.value = '登録前に必要な確認を完了してください';
 		return;
@@ -300,15 +315,31 @@ function signinWithIndieAuth(): void {
 		}
 		return;
 	}
-	const params = new URLSearchParams({ profile_url: url });
-	if (activeMode.value === 'signup') {
-		params.set('username', signupForm.username.trim());
-		if (signupForm.passphrase) {
-			params.set('passphrase', signupForm.passphrase);
-		}
-	}
 	indieauthLoading.value = true;
-	location.href = `/api/auth/indieauth/begin?${params.toString()}`;
+	try {
+		if (activeMode.value === 'signup') {
+			const result = await apiPost('/api/auth/indieauth/begin', {
+				profileUrl: url,
+				username: signupForm.username.trim(),
+				passphrase: signupForm.passphrase || undefined,
+			});
+			if (!result.ok) {
+				signupError.value = result.data.message;
+				return;
+			}
+			location.href = result.data.url;
+			return;
+		}
+		location.href = `/api/auth/indieauth/begin?profile_url=${encodeURIComponent(url)}`;
+	} catch (e) {
+		if (activeMode.value === 'signup') {
+			signupError.value = String(e);
+		} else {
+			signinError.value = String(e);
+		}
+	} finally {
+		indieauthLoading.value = false;
+	}
 }
 
 async function signinWithPassword({ valid }: { valid: boolean }): Promise<void> {

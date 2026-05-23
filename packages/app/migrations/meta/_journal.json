@@ -43,6 +43,27 @@
       "when": 1779518254266,
       "tag": "0005_flashy_inhumans",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1779518254267,
+      "tag": "0006_add_oauth_link_user",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1779518254268,
+      "tag": "0007_add_token_reauthenticated_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1779518254269,
+      "tag": "0008_create_misskey_accounts",
+      "breakpoints": true
     }
   ]
 }
