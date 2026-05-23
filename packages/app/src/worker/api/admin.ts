@@ -2,8 +2,9 @@ import { Hono } from 'hono';
 import { describeResponse, describeRoute, validator } from 'hono-openapi';
 import { eq, sql } from 'drizzle-orm';
 import * as v from 'valibot';
+import { genEaidx } from '../../shared/eaid-x';
 import { apiError } from '../utils/api-error';
-import { users, tokens, files, buckets, appSettings, userQuotas, globalQuotas } from '../scheme/index';
+import { users, tokens, files, buckets, appSettings, userQuotas, globalQuotas, plans, userPlanAssignments } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { getQuotaForUser, getGlobalQuota } from '../utils/rate-limit';
 import { authMiddleware, adminMiddleware } from '../middleware/auth';
@@ -337,6 +338,185 @@ app.post(
 
 		return c.json(knownSettings, 200);
 	}, getResponseDefWithAuth('/api/admin/get-settings')),
+);
+
+app.post(
+	'/list-plans',
+	describeRoute(omitResAndReq(apiDef['/api/admin/list-plans'])),
+	validator('json', apiDef['/api/admin/list-plans'].req),
+	describeResponse(async (c: JsonCtx<'/api/admin/list-plans', Env>) => {
+		const db = getDb(c.env);
+		const allPlans = await db.select().from(plans).all();
+		return c.json(allPlans, 200);
+	}, getResponseDefWithAuth('/api/admin/list-plans')),
+);
+
+app.post(
+	'/create-plan',
+	describeRoute(omitResAndReq(apiDef['/api/admin/create-plan'])),
+	validator('json', apiDef['/api/admin/create-plan'].req),
+	describeResponse(async (c: JsonCtx<'/api/admin/create-plan', Env>) => {
+		const db = getDb(c.env);
+		const body = c.req.valid('json');
+		const now = Date.now();
+		const plan = {
+			id: genEaidx(now),
+			name: body.name,
+			maxBuckets: body.maxBuckets ?? null,
+			maxBucketSizeBytes: body.maxBucketSizeBytes ?? null,
+			maxFilesPerBucket: body.maxFilesPerBucket ?? null,
+			maxDailyUploads: body.maxDailyUploads ?? null,
+			createdAt: now,
+			updatedAt: now,
+		};
+
+		await db.insert(plans).values(plan);
+
+		return c.json(plan, 200);
+	}, getResponseDefWithAuth('/api/admin/create-plan')),
+);
+
+app.post(
+	'/update-plan',
+	describeRoute(omitResAndReq(apiDef['/api/admin/update-plan'])),
+	validator('json', apiDef['/api/admin/update-plan'].req),
+	describeResponse(async (c: JsonCtx<'/api/admin/update-plan', Env>) => {
+		const db = getDb(c.env);
+		const body = c.req.valid('json');
+		const existing = await db.select().from(plans).where(eq(plans.id, body.planId)).get();
+		if (!existing) {
+			throw apiError(404, 'PLAN_NOT_FOUND');
+		}
+
+		const updated = {
+			id: existing.id,
+			name: body.name,
+			maxBuckets: body.maxBuckets ?? null,
+			maxBucketSizeBytes: body.maxBucketSizeBytes ?? null,
+			maxFilesPerBucket: body.maxFilesPerBucket ?? null,
+			maxDailyUploads: body.maxDailyUploads ?? null,
+			createdAt: existing.createdAt,
+			updatedAt: Date.now(),
+		};
+
+		await db.update(plans).set({
+			name: updated.name,
+			maxBuckets: updated.maxBuckets,
+			maxBucketSizeBytes: updated.maxBucketSizeBytes,
+			maxFilesPerBucket: updated.maxFilesPerBucket,
+			maxDailyUploads: updated.maxDailyUploads,
+			updatedAt: updated.updatedAt,
+		}).where(eq(plans.id, body.planId));
+
+		return c.json(updated, 200);
+	}, getResponseDefWithAuth('/api/admin/update-plan')),
+);
+
+app.post(
+	'/delete-plan',
+	describeRoute(omitResAndReq(apiDef['/api/admin/delete-plan'])),
+	validator('json', apiDef['/api/admin/delete-plan'].req),
+	describeResponse(async (c: JsonCtx<'/api/admin/delete-plan', Env>) => {
+		const db = getDb(c.env);
+		const body = c.req.valid('json');
+		const existing = await db.select({ id: plans.id }).from(plans).where(eq(plans.id, body.planId)).get();
+		if (!existing) {
+			throw apiError(404, 'PLAN_NOT_FOUND');
+		}
+
+		await db.delete(plans).where(eq(plans.id, body.planId));
+
+		return c.json({ ok: true }, 200);
+	}, getResponseDefWithAuth('/api/admin/delete-plan')),
+);
+
+app.post(
+	'/assign-user-plan',
+	describeRoute(omitResAndReq(apiDef['/api/admin/assign-user-plan'])),
+	validator('json', apiDef['/api/admin/assign-user-plan'].req),
+	describeResponse(async (c: JsonCtx<'/api/admin/assign-user-plan', Env>) => {
+		const db = getDb(c.env);
+		const body = c.req.valid('json');
+		const [user, plan] = await Promise.all([
+			db.select({ id: users.id }).from(users).where(eq(users.id, body.userId)).get(),
+			db.select({ id: plans.id }).from(plans).where(eq(plans.id, body.planId)).get(),
+		]);
+		if (!user) {
+			throw apiError(404, 'USER_NOT_FOUND');
+		}
+		if (!plan) {
+			throw apiError(404, 'PLAN_NOT_FOUND');
+		}
+
+		const now = Date.now();
+		await db
+			.insert(userPlanAssignments)
+			.values({
+				userId: body.userId,
+				planId: body.planId,
+				expiresAt: body.expiresAt,
+				createdAt: now,
+				updatedAt: now,
+			})
+			.onConflictDoUpdate({
+				target: userPlanAssignments.userId,
+				set: {
+					planId: body.planId,
+					expiresAt: body.expiresAt,
+					updatedAt: now,
+				},
+			});
+
+		return c.json({ ok: true }, 200);
+	}, getResponseDefWithAuth('/api/admin/assign-user-plan')),
+);
+
+app.post(
+	'/get-user-plan',
+	describeRoute(omitResAndReq(apiDef['/api/admin/get-user-plan'])),
+	validator('json', apiDef['/api/admin/get-user-plan'].req),
+	describeResponse(async (c: JsonCtx<'/api/admin/get-user-plan', Env>) => {
+		const db = getDb(c.env);
+		const body = c.req.valid('json');
+		const user = await db.select({ id: users.id }).from(users).where(eq(users.id, body.userId)).get();
+		if (!user) {
+			throw apiError(404, 'USER_NOT_FOUND');
+		}
+
+		const assignment = await db
+			.select({
+				userId: userPlanAssignments.userId,
+				planId: userPlanAssignments.planId,
+				planName: plans.name,
+				expiresAt: userPlanAssignments.expiresAt,
+				createdAt: userPlanAssignments.createdAt,
+				updatedAt: userPlanAssignments.updatedAt,
+			})
+			.from(userPlanAssignments)
+			.innerJoin(plans, eq(userPlanAssignments.planId, plans.id))
+			.where(eq(userPlanAssignments.userId, body.userId))
+			.get();
+
+		return c.json(assignment ?? null, 200);
+	}, getResponseDefWithAuth('/api/admin/get-user-plan')),
+);
+
+app.post(
+	'/delete-user-plan',
+	describeRoute(omitResAndReq(apiDef['/api/admin/delete-user-plan'])),
+	validator('json', apiDef['/api/admin/delete-user-plan'].req),
+	describeResponse(async (c: JsonCtx<'/api/admin/delete-user-plan', Env>) => {
+		const db = getDb(c.env);
+		const body = c.req.valid('json');
+		const user = await db.select({ id: users.id }).from(users).where(eq(users.id, body.userId)).get();
+		if (!user) {
+			throw apiError(404, 'USER_NOT_FOUND');
+		}
+
+		await db.delete(userPlanAssignments).where(eq(userPlanAssignments.userId, body.userId));
+
+		return c.json({ ok: true }, 200);
+	}, getResponseDefWithAuth('/api/admin/delete-user-plan')),
 );
 
 export const adminRoutes = app;

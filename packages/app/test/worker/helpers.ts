@@ -5,6 +5,7 @@ import migration0001 from '../../migrations/0001_blushing_sandman.sql?raw';
 import migration0002 from '../../migrations/0002_pretty_talos.sql?raw';
 import migration0003 from '../../migrations/0003_overjoyed_pyro.sql?raw';
 import migration0004 from '../../migrations/0004_parched_hairball.sql?raw';
+import migration0005 from '../../migrations/0005_flashy_inhumans.sql?raw';
 
 export { env, app };
 
@@ -14,6 +15,7 @@ const migrations = [
 	migration0002,
 	migration0003,
 	migration0004,
+	migration0005,
 ] as const;
 
 const tables = [
@@ -28,11 +30,13 @@ const tables = [
 	'directories',
 	'oauth_states',
 	'tokens',
+	'user_plan_assignments',
 	'user_quotas',
 	'buckets',
 	'users',
 	'app_settings',
 	'global_quotas',
+	'plans',
 	'used_usernames',
 	'used_bucket_names',
 ] as const;
@@ -77,11 +81,13 @@ export async function clearDb(): Promise<void> {
 		env.DB.prepare('DELETE FROM directories'),
 		env.DB.prepare('DELETE FROM oauth_states'),
 		env.DB.prepare('DELETE FROM tokens'),
+		env.DB.prepare('DELETE FROM user_plan_assignments'),
 		env.DB.prepare('DELETE FROM user_quotas'),
 		env.DB.prepare('DELETE FROM buckets'),
 		env.DB.prepare('DELETE FROM users'),
 		env.DB.prepare('DELETE FROM app_settings'),
 		env.DB.prepare('DELETE FROM global_quotas'),
+		env.DB.prepare('DELETE FROM plans'),
 		env.DB.prepare('DELETE FROM used_usernames'),
 		env.DB.prepare('DELETE FROM used_bucket_names'),
 	]);

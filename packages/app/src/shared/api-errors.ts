@@ -46,6 +46,7 @@ export const apiErrorMessages = {
 	PASSKEY_NOT_FOUND: 'Passkey not found',
 	PASSPHRASE_TOO_LONG: 'passphrase is too long',
 	PATH_OR_TARGETS_ARE_REQUIRED: 'path or targets are required',
+	PLAN_NOT_FOUND: 'Plan not found',
 	PROFILE_URL_IS_REQUIRED: 'profile_url is required',
 	PUBLIC_FILES_CANNOT_CHANGE_VISIBILITY: 'Public files cannot change visibility',
 	REGISTRATION_IS_CLOSED: 'Registration is closed',

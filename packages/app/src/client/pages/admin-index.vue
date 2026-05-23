@@ -44,6 +44,7 @@ async function purgeWorkerCache(): Promise<void> {
         <ul class="admin-nav-list">
           <li><NirA to="/admin/settings">アプリ設定</NirA></li>
           <li><NirA to="/admin/global-quota">グローバルクォータ設定</NirA></li>
+          <li><NirA to="/admin/plans">課金プラン管理</NirA></li>
           <li><NirA to="/admin/users">ユーザー管理</NirA></li>
         </ul>
       </div>

@@ -1,5 +1,5 @@
-import { eq } from 'drizzle-orm';
-import { userQuotas, globalQuotas } from '../scheme/index';
+import { and, eq, gt } from 'drizzle-orm';
+import { userQuotas, globalQuotas, userPlanAssignments, plans } from '../scheme/index';
 import { getDb } from './db';
 
 export interface RateLimitConfig {
@@ -11,6 +11,31 @@ export interface RateLimitConfig {
 
 export async function getQuotaForUser(env: Env, userId: string): Promise<RateLimitConfig> {
 	const db = getDb(env);
+	const now = Date.now();
+
+	const activePlan = await db
+		.select({
+			maxBuckets: plans.maxBuckets,
+			maxBucketSizeBytes: plans.maxBucketSizeBytes,
+			maxFilesPerBucket: plans.maxFilesPerBucket,
+			maxDailyUploads: plans.maxDailyUploads,
+		})
+		.from(userPlanAssignments)
+		.innerJoin(plans, eq(userPlanAssignments.planId, plans.id))
+		.where(and(
+			eq(userPlanAssignments.userId, userId),
+			gt(userPlanAssignments.expiresAt, now),
+		))
+		.get();
+
+	if (activePlan) {
+		return {
+			maxBuckets: activePlan.maxBuckets,
+			maxBucketSizeBytes: activePlan.maxBucketSizeBytes,
+			maxFilesPerBucket: activePlan.maxFilesPerBucket,
+			maxDailyUploads: activePlan.maxDailyUploads,
+		};
+	}
 
 	const userQuota = await db.select().from(userQuotas).where(eq(userQuotas.userId, userId)).get();
 

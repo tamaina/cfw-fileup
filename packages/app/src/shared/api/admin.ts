@@ -12,6 +12,37 @@ const QuotaResponse = v.pipe(
 	}),
 	v.metadata({ ref: 'Quota' }),
 );
+const QuotaInput = {
+	maxBuckets: v.optional(v.nullable(v.number())),
+	maxBucketSizeBytes: v.optional(v.nullable(v.number())),
+	maxFilesPerBucket: v.optional(v.nullable(v.number())),
+	maxDailyUploads: v.optional(v.nullable(v.number())),
+} as const;
+const PlanResponse = v.pipe(
+	v.object({
+		id: IdString,
+		name: v.string(),
+		maxBuckets: v.nullable(v.number()),
+		maxBucketSizeBytes: v.nullable(v.number()),
+		maxFilesPerBucket: v.nullable(v.number()),
+		maxDailyUploads: v.nullable(v.number()),
+		createdAt: v.number(),
+		updatedAt: v.number(),
+	}),
+	v.metadata({ ref: 'Plan' }),
+);
+const UserPlanAssignmentResponse = v.pipe(
+	v.object({
+		userId: IdString,
+		planId: IdString,
+		planName: v.string(),
+		expiresAt: v.number(),
+		createdAt: v.number(),
+		updatedAt: v.number(),
+	}),
+	v.metadata({ ref: 'UserPlanAssignment' }),
+);
+const NullableUserPlanAssignmentResponse = v.nullable(UserPlanAssignmentResponse);
 
 const OkResponse = { 200: { description: 'Success', content: { 'application/json': { vSchema: v.object({ ok: v.literal(true) }) } } } };
 const WorkerCachePurgeResponse = v.pipe(
@@ -65,22 +96,14 @@ export const adminApiDef = {
 		tags: ['admin'],
 		req: v.object({
 			userId: IdString,
-			maxBuckets: v.optional(v.nullable(v.number())),
-			maxBucketSizeBytes: v.optional(v.nullable(v.number())),
-			maxFilesPerBucket: v.optional(v.nullable(v.number())),
-			maxDailyUploads: v.optional(v.nullable(v.number())),
+			...QuotaInput,
 		}),
 		res: { ...OkResponse, ...AdminErrors, 404: { description: 'User not found', content: { 'application/json': { vSchema: ErrorResponse } } } },
 	},
 	'/api/admin/set-global-quota': {
 		summary: 'Set global quota',
 		tags: ['admin'],
-		req: v.object({
-			maxBuckets: v.optional(v.nullable(v.number())),
-			maxBucketSizeBytes: v.optional(v.nullable(v.number())),
-			maxFilesPerBucket: v.optional(v.nullable(v.number())),
-			maxDailyUploads: v.optional(v.nullable(v.number())),
-		}),
+		req: v.object(QuotaInput),
 		res: { ...OkResponse, ...AdminErrors },
 	},
 	'/api/admin/get-user-quota': {
@@ -118,5 +141,58 @@ export const adminApiDef = {
 		tags: ['admin'],
 		req: v.object({}),
 		res: { 200: { description: 'Success', content: { 'application/json': { vSchema: KnownSettingListSchema } } }, ...AdminErrors },
+	},
+	'/api/admin/list-plans': {
+		summary: 'List plans',
+		tags: ['admin'],
+		req: v.object({}),
+		res: { 200: { description: 'Success', content: { 'application/json': { vSchema: v.array(PlanResponse) } } }, ...AdminErrors },
+	},
+	'/api/admin/create-plan': {
+		summary: 'Create plan',
+		tags: ['admin'],
+		req: v.object({
+			name: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(100)),
+			...QuotaInput,
+		}),
+		res: { 200: { description: 'Success', content: { 'application/json': { vSchema: PlanResponse } } }, ...AdminErrors },
+	},
+	'/api/admin/update-plan': {
+		summary: 'Update plan',
+		tags: ['admin'],
+		req: v.object({
+			planId: IdString,
+			name: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(100)),
+			...QuotaInput,
+		}),
+		res: { 200: { description: 'Success', content: { 'application/json': { vSchema: PlanResponse } } }, ...AdminErrors, 404: { description: 'Plan not found', content: { 'application/json': { vSchema: ErrorResponse } } } },
+	},
+	'/api/admin/delete-plan': {
+		summary: 'Delete plan',
+		tags: ['admin'],
+		req: v.object({ planId: IdString }),
+		res: { ...OkResponse, ...AdminErrors, 404: { description: 'Plan not found', content: { 'application/json': { vSchema: ErrorResponse } } } },
+	},
+	'/api/admin/assign-user-plan': {
+		summary: 'Assign plan to user',
+		tags: ['admin'],
+		req: v.object({
+			userId: IdString,
+			planId: IdString,
+			expiresAt: v.pipe(v.number(), v.integer(), v.minValue(0)),
+		}),
+		res: { ...OkResponse, ...AdminErrors, 404: { description: 'User or plan not found', content: { 'application/json': { vSchema: ErrorResponse } } } },
+	},
+	'/api/admin/get-user-plan': {
+		summary: 'Get user plan assignment',
+		tags: ['admin'],
+		req: v.object({ userId: IdString }),
+		res: { 200: { description: 'Success', content: { 'application/json': { vSchema: NullableUserPlanAssignmentResponse } } }, ...AdminErrors, 404: { description: 'User not found', content: { 'application/json': { vSchema: ErrorResponse } } } },
+	},
+	'/api/admin/delete-user-plan': {
+		summary: 'Delete user plan assignment',
+		tags: ['admin'],
+		req: v.object({ userId: IdString }),
+		res: { ...OkResponse, ...AdminErrors, 404: { description: 'User not found', content: { 'application/json': { vSchema: ErrorResponse } } } },
 	},
 } as const satisfies ApiEndpointDefinitionRecord;

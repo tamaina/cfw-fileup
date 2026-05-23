@@ -34,6 +34,13 @@ describe('Admin access control', () => {
 			{ path: '/api/admin/delete-bucket', body: { bucketId: 'x' } },
 			{ path: '/api/admin/purge-worker-cache', body: {} },
 			{ path: '/api/admin/update-setting', body: { key: 'registration_mode', value: 'closed' } },
+			{ path: '/api/admin/list-plans', body: {} },
+			{ path: '/api/admin/create-plan', body: { name: 'Pro' } },
+			{ path: '/api/admin/update-plan', body: { planId: 'x', name: 'Pro' } },
+			{ path: '/api/admin/delete-plan', body: { planId: 'x' } },
+			{ path: '/api/admin/assign-user-plan', body: { userId: 'x', planId: 'x', expiresAt: Date.now() + 1_000 } },
+			{ path: '/api/admin/get-user-plan', body: { userId: 'x' } },
+			{ path: '/api/admin/delete-user-plan', body: { userId: 'x' } },
 		];
 
 		for (const { path, body } of endpoints) {
@@ -450,5 +457,150 @@ describe('Quota management', () => {
 			body: JSON.stringify({ userId }),
 		}, env);
 		expect(res.status).toBe(200);
+	});
+
+	test('admin can create, update, list, assign, unassign, and delete a plan', async () => {
+		const { adminToken, userId } = await setupAdminAndUser();
+		const expiresAt = Date.now() + 86_400_000;
+
+		const createRes = await app.request('/api/admin/create-plan', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ name: 'Pro', maxBuckets: 10, maxDailyUploads: 100 }),
+		}, env);
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json() as { id: string; name: string; maxBuckets: number };
+		expect(created.name).toBe('Pro');
+		expect(created.maxBuckets).toBe(10);
+
+		const updateRes = await app.request('/api/admin/update-plan', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ planId: created.id, name: 'Pro Plus', maxBuckets: 12, maxDailyUploads: 120 }),
+		}, env);
+		expect(updateRes.status).toBe(200);
+
+		const listRes = await app.request('/api/admin/list-plans', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({}),
+		}, env);
+		expect(listRes.status).toBe(200);
+		const plans = await listRes.json() as Array<{ id: string; name: string }>;
+		expect(plans).toContainEqual(expect.objectContaining({ id: created.id, name: 'Pro Plus' }));
+
+		const assignRes = await app.request('/api/admin/assign-user-plan', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ userId, planId: created.id, expiresAt }),
+		}, env);
+		expect(assignRes.status).toBe(200);
+
+		const assignmentRes = await app.request('/api/admin/get-user-plan', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ userId }),
+		}, env);
+		expect(assignmentRes.status).toBe(200);
+		const assignment = await assignmentRes.json() as { planId: string; planName: string; expiresAt: number };
+		expect(assignment.planId).toBe(created.id);
+		expect(assignment.planName).toBe('Pro Plus');
+		expect(assignment.expiresAt).toBe(expiresAt);
+
+		const unassignRes = await app.request('/api/admin/delete-user-plan', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ userId }),
+		}, env);
+		expect(unassignRes.status).toBe(200);
+
+		const deletedAssignmentRes = await app.request('/api/admin/get-user-plan', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ userId }),
+		}, env);
+		expect(deletedAssignmentRes.status).toBe(200);
+		expect(await deletedAssignmentRes.json()).toBeNull();
+
+		const deleteRes = await app.request('/api/admin/delete-plan', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ planId: created.id }),
+		}, env);
+		expect(deleteRes.status).toBe(200);
+	});
+
+	test('active plan quota overrides per-user quota', async () => {
+		const { adminToken, userToken, userId } = await setupAdminAndUser();
+
+		await app.request('/api/admin/set-user-quota', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ userId, maxBuckets: 1 }),
+		}, env);
+		const createPlanRes = await app.request('/api/admin/create-plan', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ name: 'Pro', maxBuckets: 2 }),
+		}, env);
+		const plan = await createPlanRes.json() as { id: string };
+		await app.request('/api/admin/assign-user-plan', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ userId, planId: plan.id, expiresAt: Date.now() + 86_400_000 }),
+		}, env);
+
+		const first = await app.request('/api/buckets/create', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({ bucketName: 'bucket_1' }),
+		}, env);
+		expect(first.status).toBe(200);
+		const second = await app.request('/api/buckets/create', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({ bucketName: 'bucket_2' }),
+		}, env);
+		expect(second.status).toBe(200);
+		const third = await app.request('/api/buckets/create', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({ bucketName: 'bucket_3' }),
+		}, env);
+		expect(third.status).toBe(429);
+	});
+
+	test('expired plan quota is ignored and falls back to per-user quota', async () => {
+		const { adminToken, userToken, userId } = await setupAdminAndUser();
+
+		await app.request('/api/admin/set-user-quota', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ userId, maxBuckets: 1 }),
+		}, env);
+		const createPlanRes = await app.request('/api/admin/create-plan', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ name: 'Expired Pro', maxBuckets: 2 }),
+		}, env);
+		const plan = await createPlanRes.json() as { id: string };
+		await app.request('/api/admin/assign-user-plan', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ userId, planId: plan.id, expiresAt: Date.now() - 1_000 }),
+		}, env);
+
+		const first = await app.request('/api/buckets/create', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({ bucketName: 'bucket_1' }),
+		}, env);
+		expect(first.status).toBe(200);
+		const second = await app.request('/api/buckets/create', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({ bucketName: 'bucket_2' }),
+		}, env);
+		expect(second.status).toBe(429);
 	});
 });
