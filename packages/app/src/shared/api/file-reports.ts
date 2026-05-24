@@ -4,7 +4,8 @@ import { MAX_TURNSTILE_TOKEN_LENGTH } from '../const.js';
 import { fileReportReasonSchema, fileReportRelationshipSchema } from '../file-reports.js';
 import type { ApiEndpointDefinitionRecord } from '../api.types.js';
 
-const ReportText = (maxLength: number) => v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(maxLength));
+const ReportText = (maxLength: number) => v.pipe(v.string(), v.trim(), v.maxLength(maxLength));
+const RequiredReportText = (maxLength: number) => v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(maxLength));
 
 const OkResponse = { 200: { description: 'Success', content: { 'application/json': { vSchema: v.object({ ok: v.literal(true), id: IdString }) } } } };
 
@@ -14,7 +15,7 @@ export const fileReportsApiDef = {
 		tags: ['file-reports'],
 		req: v.object({
 			fileId: IdString,
-			reporterName: ReportText(100),
+			reporterName: RequiredReportText(100),
 			reporterEmail: v.optional(v.nullable(ReportText(320))),
 			reasonId: fileReportReasonSchema,
 			relationshipId: fileReportRelationshipSchema,

@@ -90,10 +90,9 @@ const parentPath = computed(() => {
 const canSubmitReport = computed(() =>
 	!reportLoading.value &&
 	reporterName.value.trim() !== '' &&
-	reportSummary.value.trim() !== '' &&
-	reportDetail.value.trim() !== '' &&
 	(!turnstileEnabled.value || reportTurnstileToken.value !== null),
 );
+const reporterNameMissing = computed(() => reporterName.value.trim() === '');
 
 async function openReportDialog(): Promise<void> {
 	reportDialog.value = true;
@@ -315,8 +314,22 @@ onBeforeUnmount(() => {
           <div v-if="reportError" class="alert alert-error">{{ reportError }}</div>
           <div v-if="reportSuccess" class="alert alert-success">{{ reportSuccess }}</div>
           <div class="form-group">
-            <label class="form-label" for="reporterName">名前</label>
-            <input id="reporterName" v-model="reporterName" class="form-input" maxlength="100" required>
+            <label class="form-label" for="reporterName">
+              あなたのお名前
+              <span :class="$style.requiredBadge">必須</span>
+            </label>
+            <input
+              id="reporterName"
+              v-model="reporterName"
+              class="form-input"
+              :class="reporterNameMissing && $style.missingInput"
+              maxlength="100"
+              required
+              aria-describedby="reporterNameHint"
+            >
+            <div id="reporterNameHint" :class="[$style.fieldHint, reporterNameMissing && $style.fieldHintError]">
+              {{ reporterNameMissing ? '入力してください。' : ' ' }}
+            </div>
           </div>
           <div class="form-group">
             <label class="form-label" for="reporterEmail">メールアドレス</label>
@@ -343,22 +356,25 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <div class="form-group">
-            <label class="form-label" for="reportContact">通報者の連絡先</label>
+            <label class="form-label" for="reportContact">あなたのご連絡先</label>
             <input id="reportContact" v-model="reportContact" class="form-input" maxlength="500">
           </div>
           <div class="form-group">
             <label class="form-label" for="reportSummary">通報の要約</label>
-            <input id="reportSummary" v-model="reportSummary" class="form-input" maxlength="200" required>
+            <input id="reportSummary" v-model="reportSummary" class="form-input" maxlength="200">
           </div>
           <div class="form-group">
             <label class="form-label" for="reportDetail">通報の詳細</label>
-            <textarea id="reportDetail" v-model="reportDetail" class="form-input" :class="$style.reportTextarea" maxlength="4000" required />
+            <textarea id="reportDetail" v-model="reportDetail" class="form-input" :class="$style.reportTextarea" maxlength="4000" />
           </div>
           <TurnstileWidget
             v-if="turnstileEnabled && turnstileSiteKey"
             :site-key="turnstileSiteKey"
             @update:token="reportTurnstileToken = $event"
           />
+          <div v-if="turnstileEnabled && !reportTurnstileToken" :class="[$style.fieldHint, $style.fieldHintError]">
+            確認を完了してください。
+          </div>
           <div :class="$style.reportActions">
             <AlertDialog.Cancel class="btn btn-secondary" type="button">閉じる</AlertDialog.Cancel>
             <button class="btn btn-primary" type="submit" :disabled="!canSubmitReport">
@@ -415,6 +431,34 @@ onBeforeUnmount(() => {
   font-size: 1.1rem;
   font-weight: 600;
   margin: 0;
+}
+
+.requiredBadge {
+  display: inline-flex;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: var(--radius);
+  background: rgba(220, 38, 38, 0.12);
+  color: var(--color-danger);
+  font-size: 0.72rem;
+  font-weight: 600;
+  vertical-align: middle;
+}
+
+.missingInput {
+  border-color: var(--color-danger);
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12);
+}
+
+.fieldHint {
+  min-height: 1.2em;
+  margin-top: 4px;
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+}
+
+.fieldHintError {
+  color: var(--color-danger);
 }
 
 .reportGrid {
