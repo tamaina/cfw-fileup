@@ -93,6 +93,11 @@ export const ROUTE_DEF = [
 		component: page(() => import('@/pages/admin/file-reports.vue')),
 	},
 	{
+		path: '/admin/file-reports/:reportId',
+		name: 'admin-file-report',
+		component: page(() => import('@/pages/admin/file-report.vue')),
+	},
+	{
 		path: '/admin/global-quota',
 		name: 'admin-global-quota',
 		component: page(() => import('@/pages/admin/global-quota.vue')),

@@ -227,6 +227,12 @@ export const adminApiDef = {
 		req: v.object({ status: v.optional(v.nullable(fileReportStatusSchema)) }),
 		res: { 200: { description: 'Success', content: { 'application/json': { vSchema: v.array(FileReportResponse) } } }, ...AdminErrors },
 	},
+	'/api/admin/get-file-report': {
+		summary: 'Get file report',
+		tags: ['admin'],
+		req: v.object({ reportId: IdString }),
+		res: { 200: { description: 'Success', content: { 'application/json': { vSchema: FileReportResponse } } }, ...AdminErrors, 404: errorResponse('File report not found', ['FILE_REPORT_NOT_FOUND']) },
+	},
 	'/api/admin/update-file-report': {
 		summary: 'Update file report moderation status',
 		tags: ['admin'],

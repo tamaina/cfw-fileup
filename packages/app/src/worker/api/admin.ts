@@ -217,6 +217,50 @@ app.post(
 );
 
 app.post(
+	'/get-file-report',
+	describeRoute(omitResAndReq(apiDef['/api/admin/get-file-report'])),
+	validator('json', apiDef['/api/admin/get-file-report'].req),
+	describeResponse(async (c: JsonCtx<'/api/admin/get-file-report', Env>) => {
+		const db = getDb(c.env);
+		const body = c.req.valid('json');
+		const fileOwners = alias(users, 'file_owners');
+		const row = await db
+			.select({
+				id: fileReports.id,
+				fileId: fileReports.fileId,
+				bucketName: buckets.name,
+				filePath: files.path,
+				fileSize: files.size,
+				fileMimeType: files.mimeType,
+				fileOwnerId: files.userId,
+				fileOwnerUsername: fileOwners.username,
+				reporterName: fileReports.reporterName,
+				reporterEmail: fileReports.reporterEmail,
+				reasonId: fileReports.reasonId,
+				relationshipId: fileReports.relationshipId,
+				contact: fileReports.contact,
+				summary: fileReports.summary,
+				detail: fileReports.detail,
+				status: fileReports.status,
+				adminNote: fileReports.adminNote,
+				reporterIpAddress: fileReports.reporterIpAddress,
+				reporterUserAgent: fileReports.reporterUserAgent,
+				createdAt: fileReports.createdAt,
+				updatedAt: fileReports.updatedAt,
+			})
+			.from(fileReports)
+			.leftJoin(files, eq(fileReports.fileId, files.id))
+			.leftJoin(buckets, eq(files.bucketId, buckets.id))
+			.leftJoin(fileOwners, eq(files.userId, fileOwners.id))
+			.where(eq(fileReports.id, body.reportId))
+			.get();
+
+		if (!row) throw apiError(404, 'FILE_REPORT_NOT_FOUND');
+		return c.json(row, 200);
+	}, getResponseDefWithAuth('/api/admin/get-file-report')),
+);
+
+app.post(
 	'/update-file-report',
 	describeRoute(omitResAndReq(apiDef['/api/admin/update-file-report'])),
 	validator('json', apiDef['/api/admin/update-file-report'].req),
