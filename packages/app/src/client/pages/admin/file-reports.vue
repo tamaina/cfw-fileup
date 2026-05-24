@@ -58,8 +58,8 @@ function fileLabel(report: FileReport): string {
     <template v-else>
       <div v-if="error" class="alert alert-error mb-4">{{ error }}</div>
 
-      <div :class="$style.toolbar">
-        <select v-model="statusFilter" class="form-input" :class="$style.statusFilter" @change="loadReports">
+      <div class="flex items-center gap-2 mb-4">
+        <select v-model="statusFilter" class="form-input" @change="loadReports">
           <option value="">すべて</option>
           <option v-for="statusId in fileReportStatusIds" :key="statusId" :value="statusId">
             {{ fileReportStatusLabels[statusId] }}
@@ -74,71 +74,37 @@ function fileLabel(report: FileReport): string {
         <span class="spinner" />読み込み中...
       </div>
 
-      <div v-else :class="['card', $style.tableCard]">
-        <div class="table-responsive">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>要約</th>
-                <th>状態</th>
-                <th>理由</th>
-                <th>ファイル</th>
-                <th>通報者</th>
-                <th>作成</th>
-                <th class="col-actions">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="report in reports" :key="report.id">
-                <td :class="$style.summaryCell">{{ reportTitle(report) }}</td>
-                <td>{{ fileReportStatusLabels[report.status] }}</td>
-                <td>{{ report.reasonId ? fileReportReasonLabels[report.reasonId] : 'その他' }}</td>
-                <td :class="$style.pathCell">{{ fileLabel(report) }}</td>
-                <td>{{ report.reporterName }}</td>
-                <td>{{ formatDate(report.createdAt) }}</td>
-                <td class="col-actions">
-                  <NirA :to="`/admin/file-reports/${report.id}`" class="btn btn-secondary">詳細</NirA>
-                </td>
-              </tr>
-              <tr v-if="reports.length === 0">
-                <td colspan="7" :class="$style.empty">ファイル通報はありません。</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+      <div v-else class="table-responsive">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>要約</th>
+              <th>状態</th>
+              <th>理由</th>
+              <th>ファイル</th>
+              <th>通報者</th>
+              <th>作成</th>
+              <th class="col-actions">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="report in reports" :key="report.id">
+              <td>{{ reportTitle(report) }}</td>
+              <td>{{ fileReportStatusLabels[report.status] }}</td>
+              <td>{{ report.reasonId ? fileReportReasonLabels[report.reasonId] : 'その他' }}</td>
+              <td>{{ fileLabel(report) }}</td>
+              <td>{{ report.reporterName }}</td>
+              <td>{{ formatDate(report.createdAt) }}</td>
+              <td class="col-actions">
+                <NirA :to="`/admin/file-reports/${report.id}`" class="btn btn-secondary">詳細</NirA>
+              </td>
+            </tr>
+            <tr v-if="reports.length === 0">
+              <td colspan="7" class="col-muted">ファイル通報はありません。</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </template>
   </div>
 </template>
-
-<style module lang="scss">
-.toolbar {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  margin-bottom: 16px;
-}
-
-.statusFilter {
-  max-width: 180px;
-}
-
-.tableCard {
-  padding: 0;
-  overflow: hidden;
-}
-
-.summaryCell {
-  font-weight: 500;
-}
-
-.pathCell {
-  max-width: 320px;
-  overflow-wrap: anywhere;
-}
-
-.empty {
-  color: var(--color-text-muted);
-  text-align: center;
-}
-</style>
