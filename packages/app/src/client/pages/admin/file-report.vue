@@ -114,8 +114,13 @@ function fileUrl(fileReport: FileReport): string | null {
           <dd>{{ report.relationshipId ? fileReportRelationshipLabels[report.relationshipId] : '-' }}</dd>
           <dt>連絡先</dt>
           <dd>{{ report.contact ?? '-' }}</dd>
-          <dt>IP / UA</dt>
+          <dt>通報時 IP / UA</dt>
           <dd>{{ report.reporterIpAddress ?? '-' }} / {{ report.reporterUserAgent ?? '-' }}</dd>
+          <dt>アップロード時 IP / UA</dt>
+          <dd>
+            {{ report.uploadIpAddress ?? '-' }} / {{ report.uploadUserAgent ?? '-' }}
+            <span v-if="report.uploadedAt" :class="$style.inlineMeta">({{ formatDate(report.uploadedAt) }})</span>
+          </dd>
           <dt>詳細</dt>
           <dd :class="$style.preWrap">{{ report.detail || '-' }}</dd>
         </dl>
@@ -193,6 +198,11 @@ function fileUrl(fileReport: FileReport): string | null {
 
 .preWrap {
   white-space: pre-wrap;
+}
+
+.inlineMeta {
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
 }
 
 .editForm {

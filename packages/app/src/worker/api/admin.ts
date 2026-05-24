@@ -1,11 +1,11 @@
 import { Hono } from 'hono';
 import { describeResponse, describeRoute, validator } from 'hono-openapi';
-import { desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 import * as v from 'valibot';
 import { genEaidx, parseEaidx } from '../../shared/eaid-x';
 import { apiError } from '../utils/api-error';
-import { users, tokens, files, buckets, appSettings, userQuotas, globalQuotas, plans, userPlanAssignments, ipBans, fileReports } from '../scheme/index';
+import { users, tokens, files, buckets, appSettings, userQuotas, globalQuotas, plans, userPlanAssignments, ipBans, fileReports, moderationEvents } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { getQuotaForUser, getGlobalQuota } from '../utils/rate-limit';
 import { authMiddleware, adminMiddleware } from '../middleware/auth';
@@ -212,7 +212,13 @@ app.post(
 			.orderBy(desc(fileReports.id));
 
 		const rows = body.status ? await query.where(eq(fileReports.status, body.status)) : await query;
-		return c.json(rows, 200);
+		return c.json(rows.map(row => ({
+			...row,
+			uploadEventId: null,
+			uploadIpAddress: null,
+			uploadUserAgent: null,
+			uploadedAt: null,
+		})), 200);
 	}, getResponseDefWithAuth('/api/admin/list-file-reports')),
 );
 
@@ -256,7 +262,27 @@ app.post(
 			.get();
 
 		if (!row) throw apiError(404, 'FILE_REPORT_NOT_FOUND');
-		return c.json(row, 200);
+		const uploadEvent = await db
+			.select({
+				id: moderationEvents.id,
+				ipAddress: moderationEvents.ipAddress,
+				userAgent: moderationEvents.userAgent,
+			})
+			.from(moderationEvents)
+			.where(and(
+				eq(moderationEvents.action, 'file_uploaded'),
+				sql`json_extract(${moderationEvents.data}, '$.fileId') = ${row.fileId}`,
+			))
+			.orderBy(desc(moderationEvents.id))
+			.get();
+
+		return c.json({
+			...row,
+			uploadEventId: uploadEvent?.id ?? null,
+			uploadIpAddress: uploadEvent?.ipAddress ?? null,
+			uploadUserAgent: uploadEvent?.userAgent ?? null,
+			uploadedAt: uploadEvent ? parseEaidx(uploadEvent.id).date.getTime() : null,
+		}, 200);
 	}, getResponseDefWithAuth('/api/admin/get-file-report')),
 );
 
