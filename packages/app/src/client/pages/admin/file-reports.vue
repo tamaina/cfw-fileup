@@ -74,36 +74,38 @@ function fileLabel(report: FileReport): string {
         <span class="spinner" />読み込み中...
       </div>
 
-      <div v-else class="table-responsive">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>要約</th>
-              <th>状態</th>
-              <th>理由</th>
-              <th>ファイル</th>
-              <th>通報者</th>
-              <th>作成</th>
-              <th class="col-actions">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="report in reports" :key="report.id">
-              <td>{{ reportTitle(report) }}</td>
-              <td>{{ fileReportStatusLabels[report.status] }}</td>
-              <td>{{ report.reasonId ? fileReportReasonLabels[report.reasonId] : 'その他' }}</td>
-              <td>{{ fileLabel(report) }}</td>
-              <td>{{ report.reporterName }}</td>
-              <td>{{ formatDate(report.createdAt) }}</td>
-              <td class="col-actions">
-                <NirA :to="`/admin/file-reports/${report.id}`" class="btn btn-secondary">詳細</NirA>
-              </td>
-            </tr>
-            <tr v-if="reports.length === 0">
-              <td colspan="7" class="col-muted">ファイル通報はありません。</td>
-            </tr>
-          </tbody>
-        </table>
+      <div v-else class="card">
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>要約</th>
+                <th>状態</th>
+                <th>理由</th>
+                <th>ファイル</th>
+                <th>通報者</th>
+                <th>作成</th>
+                <th class="col-actions">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="report in reports" :key="report.id">
+                <td>{{ reportTitle(report) }}</td>
+                <td>{{ fileReportStatusLabels[report.status] }}</td>
+                <td>{{ report.reasonId ? fileReportReasonLabels[report.reasonId] : 'その他' }}</td>
+                <td>{{ fileLabel(report) }}</td>
+                <td>{{ report.reporterName }}</td>
+                <td>{{ formatDate(report.createdAt) }}</td>
+                <td class="col-actions">
+                  <NirA :to="`/admin/file-reports/${report.id}`" class="btn btn-secondary">詳細</NirA>
+                </td>
+              </tr>
+              <tr v-if="reports.length === 0">
+                <td colspan="7" class="col-muted">ファイル通報はありません。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </template>
   </div>
