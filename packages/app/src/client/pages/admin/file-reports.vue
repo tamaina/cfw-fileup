@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
-import { Flag } from '@lucide/vue';
 import { authStore } from '@/store/auth';
 import { apiPost, type ApiSuccess } from '@/utils/api';
 import NirA from '@/components/NirA.vue';
@@ -102,8 +101,7 @@ function statusBadgeClass(status: FileReportStatusId): string {
                 </td>
                 <td :class="$style.labelCell">
                   <NirA :to="`/admin/file-reports/${report.id}`" :class="$style.entryLink">
-                    <Flag :class="$style.reportIcon" :size="16" :stroke-width="2" aria-hidden="true" />
-                    <span class="badge badge-muted">{{ reasonLabel(report) }}</span>
+                    {{ reasonLabel(report) }}
                   </NirA>
                 </td>
                 <td :class="$style.fileCell">{{ fileLabel(report) }}</td>
@@ -144,12 +142,6 @@ function statusBadgeClass(status: FileReportStatusId): string {
   display: inline-flex;
   align-items: center;
   font-weight: 500;
-}
-
-.reportIcon {
-  margin-right: 4px;
-  color: var(--color-text-muted);
-  vertical-align: -3px;
 }
 
 .labelCell {
