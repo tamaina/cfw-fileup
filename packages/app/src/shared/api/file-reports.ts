@@ -16,7 +16,7 @@ export const fileReportsApiDef = {
 		req: v.object({
 			fileId: IdString,
 			reporterName: RequiredReportText(100),
-			reporterEmail: v.optional(v.nullable(ReportText(320))),
+			reporterEmail: RequiredReportText(320),
 			reasonId: fileReportReasonSchema,
 			relationshipId: fileReportRelationshipSchema,
 			contact: v.optional(v.nullable(ReportText(500))),

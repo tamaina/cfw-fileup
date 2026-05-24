@@ -90,9 +90,11 @@ const parentPath = computed(() => {
 const canSubmitReport = computed(() =>
 	!reportLoading.value &&
 	reporterName.value.trim() !== '' &&
+	reporterEmail.value.trim() !== '' &&
 	(!turnstileEnabled.value || reportTurnstileToken.value !== null),
 );
 const reporterNameMissing = computed(() => reporterName.value.trim() === '');
+const reporterEmailMissing = computed(() => reporterEmail.value.trim() === '');
 
 async function openReportDialog(): Promise<void> {
 	reportDialog.value = true;
@@ -119,7 +121,7 @@ async function submitReport(): Promise<void> {
 		const result = await apiPost('/api/file-reports/create', {
 			fileId: props.fileId,
 			reporterName: reporterName.value,
-			reporterEmail: reporterEmail.value.trim() || null,
+			reporterEmail: reporterEmail.value,
 			reasonId: reportReasonId.value || null,
 			relationshipId: reportRelationshipId.value || null,
 			contact: reportContact.value.trim() || null,
@@ -332,8 +334,23 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <div class="form-group">
-            <label class="form-label" for="reporterEmail">メールアドレス</label>
-            <input id="reporterEmail" v-model="reporterEmail" class="form-input" type="email" maxlength="320">
+            <label class="form-label" for="reporterEmail">
+              メールアドレス
+              <span :class="$style.requiredBadge">必須</span>
+            </label>
+            <input
+              id="reporterEmail"
+              v-model="reporterEmail"
+              class="form-input"
+              :class="reporterEmailMissing && $style.missingInput"
+              type="email"
+              maxlength="320"
+              required
+              aria-describedby="reporterEmailHint"
+            >
+            <div id="reporterEmailHint" :class="[$style.fieldHint, reporterEmailMissing && $style.fieldHintError]">
+              {{ reporterEmailMissing ? '入力してください。' : ' ' }}
+            </div>
           </div>
           <div :class="$style.reportGrid">
             <div class="form-group">
