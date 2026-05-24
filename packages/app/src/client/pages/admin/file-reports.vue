@@ -35,12 +35,13 @@ function formatDate(ms: number): string {
 	return new Date(ms).toLocaleString();
 }
 
-function reportTitle(report: FileReport): string {
-	return report.summary || report.detail || report.id;
+function fileLabel(report: FileReport): string {
+	if (!report.filePath) return '-';
+	return report.filePath.split('/').filter(Boolean).at(-1) ?? report.filePath;
 }
 
-function fileLabel(report: FileReport): string {
-	return report.bucketName && report.filePath ? `${report.bucketName}/${report.filePath}` : report.fileId;
+function reasonLabel(report: FileReport): string {
+	return report.reasonId ? fileReportReasonLabels[report.reasonId] : 'その他';
 }
 
 function statusBadgeClass(status: FileReportStatusId): string {
@@ -87,38 +88,30 @@ function statusBadgeClass(status: FileReportStatusId): string {
           <table class="data-table">
             <thead>
               <tr>
-                <th>名前</th>
                 <th>状態</th>
                 <th>種類</th>
-                <th>ファイル</th>
+                <th>ファイル名</th>
                 <th>通報者</th>
                 <th>作成</th>
-                <th class="col-actions"></th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="report in reports" :key="report.id">
-                <td :class="$style.nameCell">
-                  <NirA :to="`/admin/file-reports/${report.id}`" :class="$style.entryLink">
-                    <Flag :class="$style.reportIcon" :size="16" :stroke-width="2" aria-hidden="true" />
-                    {{ reportTitle(report) }}
-                  </NirA>
-                </td>
                 <td :class="$style.labelCell">
                   <span :class="statusBadgeClass(report.status)">{{ fileReportStatusLabels[report.status] }}</span>
                 </td>
                 <td :class="$style.labelCell">
-                  <span class="badge badge-muted">{{ report.reasonId ? fileReportReasonLabels[report.reasonId] : 'その他' }}</span>
+                  <NirA :to="`/admin/file-reports/${report.id}`" :class="$style.entryLink">
+                    <Flag :class="$style.reportIcon" :size="16" :stroke-width="2" aria-hidden="true" />
+                    <span class="badge badge-muted">{{ reasonLabel(report) }}</span>
+                  </NirA>
                 </td>
-                <td class="col-muted">{{ fileLabel(report) }}</td>
+                <td :class="$style.fileCell">{{ fileLabel(report) }}</td>
                 <td>{{ report.reporterName }}</td>
                 <td class="col-muted">{{ formatDate(report.createdAt) }}</td>
-                <td class="col-actions">
-                  <NirA :to="`/admin/file-reports/${report.id}`" class="btn btn-secondary">詳細</NirA>
-                </td>
               </tr>
               <tr v-if="reports.length === 0">
-                <td colspan="7">
+                <td colspan="5">
                   <div class="empty-state">
                     <p>ファイル通報はありません。</p>
                   </div>
@@ -138,8 +131,8 @@ function statusBadgeClass(status: FileReportStatusId): string {
   overflow: hidden;
 }
 
-.nameCell {
-  width: 36%;
+.fileCell {
+  width: 42%;
   min-width: 14em;
   max-width: 0;
   overflow: hidden;
