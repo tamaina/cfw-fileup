@@ -22,6 +22,7 @@ const props = defineProps<{
 	filePath: string;
 	fileId: string;
 	bucketId: string | null;
+	isOwner?: boolean;
 	token?: string;
 }>();
 
@@ -275,7 +276,7 @@ onBeforeUnmount(() => {
       <Button.Root v-if="authStore.user" class="btn btn-ghost-danger" @click="deleteDialog = true">
         <Button.Content>削除</Button.Content>
       </Button.Root>
-      <Button.Root class="btn btn-ghost" @click="openReportDialog">
+      <Button.Root v-if="!isOwner" class="btn btn-ghost" @click="openReportDialog">
         <Button.Content>
           <Flag :size="16" :stroke-width="2" aria-hidden="true" />
           通報

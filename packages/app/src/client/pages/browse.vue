@@ -157,6 +157,7 @@ const metaLoading = ref(false);
 const metaError = ref('');
 const fileVisibility = ref<FileVisibility>('public');
 const fileIsListed = ref(true);
+const fileIsOwner = ref(false);
 
 const activeTab = ref<'info' | 'tokens'>('info');
 const autoToken = ref<string | null>(null);
@@ -299,6 +300,7 @@ async function fetchMeta(): Promise<void> {
 	innerMeta.value = null;
 	fileId.value = null;
 	fileBucketId.value = null;
+	fileIsOwner.value = false;
 	try {
 		const metaUrl = new URL('/api/files/meta', location.origin);
 		metaUrl.searchParams.set('bucketName', props.bucketName);
@@ -319,6 +321,7 @@ async function fetchMeta(): Promise<void> {
 			hasMimeTypeMismatch?: boolean;
 			hasExecutableContent?: boolean;
 			isListed?: boolean;
+			isOwner?: boolean;
 			fileId?: string;
 			bucketId?: string;
 		};
@@ -331,6 +334,7 @@ async function fetchMeta(): Promise<void> {
 		hasExecutableContent.value = data.hasExecutableContent ?? false;
 		fileVisibility.value = data.visibility ?? 'public';
 		fileIsListed.value = data.isListed ?? true;
+		fileIsOwner.value = data.isOwner ?? false;
 		fileId.value = data.fileId ?? null;
 		fileBucketId.value = data.bucketId ?? null;
 
@@ -599,7 +603,7 @@ watch(() => [entryPath.value, queryToken.value], () => {
         <!-- 詳細タブ: ファイル表示 -->
         <template v-if="activeTab === 'info'">
           <BrowseDirectory v-if="isTargz || isTar" :bucketName="bucketName" :filePath="baseFilePath" :isTargz="isTargz" :isTar="isTar" :entryPath="entryPath ?? ''" :token="autoToken ?? undefined" :fileId="fileId ?? undefined" />
-          <BrowseFile v-else :bucketName="bucketName" :filePath="baseFilePath" :token="autoToken ?? undefined" :fileId="fileId ?? ''" :bucketId="fileBucketId" />
+          <BrowseFile v-else :bucketName="bucketName" :filePath="baseFilePath" :token="autoToken ?? undefined" :fileId="fileId ?? ''" :bucketId="fileBucketId" :isOwner="fileIsOwner" />
         </template>
 
         <!-- 共有タブ: 公開設定 + 共有URL管理 -->
@@ -650,7 +654,7 @@ watch(() => [entryPath.value, queryToken.value], () => {
       <!-- ログインなし or ディレクトリ or (非公開 + トークンあり): タブなし -->
       <template v-else>
         <BrowseDirectory v-if="isDirectory || isTargz || isTar" :bucketName="bucketName" :filePath="baseFilePath" :isTargz="isTargz" :isTar="isTar" :entryPath="entryPath ?? ''" :token="autoToken ?? undefined" :fileId="fileId ?? undefined" />
-        <BrowseFile v-else-if="!isDirectory" :bucketName="bucketName" :filePath="baseFilePath" :token="autoToken ?? undefined" :fileId="fileId ?? ''" :bucketId="fileBucketId" />
+        <BrowseFile v-else-if="!isDirectory" :bucketName="bucketName" :filePath="baseFilePath" :token="autoToken ?? undefined" :fileId="fileId ?? ''" :bucketId="fileBucketId" :isOwner="fileIsOwner" />
       </template>
     </template>
   </div>

@@ -146,6 +146,7 @@ app.get('/meta', async (c) => {
 	if (!bucket) throw apiError(404, 'BUCKET_NOT_FOUND');
 
 	let isOwnerOrAdmin = false;
+	let isOwner = false;
 	const authorization = c.req.header('Authorization');
 	if (authorization?.startsWith('Bearer ')) {
 		const token = authorization.slice(7);
@@ -156,7 +157,8 @@ app.get('/meta', async (c) => {
 			.where(eq(tokens.token, token))
 			.get();
 		if (tokenRecord && !tokenRecord.isRevoked && !tokenRecord.isSuspended) {
-			isOwnerOrAdmin = tokenRecord.isAdmin || tokenRecord.userId === bucket.userId;
+			isOwner = tokenRecord.userId === bucket.userId;
+			isOwnerOrAdmin = tokenRecord.isAdmin || isOwner;
 		}
 	}
 
@@ -177,6 +179,7 @@ app.get('/meta', async (c) => {
 		extensionMimeType: inferMimeTypeByExtension(file.path),
 		hasMimeTypeMismatch: hasMimeMismatch,
 		hasExecutableContent: hasMimeMismatch && isExecutableMimeType(file.mimeType ?? undefined),
+		isOwner,
 	};
 	if (file.visibility === 'public' || isOwnerOrAdmin) {
 		return c.json({ ...base, fileId: file.id, bucketId: bucket.id, ...(isOwnerOrAdmin ? { isListed: file.isListed } : {}) });
