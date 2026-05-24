@@ -95,6 +95,7 @@ const canSubmitReport = computed(() =>
 );
 const reporterNameMissing = computed(() => reporterName.value.trim() === '');
 const reporterEmailMissing = computed(() => reporterEmail.value.trim() === '');
+const requiredReportFieldRule = (value: unknown): true | string => typeof value === 'string' && value.trim() !== '' || '入力してください。';
 
 async function openReportDialog(): Promise<void> {
 	reportDialog.value = true;
@@ -319,8 +320,8 @@ onBeforeUnmount(() => {
             v-model="reporterName"
             class="form-group"
             required
-            :error="reporterNameMissing"
-            :error-messages="reporterNameMissing ? ['入力してください。'] : []"
+            validate-on="input"
+            :rules="[requiredReportFieldRule]"
           >
             <label class="form-label" for="reporterName">
               あなたのお名前
@@ -342,8 +343,8 @@ onBeforeUnmount(() => {
             class="form-group"
             type="email"
             required
-            :error="reporterEmailMissing"
-            :error-messages="reporterEmailMissing ? ['入力してください。'] : []"
+            validate-on="input"
+            :rules="[requiredReportFieldRule]"
           >
             <label class="form-label" for="reporterEmail">
               メールアドレス
