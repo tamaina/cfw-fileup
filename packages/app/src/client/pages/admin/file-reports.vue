@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
+import { Flag } from '@lucide/vue';
 import { authStore } from '@/store/auth';
 import { apiPost, type ApiSuccess } from '@/utils/api';
 import NirA from '@/components/NirA.vue';
@@ -41,6 +42,13 @@ function reportTitle(report: FileReport): string {
 function fileLabel(report: FileReport): string {
 	return report.bucketName && report.filePath ? `${report.bucketName}/${report.filePath}` : report.fileId;
 }
+
+function statusBadgeClass(status: FileReportStatusId): string {
+	if (status === 'open') return 'badge badge-warning';
+	if (status === 'in_progress') return 'badge badge-info';
+	if (status === 'resolved') return 'badge badge-success';
+	return 'badge badge-muted';
+}
 </script>
 
 <template>
@@ -75,35 +83,50 @@ function fileLabel(report: FileReport): string {
       </div>
 
       <div v-else :class="['card', $style.tableCard]">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>要約</th>
-              <th>状態</th>
-              <th>理由</th>
-              <th>ファイル</th>
-              <th>通報者</th>
-              <th>作成</th>
-              <th class="col-actions">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="report in reports" :key="report.id">
-              <td>{{ reportTitle(report) }}</td>
-              <td>{{ fileReportStatusLabels[report.status] }}</td>
-              <td>{{ report.reasonId ? fileReportReasonLabels[report.reasonId] : 'その他' }}</td>
-              <td>{{ fileLabel(report) }}</td>
-              <td>{{ report.reporterName }}</td>
-              <td>{{ formatDate(report.createdAt) }}</td>
-              <td class="col-actions">
-                <NirA :to="`/admin/file-reports/${report.id}`" class="btn btn-secondary">詳細</NirA>
-              </td>
-            </tr>
-            <tr v-if="reports.length === 0">
-              <td colspan="7" class="col-muted">ファイル通報はありません。</td>
-            </tr>
-          </tbody>
-        </table>
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>名前</th>
+                <th>状態</th>
+                <th>種類</th>
+                <th>ファイル</th>
+                <th>通報者</th>
+                <th>作成</th>
+                <th class="col-actions"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="report in reports" :key="report.id">
+                <td :class="$style.nameCell">
+                  <NirA :to="`/admin/file-reports/${report.id}`" :class="$style.entryLink">
+                    <Flag :class="$style.reportIcon" :size="16" :stroke-width="2" aria-hidden="true" />
+                    {{ reportTitle(report) }}
+                  </NirA>
+                </td>
+                <td :class="$style.labelCell">
+                  <span :class="statusBadgeClass(report.status)">{{ fileReportStatusLabels[report.status] }}</span>
+                </td>
+                <td :class="$style.labelCell">
+                  <span class="badge badge-muted">{{ report.reasonId ? fileReportReasonLabels[report.reasonId] : 'その他' }}</span>
+                </td>
+                <td class="col-muted">{{ fileLabel(report) }}</td>
+                <td>{{ report.reporterName }}</td>
+                <td class="col-muted">{{ formatDate(report.createdAt) }}</td>
+                <td class="col-actions">
+                  <NirA :to="`/admin/file-reports/${report.id}`" class="btn btn-secondary">詳細</NirA>
+                </td>
+              </tr>
+              <tr v-if="reports.length === 0">
+                <td colspan="7">
+                  <div class="empty-state">
+                    <p>ファイル通報はありません。</p>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </template>
   </div>
@@ -113,5 +136,30 @@ function fileLabel(report: FileReport): string {
 .tableCard {
   padding: 0;
   overflow: hidden;
+}
+
+.nameCell {
+  width: 36%;
+  min-width: 14em;
+  max-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entryLink {
+  display: inline-flex;
+  align-items: center;
+  font-weight: 500;
+}
+
+.reportIcon {
+  margin-right: 4px;
+  color: var(--color-text-muted);
+  vertical-align: -3px;
+}
+
+.labelCell {
+  white-space: nowrap;
 }
 </style>
