@@ -88,6 +88,11 @@ export const ROUTE_DEF = [
 		component: page(() => import('@/pages/admin/ip-bans.vue')),
 	},
 	{
+		path: '/admin/file-reports',
+		name: 'admin-file-reports',
+		component: page(() => import('@/pages/admin/file-reports.vue')),
+	},
+	{
 		path: '/admin/global-quota',
 		name: 'admin-global-quota',
 		component: page(() => import('@/pages/admin/global-quota.vue')),

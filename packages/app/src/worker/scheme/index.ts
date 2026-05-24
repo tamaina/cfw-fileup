@@ -8,3 +8,4 @@ export * from './rate-limits';
 export * from './passkeys';
 export * from './used-names';
 export * from './moderation';
+export * from './file-reports';

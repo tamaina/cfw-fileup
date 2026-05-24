@@ -5,6 +5,7 @@ import { accountApiDef } from './account.js';
 import { bucketsApiDef } from './buckets.js';
 import { filesApiDef } from './files.js';
 import { fileTokensApiDef } from './file-tokens.js';
+import { fileReportsApiDef } from './file-reports.js';
 import { adminApiDef } from './admin.js';
 import { directoriesApiDef } from './directories.js';
 import { passkeyApiDef } from './passkey.js';
@@ -16,6 +17,7 @@ export * from './account.js';
 export * from './buckets.js';
 export * from './files.js';
 export * from './file-tokens.js';
+export * from './file-reports.js';
 export * from './admin.js';
 export * from './directories.js';
 export * from './passkey.js';
@@ -26,6 +28,7 @@ export const apiDef = {
 	...bucketsApiDef,
 	...filesApiDef,
 	...fileTokensApiDef,
+	...fileReportsApiDef,
 	...adminApiDef,
 	...directoriesApiDef,
 	...passkeyApiDef,

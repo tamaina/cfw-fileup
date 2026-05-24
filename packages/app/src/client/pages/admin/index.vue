@@ -46,6 +46,7 @@ async function purgeWorkerCache(): Promise<void> {
           <li><NirA to="/admin/global-quota">グローバルクォータ設定</NirA></li>
           <li><NirA to="/admin/plans">課金プラン管理</NirA></li>
           <li><NirA to="/admin/users">ユーザー管理</NirA></li>
+          <li><NirA to="/admin/file-reports">ファイル通報</NirA></li>
           <li><NirA to="/admin/ip-bans">IP BAN管理</NirA></li>
         </ul>
       </div>

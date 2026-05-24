@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { ref, computed, onBeforeUnmount } from 'vue';
-import { Button } from '@vuetify/v0';
-import { TextCursorInput } from '@lucide/vue';
+import { AlertDialog, Button } from '@vuetify/v0';
+import { Flag, TextCursorInput } from '@lucide/vue';
 import { authHeaders, authStore } from '@/store/auth';
 import { apiPost } from '@/utils/api';
 import { mainRouter } from '@/router';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import MoveEntryDialog from '@/components/MoveEntryDialog.vue';
+import TurnstileWidget from '@/components/TurnstileWidget.vue';
+import { fileReportReasonIds, fileReportReasonLabels, fileReportRelationshipIds, fileReportRelationshipLabels, type FileReportReasonId, type FileReportRelationshipId } from '../../shared/file-reports';
 import type { DownloadTransformWorkerMessage, DownloadTransformWorkerRequest, DownloadTransformProgress } from '@/workers/download-transform.worker';
 import { getOpfsTempFile, removeOpfsTempFile } from '@/workers/opfs-temp';
 import { completeDownloadStatus, failDownloadStatus, startDownloadStatus, updateDownloadStatus } from '@/store/download-status';
@@ -54,6 +56,20 @@ const isTextLike = computed(() => {
 const deleteError = ref('');
 const deleteDialog = ref(false);
 const moveDialog = ref(false);
+const reportDialog = ref(false);
+const reportLoading = ref(false);
+const reportError = ref('');
+const reportSuccess = ref('');
+const reporterName = ref('');
+const reporterEmail = ref('');
+const reportReasonId = ref<FileReportReasonId | ''>('');
+const reportRelationshipId = ref<FileReportRelationshipId | ''>('');
+const reportContact = ref('');
+const reportSummary = ref('');
+const reportDetail = ref('');
+const turnstileEnabled = ref(false);
+const turnstileSiteKey = ref('');
+const reportTurnstileToken = ref<string | null>(null);
 const downloadError = ref('');
 const downloadProgress = ref<DownloadTransformProgress | null>(null);
 let downloadTransformWorker: Worker | null = null;
@@ -70,6 +86,64 @@ const parentPath = computed(() => {
 		? `/v/${props.bucketName}/`
 		: `/v/${props.bucketName}/${parts.join('/')}/`;
 });
+
+const canSubmitReport = computed(() =>
+	!reportLoading.value &&
+	reporterName.value.trim() !== '' &&
+	reportSummary.value.trim() !== '' &&
+	reportDetail.value.trim() !== '' &&
+	(!turnstileEnabled.value || reportTurnstileToken.value !== null),
+);
+
+async function openReportDialog(): Promise<void> {
+	reportDialog.value = true;
+	reportError.value = '';
+	reportSuccess.value = '';
+	reportTurnstileToken.value = null;
+	if (turnstileSiteKey.value !== '' || turnstileEnabled.value) return;
+	try {
+		const res = await fetch('/api/meta');
+		const data = await res.json() as { turnstileEnabled?: boolean; turnstileSiteKey?: string };
+		turnstileEnabled.value = data.turnstileEnabled ?? false;
+		turnstileSiteKey.value = data.turnstileSiteKey ?? '';
+	} catch {
+		turnstileEnabled.value = false;
+		turnstileSiteKey.value = '';
+	}
+}
+
+async function submitReport(): Promise<void> {
+	reportLoading.value = true;
+	reportError.value = '';
+	reportSuccess.value = '';
+	try {
+		const result = await apiPost('/api/file-reports/create', {
+			fileId: props.fileId,
+			reporterName: reporterName.value,
+			reporterEmail: reporterEmail.value.trim() || null,
+			reasonId: reportReasonId.value || null,
+			relationshipId: reportRelationshipId.value || null,
+			contact: reportContact.value.trim() || null,
+			summary: reportSummary.value,
+			detail: reportDetail.value,
+			turnstileToken: turnstileEnabled.value && reportTurnstileToken.value ? reportTurnstileToken.value : undefined,
+		});
+		if (!result.ok) throw new Error(result.data.message || '通報を送信できませんでした');
+		reportSuccess.value = '通報を送信しました。';
+		reporterName.value = '';
+		reporterEmail.value = '';
+		reportReasonId.value = '';
+		reportRelationshipId.value = '';
+		reportContact.value = '';
+		reportSummary.value = '';
+		reportDetail.value = '';
+		reportTurnstileToken.value = null;
+	} catch (e) {
+		reportError.value = e instanceof Error ? e.message : String(e);
+	} finally {
+		reportLoading.value = false;
+	}
+}
 
 async function executeDelete(): Promise<void> {
 	deleteDialog.value = false;
@@ -196,6 +270,12 @@ onBeforeUnmount(() => {
       <Button.Root v-if="authStore.user" class="btn btn-ghost-danger" @click="deleteDialog = true">
         <Button.Content>削除</Button.Content>
       </Button.Root>
+      <Button.Root class="btn btn-ghost" @click="openReportDialog">
+        <Button.Content>
+          <Flag :size="16" :stroke-width="2" aria-hidden="true" />
+          通報
+        </Button.Content>
+      </Button.Root>
     </div>
 
     <div v-if="isImage" :class="$style.imagePreview">
@@ -227,6 +307,67 @@ onBeforeUnmount(() => {
       :source-path="filePath"
       @moved="handleMoved"
     />
+
+    <AlertDialog.Root v-model="reportDialog">
+      <AlertDialog.Content :class="$style.reportDialog">
+        <form :class="$style.reportInner" @submit.prevent="submitReport">
+          <AlertDialog.Title :class="$style.reportTitle">ファイルを通報</AlertDialog.Title>
+          <div v-if="reportError" class="alert alert-error">{{ reportError }}</div>
+          <div v-if="reportSuccess" class="alert alert-success">{{ reportSuccess }}</div>
+          <div class="form-group">
+            <label class="form-label" for="reporterName">名前</label>
+            <input id="reporterName" v-model="reporterName" class="form-input" maxlength="100" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="reporterEmail">メールアドレス</label>
+            <input id="reporterEmail" v-model="reporterEmail" class="form-input" type="email" maxlength="320">
+          </div>
+          <div :class="$style.reportGrid">
+            <div class="form-group">
+              <label class="form-label" for="reportReason">通報理由</label>
+              <select id="reportReason" v-model="reportReasonId" class="form-input">
+                <option value="">その他</option>
+                <option v-for="reasonId in fileReportReasonIds" :key="reasonId" :value="reasonId">
+                  {{ fileReportReasonLabels[reasonId] }}
+                </option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="reportRelationship">通報者の関係</label>
+              <select id="reportRelationship" v-model="reportRelationshipId" class="form-input">
+                <option value="">未選択</option>
+                <option v-for="relationshipId in fileReportRelationshipIds" :key="relationshipId" :value="relationshipId">
+                  {{ fileReportRelationshipLabels[relationshipId] }}
+                </option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="reportContact">通報者の連絡先</label>
+            <input id="reportContact" v-model="reportContact" class="form-input" maxlength="500">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="reportSummary">通報の要約</label>
+            <input id="reportSummary" v-model="reportSummary" class="form-input" maxlength="200" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="reportDetail">通報の詳細</label>
+            <textarea id="reportDetail" v-model="reportDetail" class="form-input" :class="$style.reportTextarea" maxlength="4000" required />
+          </div>
+          <TurnstileWidget
+            v-if="turnstileEnabled && turnstileSiteKey"
+            :site-key="turnstileSiteKey"
+            @update:token="reportTurnstileToken = $event"
+          />
+          <div :class="$style.reportActions">
+            <AlertDialog.Cancel class="btn btn-secondary" type="button">閉じる</AlertDialog.Cancel>
+            <button class="btn btn-primary" type="submit" :disabled="!canSubmitReport">
+              {{ reportLoading ? '送信中...' : turnstileEnabled && !reportTurnstileToken ? '確認中...' : '送信' }}
+            </button>
+          </div>
+        </form>
+      </AlertDialog.Content>
+    </AlertDialog.Root>
   </div>
 </template>
 
@@ -245,5 +386,57 @@ onBeforeUnmount(() => {
 
 .rawPreview {
   margin-top: 16px;
+}
+
+.reportDialog {
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: none;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  padding: 0;
+  width: min(640px, calc(100vw - 32px));
+  max-height: 90vh;
+  overflow: auto;
+
+  &::backdrop {
+    background: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(2px);
+  }
+}
+
+.reportInner {
+  display: grid;
+  gap: 14px;
+  padding: 24px;
+}
+
+.reportTitle {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.reportGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.reportTextarea {
+  min-height: 140px;
+  resize: vertical;
+}
+
+.reportActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  .reportGrid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

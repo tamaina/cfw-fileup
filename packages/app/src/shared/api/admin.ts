@@ -1,6 +1,7 @@
 import * as v from 'valibot';
 import { errorResponse, IdString } from '../api.schemas.js';
 import { KnownSettingListSchema, KnownSettingRecordSchema } from '../app-settings.js';
+import { fileReportReasonSchema, fileReportRelationshipSchema, fileReportStatusSchema } from '../file-reports.js';
 import type { ApiEndpointDefinitionRecord } from '../api.types.js';
 
 const QuotaResponse = v.pipe(
@@ -62,6 +63,32 @@ const IpBanResponse = v.pipe(
 		createdAt: v.number(),
 	}),
 	v.metadata({ ref: 'IpBan' }),
+);
+const FileReportResponse = v.pipe(
+	v.object({
+		id: IdString,
+		fileId: IdString,
+		bucketName: v.nullable(v.string()),
+		filePath: v.nullable(v.string()),
+		fileSize: v.nullable(v.number()),
+		fileMimeType: v.nullable(v.string()),
+		fileOwnerId: v.nullable(v.string()),
+		fileOwnerUsername: v.nullable(v.string()),
+		reporterName: v.string(),
+		reporterEmail: v.nullable(v.string()),
+		reasonId: fileReportReasonSchema,
+		relationshipId: fileReportRelationshipSchema,
+		contact: v.nullable(v.string()),
+		summary: v.string(),
+		detail: v.string(),
+		status: fileReportStatusSchema,
+		adminNote: v.string(),
+		reporterIpAddress: v.nullable(v.string()),
+		reporterUserAgent: v.nullable(v.string()),
+		createdAt: v.number(),
+		updatedAt: v.number(),
+	}),
+	v.metadata({ ref: 'FileReport' }),
 );
 
 const OkResponse = { 200: { description: 'Success', content: { 'application/json': { vSchema: v.object({ ok: v.literal(true) }) } } } };
@@ -193,6 +220,22 @@ export const adminApiDef = {
 		tags: ['admin'],
 		req: v.object({ banId: IdString }),
 		res: { ...OkResponse, ...AdminErrors },
+	},
+	'/api/admin/list-file-reports': {
+		summary: 'List file reports',
+		tags: ['admin'],
+		req: v.object({ status: v.optional(v.nullable(fileReportStatusSchema)) }),
+		res: { 200: { description: 'Success', content: { 'application/json': { vSchema: v.array(FileReportResponse) } } }, ...AdminErrors },
+	},
+	'/api/admin/update-file-report': {
+		summary: 'Update file report moderation status',
+		tags: ['admin'],
+		req: v.object({
+			reportId: IdString,
+			status: fileReportStatusSchema,
+			adminNote: v.pipe(v.string(), v.maxLength(4000)),
+		}),
+		res: { ...OkResponse, ...AdminErrors, 404: errorResponse('File report not found', ['FILE_REPORT_NOT_FOUND']) },
 	},
 	'/api/admin/list-plans': {
 		summary: 'List plans',
