@@ -27,6 +27,7 @@ export const fileReportsApiDef = {
 		res: {
 			...OkResponse,
 			400: errorResponse('Bad request (missing required fields or Turnstile failure)', ['TURNSTILE_TOKEN_IS_REQUIRED', 'TURNSTILE_VERIFICATION_FAILED']),
+			403: errorResponse('Forbidden', ['FORBIDDEN']),
 			404: errorResponse('File not found', ['FILE_NOT_FOUND']),
 		},
 	},

@@ -42,8 +42,9 @@ app.post(
 		const db = getDb(c.env);
 		const body = c.req.valid('json');
 		const reporterUser = await getOptionalReporterUser(c);
-		const file = await db.select({ id: files.id }).from(files).where(eq(files.id, body.fileId)).get();
+		const file = await db.select({ id: files.id, userId: files.userId }).from(files).where(eq(files.id, body.fileId)).get();
 		if (!file) throw apiError(404, 'FILE_NOT_FOUND');
+		if (reporterUser?.id === file.userId) throw apiError(403, 'FORBIDDEN');
 
 		const turnstileSecret = c.env.TURNSTILE_SECRET as string;
 		if (turnstileSecret !== '') {
