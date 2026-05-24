@@ -312,10 +312,16 @@ onBeforeUnmount(() => {
 
     <AlertDialog.Root v-model="reportDialog">
       <AlertDialog.Content :class="$style.reportDialog">
-        <form :class="$style.reportInner" @submit.prevent="submitReport">
+        <div v-if="reportSuccess" :class="$style.reportInner">
+          <AlertDialog.Title :class="$style.reportTitle">ファイルを通報</AlertDialog.Title>
+          <div class="alert alert-success">{{ reportSuccess }}</div>
+          <div :class="$style.reportActions">
+            <AlertDialog.Cancel class="btn btn-primary" type="button">閉じる</AlertDialog.Cancel>
+          </div>
+        </div>
+        <form v-else :class="$style.reportInner" @submit.prevent="submitReport">
           <AlertDialog.Title :class="$style.reportTitle">ファイルを通報</AlertDialog.Title>
           <div v-if="reportError" class="alert alert-error">{{ reportError }}</div>
-          <div v-if="reportSuccess" class="alert alert-success">{{ reportSuccess }}</div>
           <Input.Root
             v-model="reporterName"
             class="form-group"
@@ -333,7 +339,7 @@ onBeforeUnmount(() => {
               :class="reporterNameMissing && $style.missingInput"
               maxlength="100"
             />
-            <Input.Description class="form-hint">管理者から確認のため連絡する場合があります。メールアドレスの検証ができない場合は受け付けられません。</Input.Description>
+            <Input.Description class="form-hint">管理者から確認のため連絡する場合があります。</Input.Description>
             <Input.Error v-slot="{ errors }">
               <div v-for="error in errors" :key="error" class="form-hint form-hint--error">{{ error }}</div>
             </Input.Error>
@@ -356,7 +362,7 @@ onBeforeUnmount(() => {
               :class="reporterEmailMissing && $style.missingInput"
               maxlength="320"
             />
-            <Input.Description class="form-hint">管理者から確認のため連絡する場合があります。</Input.Description>
+            <Input.Description class="form-hint">管理者から確認のため連絡する場合があります。メールアドレスの検証ができない場合は受け付けられません。</Input.Description>
             <Input.Error v-slot="{ errors }">
               <div v-for="error in errors" :key="error" class="form-hint form-hint--error">{{ error }}</div>
             </Input.Error>
