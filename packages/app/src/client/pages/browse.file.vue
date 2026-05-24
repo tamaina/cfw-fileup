@@ -332,7 +332,7 @@ onBeforeUnmount(() => {
               :class="reporterNameMissing && $style.missingInput"
               maxlength="100"
             />
-            <Input.Description class="form-hint">管理者から確認のため連絡する場合があります。</Input.Description>
+            <Input.Description class="form-hint">管理者から確認のため連絡する場合があります。メールアドレスの検証ができない場合は受け付けられません。</Input.Description>
             <Input.Error v-slot="{ errors }">
               <div v-for="error in errors" :key="error" class="form-hint form-hint--error">{{ error }}</div>
             </Input.Error>
