@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onBeforeUnmount } from 'vue';
-import { AlertDialog, Button } from '@vuetify/v0';
+import { AlertDialog, Button, Input } from '@vuetify/v0';
 import { Flag, TextCursorInput } from '@lucide/vue';
 import { authHeaders, authStore } from '@/store/auth';
 import { apiPost } from '@/utils/api';
@@ -315,43 +315,51 @@ onBeforeUnmount(() => {
           <AlertDialog.Title :class="$style.reportTitle">ファイルを通報</AlertDialog.Title>
           <div v-if="reportError" class="alert alert-error">{{ reportError }}</div>
           <div v-if="reportSuccess" class="alert alert-success">{{ reportSuccess }}</div>
-          <div class="form-group">
+          <Input.Root
+            v-model="reporterName"
+            class="form-group"
+            required
+            :error="reporterNameMissing"
+            :error-messages="reporterNameMissing ? ['入力してください。'] : []"
+          >
             <label class="form-label" for="reporterName">
               あなたのお名前
               <span :class="$style.requiredBadge">必須</span>
             </label>
-            <input
+            <Input.Control
               id="reporterName"
-              v-model="reporterName"
               class="form-input"
               :class="reporterNameMissing && $style.missingInput"
               maxlength="100"
-              required
-              aria-describedby="reporterNameHint"
-            >
-            <div id="reporterNameHint" :class="[$style.fieldHint, reporterNameMissing && $style.fieldHintError]">
-              {{ reporterNameMissing ? '入力してください。' : ' ' }}
-            </div>
-          </div>
-          <div class="form-group">
+            />
+            <Input.Description class="form-hint">管理者から確認のため連絡する場合があります。</Input.Description>
+            <Input.Error v-slot="{ errors }">
+              <div v-for="error in errors" :key="error" class="form-hint form-hint--error">{{ error }}</div>
+            </Input.Error>
+          </Input.Root>
+          <Input.Root
+            v-model="reporterEmail"
+            class="form-group"
+            type="email"
+            required
+            :error="reporterEmailMissing"
+            :error-messages="reporterEmailMissing ? ['入力してください。'] : []"
+          >
             <label class="form-label" for="reporterEmail">
               メールアドレス
               <span :class="$style.requiredBadge">必須</span>
             </label>
-            <input
+            <Input.Control
               id="reporterEmail"
-              v-model="reporterEmail"
               class="form-input"
               :class="reporterEmailMissing && $style.missingInput"
-              type="email"
               maxlength="320"
-              required
-              aria-describedby="reporterEmailHint"
-            >
-            <div id="reporterEmailHint" :class="[$style.fieldHint, reporterEmailMissing && $style.fieldHintError]">
-              {{ reporterEmailMissing ? '入力してください。' : ' ' }}
-            </div>
-          </div>
+            />
+            <Input.Description class="form-hint">管理者から確認のため連絡する場合があります。</Input.Description>
+            <Input.Error v-slot="{ errors }">
+              <div v-for="error in errors" :key="error" class="form-hint form-hint--error">{{ error }}</div>
+            </Input.Error>
+          </Input.Root>
           <div :class="$style.reportGrid">
             <div class="form-group">
               <label class="form-label" for="reportReason">通報理由</label>
