@@ -74,6 +74,7 @@ const FileReportResponse = v.pipe(
 		fileMimeType: v.nullable(v.string()),
 		fileOwnerId: v.nullable(v.string()),
 		fileOwnerUsername: v.nullable(v.string()),
+		reporterUserId: v.nullable(v.string()),
 		reporterName: v.string(),
 		reporterEmail: v.nullable(v.string()),
 		reasonId: fileReportReasonSchema,

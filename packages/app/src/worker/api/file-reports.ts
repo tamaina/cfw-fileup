@@ -3,7 +3,7 @@ import { describeResponse, describeRoute, validator } from 'hono-openapi';
 import { eq } from 'drizzle-orm';
 import { genEaidx } from '../../shared/eaid-x';
 import { apiDef, type JsonCtx } from '../../shared/api';
-import { fileReports, files } from '../scheme/index';
+import { fileReports, files, tokens, users } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { apiError } from '../utils/api-error';
 import { omitResAndReq } from '../utils/omit';
@@ -12,6 +12,28 @@ import { getRequestIp } from '../utils/request-ip';
 
 const app = new Hono<{ Bindings: Env }>();
 
+async function getOptionalReporterUser(c: JsonCtx<'/api/file-reports/create', Env>): Promise<{ id: string; username: string } | null> {
+	const authorization = c.req.header('Authorization');
+	if (!authorization?.startsWith('Bearer ')) return null;
+
+	const token = authorization.slice(7);
+	const db = getDb(c.env);
+	const tokenRecord = await db
+		.select({
+			userId: tokens.userId,
+			username: users.username,
+			isRevoked: tokens.isRevoked,
+			isSuspended: users.isSuspended,
+		})
+		.from(tokens)
+		.innerJoin(users, eq(tokens.userId, users.id))
+		.where(eq(tokens.token, token))
+		.get();
+
+	if (!tokenRecord || tokenRecord.isRevoked || tokenRecord.isSuspended) return null;
+	return { id: tokenRecord.userId, username: tokenRecord.username };
+}
+
 app.post(
 	'/create',
 	describeRoute(omitResAndReq(apiDef['/api/file-reports/create'])),
@@ -19,6 +41,7 @@ app.post(
 	describeResponse(async (c: JsonCtx<'/api/file-reports/create', Env>) => {
 		const db = getDb(c.env);
 		const body = c.req.valid('json');
+		const reporterUser = await getOptionalReporterUser(c);
 		const file = await db.select({ id: files.id }).from(files).where(eq(files.id, body.fileId)).get();
 		if (!file) throw apiError(404, 'FILE_NOT_FOUND');
 
@@ -35,6 +58,7 @@ app.post(
 		await db.insert(fileReports).values({
 			id,
 			fileId: body.fileId,
+			reporterUserId: reporterUser?.id ?? null,
 			reporterName: body.reporterName,
 			reporterEmail: body.reporterEmail ?? null,
 			reasonId: body.reasonId,

@@ -102,6 +102,9 @@ async function openReportDialog(): Promise<void> {
 	reportError.value = '';
 	reportSuccess.value = '';
 	reportTurnstileToken.value = null;
+	if (authStore.user && reporterName.value.trim() === '') {
+		reporterName.value = authStore.user.username;
+	}
 	if (turnstileSiteKey.value !== '' || turnstileEnabled.value) return;
 	try {
 		const res = await fetch('/api/meta');
@@ -132,7 +135,7 @@ async function submitReport(): Promise<void> {
 		});
 		if (!result.ok) throw new Error(result.data.message || '通報を送信できませんでした');
 		reportSuccess.value = '通報を送信しました。';
-		reporterName.value = '';
+		reporterName.value = authStore.user?.username ?? '';
 		reporterEmail.value = '';
 		reportReasonId.value = '';
 		reportRelationshipId.value = '';

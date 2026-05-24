@@ -107,7 +107,7 @@ function fileUrl(fileReport: FileReport): string | null {
           <dt>所有者</dt>
           <dd>{{ report.fileOwnerUsername ?? report.fileOwnerId ?? '-' }}</dd>
           <dt>通報者</dt>
-          <dd>{{ report.reporterName }} / {{ report.reporterEmail ?? '-' }}</dd>
+          <dd>{{ report.reporterName }} / {{ report.reporterEmail ?? '-' }}<span v-if="report.reporterUserId" :class="$style.inlineMeta"> ({{ report.reporterUserId }})</span></dd>
           <dt>理由</dt>
           <dd>{{ report.reasonId ? fileReportReasonLabels[report.reasonId] : 'その他' }}</dd>
           <dt>関係</dt>

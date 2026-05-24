@@ -1,9 +1,11 @@
 import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import { files } from './files';
+import { users } from './users';
 
 export const fileReports = sqliteTable('file_reports', {
 	id: text('id').primaryKey(),
 	fileId: text('file_id').notNull().references(() => files.id, { onDelete: 'cascade' }),
+	reporterUserId: text('reporter_user_id').references(() => users.id, { onDelete: 'set null' }),
 	reporterName: text('reporter_name').notNull(),
 	reporterEmail: text('reporter_email'),
 	reasonId: text('reason_id', { enum: ['copyright', 'malware', 'phishing', 'leaked_data', 'illegal_goods', 'privacy', 'impersonation', 'defamation', 'obscenity', 'animal_abuse', 'human_abuse'] }),

@@ -71,6 +71,13 @@
       "when": 1779581593062,
       "tag": "0009_secret_bishop",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1779609036556,
+      "tag": "0010_mean_maestro",
+      "breakpoints": true
     }
   ]
 }
