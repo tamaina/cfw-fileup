@@ -5,18 +5,11 @@ import { startAuthentication } from '@simplewebauthn/browser';
 import type { PublicKeyCredentialRequestOptionsJSON } from '@simplewebauthn/browser';
 import { apiPost, type ApiSuccess } from '@/utils/api';
 import { authStore, fetchCurrentUser, setToken } from '@/store/auth';
+import { useWallet } from '@/composables/useWallet';
 import type { ApiReq } from '../../../shared/api';
 
 type LinkedMisskeyAccount = ApiSuccess<'/api/account/linked-misskey/list'>['data'][number];
 type LinkedWallet = ApiSuccess<'/api/account/wallets/list'>['data'][number];
-
-declare global {
-	interface Window {
-		ethereum?: {
-			request(args: { method: string; params?: unknown[] }): Promise<unknown>;
-		};
-	}
-}
 
 const indieauthProfileUrl = ref('');
 const currentPassword = ref('');
@@ -29,8 +22,7 @@ const success = ref('');
 const googleAuthEnabled = ref(false);
 const misskeyAccounts = ref<LinkedMisskeyAccount[]>([]);
 const wallets = ref<LinkedWallet[]>([]);
-const walletAddress = ref('');
-const walletChainId = ref<number | null>(null);
+const { walletAddress, walletChainId, connectWallet, signWalletMessage } = useWallet();
 
 const hasGoogle = computed(() => authStore.user?.hasGoogle ?? false);
 const hasPassword = computed(() => authStore.user?.hasPassword ?? true);
@@ -168,21 +160,6 @@ async function linkIndieAuth({ valid }: { valid: boolean }): Promise<void> {
 	}
 }
 
-async function connectWallet(): Promise<{ address: string; chainId: number }> {
-	if (!window.ethereum) throw new Error('Ethereum wallet が見つかりません');
-	const [accounts, chainIdHex] = await Promise.all([
-		window.ethereum.request({ method: 'eth_requestAccounts' }),
-		window.ethereum.request({ method: 'eth_chainId' }),
-	]);
-	const address = Array.isArray(accounts) && typeof accounts[0] === 'string' ? accounts[0] : null;
-	if (!address) throw new Error('ウォレット接続に失敗しました');
-	if (typeof chainIdHex !== 'string') throw new Error('chainId の取得に失敗しました');
-	const chainId = Number.parseInt(chainIdHex, 16);
-	walletAddress.value = address;
-	walletChainId.value = chainId;
-	return { address, chainId };
-}
-
 async function linkWallet(): Promise<void> {
 	error.value = '';
 	success.value = '';
@@ -194,11 +171,7 @@ async function linkWallet(): Promise<void> {
 			error.value = beginResult.data.message || 'ウォレット連携の開始に失敗しました';
 			return;
 		}
-		const signature = await window.ethereum?.request({
-			method: 'personal_sign',
-			params: [beginResult.data.message, address],
-		});
-		if (typeof signature !== 'string') throw new Error('署名に失敗しました');
+		const signature = await signWalletMessage(beginResult.data.message);
 		const verifyResult = await apiPost('/api/account/wallets/link/verify', {
 			nonce: beginResult.data.nonce,
 			message: beginResult.data.message,
