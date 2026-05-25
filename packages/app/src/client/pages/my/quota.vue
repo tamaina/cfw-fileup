@@ -28,6 +28,14 @@ const erc20Abi = [{
 	],
 	outputs: [{ name: '', type: 'bool' }],
 }] as const;
+const RECEIPT_POLL_INTERVAL_MS = 3_000;
+const RECEIPT_TIMEOUT_MS = 30 * 60 * 1000;
+
+type TransactionReceipt = {
+	blockNumber: string | null;
+	status?: string;
+	transactionHash?: string;
+};
 
 const quota = ref<EffectiveQuota | null>(null);
 const offers = ref<Offer[]>([]);
@@ -105,6 +113,7 @@ async function buyOffer(offer: Offer): Promise<void> {
 		const orderResult = await apiPost('/api/billing/create-crypto-order', { priceId: offer.id, payerWalletId: wallet.id });
 		if (!orderResult.ok) throw new Error(orderResult.data.message);
 		const txHash = await sendTokenTransfer(from, orderResult.data.contractAddress, orderResult.data.recipientAddress, orderResult.data.amountBaseUnits);
+		await waitForTransactionConfirmations(txHash, Math.max(1, offer.confirmationsRequired));
 		const confirmResult = await apiPost('/api/billing/confirm-crypto-order', { orderId: orderResult.data.id, txHash });
 		if (!confirmResult.ok) throw new Error(confirmResult.data.message);
 		success.value = '決済を確認し、プランを反映しました';
@@ -134,6 +143,50 @@ async function sendTokenTransfer(from: string, contractAddress: string, recipien
 	});
 	if (typeof txHash !== 'string' || !/^0x[a-fA-F0-9]{64}$/.test(txHash)) throw new Error('txHash の取得に失敗しました');
 	return txHash as `0x${string}`;
+}
+
+async function waitForTransactionConfirmations(txHash: `0x${string}`, confirmationsRequired: number): Promise<void> {
+	if (!window.ethereum) throw new Error('Ethereum wallet が見つかりません');
+	const startedAt = Date.now();
+
+	while (Date.now() - startedAt < RECEIPT_TIMEOUT_MS) {
+		const receipt = await getTransactionReceipt(txHash);
+		if (receipt?.blockNumber) {
+			if (receipt.status === '0x0') throw new Error('送金トランザクションが失敗しました');
+			const latestBlock = await getBlockNumber();
+			const receiptBlock = parseHexQuantity(receipt.blockNumber);
+			const confirmations = latestBlock >= receiptBlock ? latestBlock - receiptBlock + 1n : 0n;
+			if (confirmations >= BigInt(confirmationsRequired)) return;
+		}
+		await sleep(RECEIPT_POLL_INTERVAL_MS);
+	}
+
+	throw new Error('送金トランザクションの確認がタイムアウトしました');
+}
+
+async function getTransactionReceipt(txHash: `0x${string}`): Promise<TransactionReceipt | null> {
+	const receipt = await window.ethereum?.request({
+		method: 'eth_getTransactionReceipt',
+		params: [txHash],
+	});
+	if (receipt === null) return null;
+	if (typeof receipt !== 'object') throw new Error('送金トランザクションの確認に失敗しました');
+	return receipt as TransactionReceipt;
+}
+
+async function getBlockNumber(): Promise<bigint> {
+	const blockNumber = await window.ethereum?.request({ method: 'eth_blockNumber' });
+	if (typeof blockNumber !== 'string') throw new Error('ブロック番号の取得に失敗しました');
+	return parseHexQuantity(blockNumber);
+}
+
+function parseHexQuantity(value: string): bigint {
+	if (!/^0x[0-9a-fA-F]+$/.test(value)) throw new Error('ブロック番号の形式が不正です');
+	return BigInt(value);
+}
+
+function sleep(ms: number): Promise<void> {
+	return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 function formatAmount(amountBaseUnits: string, decimals: number, symbol: string): string {

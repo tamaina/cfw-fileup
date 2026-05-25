@@ -10,6 +10,7 @@ import { refreshEffectiveQuotaForUser } from './rate-limit';
 const TRANSFER_EVENT = parseAbiItem('event Transfer(address indexed from, address indexed to, uint256 value)');
 const ORDER_TTL_MS = 30 * 60 * 1000;
 const DAY_MS = 86_400_000;
+const TX_TIMESTAMP_TOLERANCE_MS = 2_000;
 
 type OrderForConfirmation = typeof cryptoPaymentOrders.$inferSelect;
 
@@ -87,6 +88,16 @@ async function verifyCryptoPaymentTransaction(env: Env, order: OrderForConfirmat
 			const blockNumber = await client.getBlockNumber();
 			const confirmations = blockNumber >= receipt.blockNumber ? blockNumber - receipt.blockNumber + 1n : 0n;
 			if (confirmations < BigInt(confirmationsRequired)) throw apiError(400, 'PAYMENT_TRANSACTION_INVALID');
+		}
+
+		const block = await client.getBlock({ blockNumber: receipt.blockNumber });
+		const txTimestampMs = Number(block.timestamp) * 1000;
+		if (!Number.isSafeInteger(txTimestampMs)) throw apiError(400, 'PAYMENT_TRANSACTION_INVALID');
+		if (
+			txTimestampMs + TX_TIMESTAMP_TOLERANCE_MS < order.createdAt
+			|| txTimestampMs - TX_TIMESTAMP_TOLERANCE_MS > order.expiresAt
+		) {
+			throw apiError(400, 'PAYMENT_TRANSACTION_INVALID');
 		}
 
 		const expectedContract = normalizeEthAddress(order.contractAddress);

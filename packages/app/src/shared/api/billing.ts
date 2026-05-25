@@ -68,6 +68,7 @@ const PaymentAssetPlanPriceResponse = v.pipe(
 		assetName: v.string(),
 		chainId: v.number(),
 		chainName: v.string(),
+		confirmationsRequired: v.number(),
 		contractAddress: EthereumAddress,
 		recipientAddress: EthereumAddress,
 		decimals: v.number(),
