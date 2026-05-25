@@ -9,3 +9,4 @@ GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 # Optional. If empty, the app uses <request-origin>/api/auth/google/callback.
 GOOGLE_REDIRECT_URI=
+EVM_CHAIN_RPC_URLS={"1":"https://example.invalid/rpc"}

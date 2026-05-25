@@ -1,7 +1,9 @@
 import { Hono } from 'hono';
 import { describeResponse, describeRoute, validator } from 'hono-openapi';
 import { and, count, desc, eq, inArray, lt, sql } from 'drizzle-orm';
-import { misskeyAccounts, users, usedUsernames, tokens, moderationEvents } from '../scheme/index';
+import { createPublicClient, http, getAddress, type Hex } from 'viem';
+import { createSiweMessage, generateSiweNonce, verifySiweMessage } from 'viem/siwe';
+import { misskeyAccounts, users, usedUsernames, tokens, moderationEvents, userWallets, walletLinkChallenges } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { authMiddleware } from '../middleware/auth';
 import { hashPassword, verifyPassword } from '../utils/crypto';
@@ -9,8 +11,9 @@ import { validateUsername } from '../utils/name-validation';
 import { apiDef, getResponseDefWithAuth } from '../../shared/api';
 import { omitResAndReq } from '../utils/omit';
 import { apiError } from '../utils/api-error';
-import { parseEaidx } from '../../shared/eaid-x';
+import { genEaidx, parseEaidx } from '../../shared/eaid-x';
 import { idPage, pageParams } from '../utils/pagination';
+import { getPaymentChainRpcUrl, normalizeEthAddress } from '../utils/payment-rpc';
 import { getEffectiveQuotaForUser } from '../utils/rate-limit';
 import { createGoogleAuthUrl } from './google-auth';
 import { createIndieAuthUrl } from './indieauth';
@@ -18,6 +21,7 @@ import type { JsonCtx } from '../../shared/api';
 
 const app = new Hono<{ Bindings: Env }>();
 const RECENT_AUTH_MS = 10 * 60 * 1000;
+const WALLET_LINK_CHALLENGE_TTL_MS = 10 * 60 * 1000;
 
 app.use(authMiddleware);
 
@@ -105,6 +109,141 @@ app.post(
 			.where(eq(misskeyAccounts.userId, user.id));
 		return c.json(accounts, 200);
 	}, getResponseDefWithAuth('/api/account/linked-misskey/list')),
+);
+
+app.post(
+	'/wallets/list',
+	describeRoute(omitResAndReq(apiDef['/api/account/wallets/list'])),
+	validator('json', apiDef['/api/account/wallets/list'].req),
+	describeResponse(async (c: JsonCtx<'/api/account/wallets/list', Env>) => {
+		const user = c.get('user');
+		const wallets = await getDb(c.env)
+			.select({
+				id: userWallets.id,
+				chainId: userWallets.chainId,
+				address: userWallets.address,
+				label: userWallets.label,
+				createdAt: userWallets.createdAt,
+				updatedAt: userWallets.updatedAt,
+			})
+			.from(userWallets)
+			.where(eq(userWallets.userId, user.id))
+			.orderBy(desc(userWallets.id));
+		return c.json(wallets, 200);
+	}, getResponseDefWithAuth('/api/account/wallets/list')),
+);
+
+app.post(
+	'/wallets/link/begin',
+	describeRoute(omitResAndReq(apiDef['/api/account/wallets/link/begin'])),
+	validator('json', apiDef['/api/account/wallets/link/begin'].req),
+	describeResponse(async (c: JsonCtx<'/api/account/wallets/link/begin', Env>) => {
+		const db = getDb(c.env);
+		const user = c.get('user');
+		const body = c.req.valid('json');
+		const rpcUrl = getPaymentChainRpcUrl(c.env, body.chainId);
+		if (!rpcUrl) throw apiError(400, 'PAYMENT_CHAIN_RPC_NOT_CONFIGURED');
+
+		const address = normalizeEthAddress(body.address);
+		const existing = await db
+			.select({ id: userWallets.id })
+			.from(userWallets)
+			.where(and(eq(userWallets.chainId, body.chainId), eq(userWallets.address, address)))
+			.get();
+		if (existing) throw apiError(400, 'WALLET_ALREADY_LINKED');
+
+		const now = Date.now();
+		const requestUrl = new URL(c.req.url);
+		const domain = requestUrl.host;
+		const uri = requestUrl.origin;
+		const nonce = generateSiweNonce();
+		const message = createSiweMessage({
+			address: getAddress(address),
+			chainId: body.chainId,
+			domain,
+			nonce,
+			statement: 'Link this wallet to your cfw-fileup account.',
+			uri,
+			version: '1',
+			issuedAt: new Date(now),
+			expirationTime: new Date(now + WALLET_LINK_CHALLENGE_TTL_MS),
+		});
+
+		await db.insert(walletLinkChallenges).values({
+			nonce,
+			userId: user.id,
+			chainId: body.chainId,
+			address,
+			domain,
+			uri,
+			message,
+			createdAt: now,
+			expiresAt: now + WALLET_LINK_CHALLENGE_TTL_MS,
+			usedAt: null,
+		});
+
+		return c.json({ nonce, message }, 200);
+	}, getResponseDefWithAuth('/api/account/wallets/link/begin')),
+);
+
+app.post(
+	'/wallets/link/verify',
+	describeRoute(omitResAndReq(apiDef['/api/account/wallets/link/verify'])),
+	validator('json', apiDef['/api/account/wallets/link/verify'].req),
+	describeResponse(async (c: JsonCtx<'/api/account/wallets/link/verify', Env>) => {
+		const db = getDb(c.env);
+		const user = c.get('user');
+		const body = c.req.valid('json');
+		const now = Date.now();
+		const challenge = await db
+			.select()
+			.from(walletLinkChallenges)
+			.where(and(eq(walletLinkChallenges.nonce, body.nonce), eq(walletLinkChallenges.userId, user.id)))
+			.get();
+		if (!challenge || challenge.usedAt !== null || challenge.expiresAt <= now || challenge.message !== body.message) {
+			throw apiError(400, 'WALLET_CHALLENGE_NOT_FOUND');
+		}
+
+		const rpcUrl = getPaymentChainRpcUrl(c.env, challenge.chainId);
+		if (!rpcUrl) throw apiError(400, 'PAYMENT_CHAIN_RPC_NOT_CONFIGURED');
+		const client = createPublicClient({ transport: http(rpcUrl) });
+		const verified = await verifySiweMessage(client, {
+			address: getAddress(challenge.address),
+			domain: challenge.domain,
+			message: challenge.message,
+			nonce: challenge.nonce,
+			signature: body.signature as Hex,
+			time: new Date(now),
+		});
+		if (!verified) throw apiError(400, 'WALLET_SIGNATURE_INVALID');
+
+		const existing = await db
+			.select({ id: userWallets.id })
+			.from(userWallets)
+			.where(and(eq(userWallets.chainId, challenge.chainId), eq(userWallets.address, challenge.address)))
+			.get();
+		if (existing) throw apiError(400, 'WALLET_ALREADY_LINKED');
+
+		const wallet = {
+			id: genEaidx(now),
+			userId: user.id,
+			chainId: challenge.chainId,
+			address: challenge.address,
+			label: null,
+			createdAt: now,
+			updatedAt: now,
+		};
+		await db.insert(userWallets).values(wallet);
+		await db.update(walletLinkChallenges).set({ usedAt: now }).where(eq(walletLinkChallenges.nonce, challenge.nonce));
+		return c.json({
+			id: wallet.id,
+			chainId: wallet.chainId,
+			address: wallet.address,
+			label: wallet.label,
+			createdAt: wallet.createdAt,
+			updatedAt: wallet.updatedAt,
+		}, 200);
+	}, getResponseDefWithAuth('/api/account/wallets/link/verify')),
 );
 
 app.post(

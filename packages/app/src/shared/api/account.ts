@@ -28,6 +28,19 @@ const EffectiveQuotaResponse = v.pipe(
 	}),
 	v.metadata({ ref: 'AccountEffectiveQuota' }),
 );
+const EthereumAddress = v.pipe(v.string(), v.regex(/^0x[a-fA-F0-9]{40}$/));
+const HexSignature = v.pipe(v.string(), v.regex(/^0x[a-fA-F0-9]+$/));
+const WalletResponse = v.pipe(
+	v.object({
+		id: v.string(),
+		chainId: v.number(),
+		address: EthereumAddress,
+		label: v.nullable(v.string()),
+		createdAt: v.number(),
+		updatedAt: v.number(),
+	}),
+	v.metadata({ ref: 'UserWallet' }),
+);
 
 export const accountApiDef = {
 	'/api/account/me': {
@@ -88,6 +101,42 @@ export const accountApiDef = {
 				name: v.nullable(v.string()),
 				createdAt: v.number(),
 			})) } } },
+		},
+	},
+	'/api/account/wallets/list': {
+		summary: 'List linked wallets',
+		tags: ['account'],
+		req: v.object({}),
+		res: {
+			200: { description: 'Success', content: { 'application/json': { vSchema: v.array(WalletResponse) } } },
+		},
+	},
+	'/api/account/wallets/link/begin': {
+		summary: 'Begin linking a wallet with SIWE',
+		tags: ['account'],
+		req: v.object({
+			address: EthereumAddress,
+			chainId: v.pipe(v.number(), v.integer(), v.minValue(1)),
+		}),
+		res: {
+			200: { description: 'Success', content: { 'application/json': { vSchema: v.object({
+				nonce: v.string(),
+				message: v.string(),
+			}) } } },
+			400: errorResponse('Invalid wallet link request', ['PAYMENT_CHAIN_RPC_NOT_CONFIGURED', 'PAYMENT_TRANSACTION_INVALID', 'WALLET_ALREADY_LINKED']),
+		},
+	},
+	'/api/account/wallets/link/verify': {
+		summary: 'Verify SIWE signature and link wallet',
+		tags: ['account'],
+		req: v.object({
+			nonce: v.string(),
+			message: v.string(),
+			signature: HexSignature,
+		}),
+		res: {
+			200: { description: 'Success', content: { 'application/json': { vSchema: WalletResponse } } },
+			400: errorResponse('Invalid wallet signature', ['PAYMENT_CHAIN_RPC_NOT_CONFIGURED', 'WALLET_ALREADY_LINKED', 'WALLET_CHALLENGE_NOT_FOUND', 'WALLET_SIGNATURE_INVALID']),
 		},
 	},
 	'/api/account/agree-terms': {

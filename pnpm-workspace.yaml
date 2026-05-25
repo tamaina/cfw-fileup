@@ -5,6 +5,7 @@ allowBuilds:
   '@parcel/watcher': true
   esbuild: true
   sharp: true
+  vue-demi: true
   workerd: true
 
 # 5/21になったら消す

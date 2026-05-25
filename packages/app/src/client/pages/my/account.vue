@@ -8,16 +8,29 @@ import { authStore, fetchCurrentUser, setToken } from '@/store/auth';
 import type { ApiReq } from '../../../shared/api';
 
 type LinkedMisskeyAccount = ApiSuccess<'/api/account/linked-misskey/list'>['data'][number];
+type LinkedWallet = ApiSuccess<'/api/account/wallets/list'>['data'][number];
+
+declare global {
+	interface Window {
+		ethereum?: {
+			request(args: { method: string; params?: unknown[] }): Promise<unknown>;
+		};
+	}
+}
 
 const indieauthProfileUrl = ref('');
 const currentPassword = ref('');
 const googleLoading = ref(false);
 const indieauthLoading = ref(false);
 const passkeyLoading = ref(false);
+const walletLoading = ref(false);
 const error = ref('');
 const success = ref('');
 const googleAuthEnabled = ref(false);
 const misskeyAccounts = ref<LinkedMisskeyAccount[]>([]);
+const wallets = ref<LinkedWallet[]>([]);
+const walletAddress = ref('');
+const walletChainId = ref<number | null>(null);
 
 const hasGoogle = computed(() => authStore.user?.hasGoogle ?? false);
 const hasPassword = computed(() => authStore.user?.hasPassword ?? true);
@@ -43,6 +56,12 @@ async function loadMisskeyAccounts(): Promise<void> {
 	if (!authStore.user) return;
 	const result = await apiPost('/api/account/linked-misskey/list');
 	if (result.ok) misskeyAccounts.value = result.data;
+}
+
+async function loadWallets(): Promise<void> {
+	if (!authStore.user) return;
+	const result = await apiPost('/api/account/wallets/list');
+	if (result.ok) wallets.value = result.data;
 }
 
 function consumeCallbackParams(): void {
@@ -149,10 +168,59 @@ async function linkIndieAuth({ valid }: { valid: boolean }): Promise<void> {
 	}
 }
 
+async function connectWallet(): Promise<{ address: string; chainId: number }> {
+	if (!window.ethereum) throw new Error('Ethereum wallet が見つかりません');
+	const [accounts, chainIdHex] = await Promise.all([
+		window.ethereum.request({ method: 'eth_requestAccounts' }),
+		window.ethereum.request({ method: 'eth_chainId' }),
+	]);
+	const address = Array.isArray(accounts) && typeof accounts[0] === 'string' ? accounts[0] : null;
+	if (!address) throw new Error('ウォレット接続に失敗しました');
+	if (typeof chainIdHex !== 'string') throw new Error('chainId の取得に失敗しました');
+	const chainId = Number.parseInt(chainIdHex, 16);
+	walletAddress.value = address;
+	walletChainId.value = chainId;
+	return { address, chainId };
+}
+
+async function linkWallet(): Promise<void> {
+	error.value = '';
+	success.value = '';
+	walletLoading.value = true;
+	try {
+		const { address, chainId } = await connectWallet();
+		const beginResult = await apiPost('/api/account/wallets/link/begin', { address, chainId });
+		if (!beginResult.ok) {
+			error.value = beginResult.data.message || 'ウォレット連携の開始に失敗しました';
+			return;
+		}
+		const signature = await window.ethereum?.request({
+			method: 'personal_sign',
+			params: [beginResult.data.message, address],
+		});
+		if (typeof signature !== 'string') throw new Error('署名に失敗しました');
+		const verifyResult = await apiPost('/api/account/wallets/link/verify', {
+			nonce: beginResult.data.nonce,
+			message: beginResult.data.message,
+			signature,
+		});
+		if (!verifyResult.ok) {
+			error.value = verifyResult.data.message || 'ウォレット署名の検証に失敗しました';
+			return;
+		}
+		success.value = 'ウォレットを連携しました';
+		await loadWallets();
+	} catch (e) {
+		error.value = String(e);
+	} finally {
+		walletLoading.value = false;
+	}
+}
+
 onMounted(async () => {
 	consumeCallbackParams();
 	await Promise.all([fetchCurrentUser(), loadMeta()]);
-	await loadMisskeyAccounts();
+	await Promise.all([loadMisskeyAccounts(), loadWallets()]);
 });
 </script>
 
@@ -227,6 +295,30 @@ onMounted(async () => {
           </div>
         </div>
       </div>
+
+      <div :class="['card', $style.card]">
+        <div :class="$style.serviceHeader">
+          <div>
+            <h3 :class="$style.serviceTitle">Wallet</h3>
+            <p :class="$style.serviceDescription">暗号資産決済で使用するウォレットをSIWE署名で連携します。</p>
+          </div>
+          <span :class="['badge', wallets.length > 0 ? 'badge-success' : 'badge-info']">
+            {{ wallets.length > 0 ? `${wallets.length}件連携済み` : '未連携' }}
+          </span>
+        </div>
+        <button class="btn btn-primary" type="button" :disabled="walletLoading" @click="linkWallet">
+          {{ walletLoading ? '処理中...' : 'ウォレットを連携' }}
+        </button>
+        <div v-if="walletAddress" :class="$style.walletHint">
+          {{ walletAddress }} / chain {{ walletChainId ?? '-' }}
+        </div>
+        <div v-if="wallets.length > 0" :class="$style.linkedList">
+          <div v-for="wallet in wallets" :key="wallet.id" :class="$style.linkedItem">
+            <div :class="$style.linkedName">{{ wallet.address }}</div>
+            <div :class="$style.linkedLink">chain {{ wallet.chainId }}</div>
+          </div>
+        </div>
+      </div>
     </template>
   </div>
 </template>
@@ -296,5 +388,12 @@ onMounted(async () => {
 .linkedLink:hover {
   color: var(--color-primary);
   text-decoration: underline;
+}
+
+.walletHint {
+  margin-top: 8px;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
 }
 </style>

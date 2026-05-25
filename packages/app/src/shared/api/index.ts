@@ -9,6 +9,7 @@ import { fileReportsApiDef } from './file-reports.js';
 import { adminApiDef } from './admin.js';
 import { directoriesApiDef } from './directories.js';
 import { passkeyApiDef } from './passkey.js';
+import { billingApiDef } from './billing.js';
 import type { Context } from 'hono';
 import type { ApiEndpointResponseType } from '../api.types.js';
 
@@ -21,6 +22,7 @@ export * from './file-reports.js';
 export * from './admin.js';
 export * from './directories.js';
 export * from './passkey.js';
+export * from './billing.js';
 
 export const apiDef = {
 	...authApiDef,
@@ -32,6 +34,7 @@ export const apiDef = {
 	...adminApiDef,
 	...directoriesApiDef,
 	...passkeyApiDef,
+	...billingApiDef,
 };
 
 export type ApiDef = typeof apiDef;

@@ -4,6 +4,7 @@ import migration0000 from '../../migrations/0000_smooth_maximus.sql?raw';
 import migration0001 from '../../migrations/0001_clean_vulture.sql?raw';
 import migration0002 from '../../migrations/0002_third_gateway.sql?raw';
 import migration0003 from '../../migrations/0003_cute_wrecker.sql?raw';
+import migration0004 from '../../migrations/0004_white_master_chief.sql?raw';
 
 export { env, app };
 
@@ -23,6 +24,7 @@ const migrations = [
 	migration0001,
 	migration0002,
 	migration0003,
+	migration0004,
 ] as const;
 
 const tables = [
@@ -31,6 +33,13 @@ const tables = [
 	'tar_files',
 	'file_access_tokens',
 	'file_reports',
+	'crypto_payment_orders',
+	'wallet_link_challenges',
+	'user_wallets',
+	'payment_asset_plan_prices',
+	'payment_asset_deployments',
+	'payment_assets',
+	'payment_chains',
 	'ip_bans',
 	'moderation_audit_logs',
 	'moderation_events',
@@ -88,6 +97,13 @@ export async function clearDb(): Promise<void> {
 		env.DB.prepare('DELETE FROM tar_files'),
 		env.DB.prepare('DELETE FROM file_access_tokens'),
 		env.DB.prepare('DELETE FROM file_reports'),
+		env.DB.prepare('DELETE FROM crypto_payment_orders'),
+		env.DB.prepare('DELETE FROM wallet_link_challenges'),
+		env.DB.prepare('DELETE FROM user_wallets'),
+		env.DB.prepare('DELETE FROM payment_asset_plan_prices'),
+		env.DB.prepare('DELETE FROM payment_asset_deployments'),
+		env.DB.prepare('DELETE FROM payment_assets'),
+		env.DB.prepare('DELETE FROM payment_chains'),
 		env.DB.prepare('DELETE FROM ip_bans'),
 		env.DB.prepare('DELETE FROM moderation_audit_logs'),
 		env.DB.prepare('DELETE FROM moderation_events'),

@@ -46,6 +46,13 @@ describe('Admin access control', () => {
 			{ path: '/api/admin/assign-user-plan', body: { userId: 'x', planId: 'x', expiresAt: Date.now() + 1_000 } },
 			{ path: '/api/admin/get-user-plan', body: { userId: 'x' } },
 			{ path: '/api/admin/delete-user-plan', body: { userId: 'x' } },
+			{ path: '/api/admin/list-payment-chains', body: {} },
+			{ path: '/api/admin/create-payment-chain', body: { chainId: 1, name: 'Ethereum', nativeCurrencyName: 'Ether', nativeCurrencySymbol: 'ETH', nativeCurrencyDecimals: 18 } },
+			{ path: '/api/admin/list-payment-assets', body: {} },
+			{ path: '/api/admin/create-payment-asset', body: { symbol: 'USDC', name: 'USD Coin' } },
+			{ path: '/api/admin/list-payment-asset-deployments', body: {} },
+			{ path: '/api/admin/list-payment-asset-plan-prices', body: {} },
+			{ path: '/api/admin/list-crypto-payment-orders', body: {} },
 		];
 
 		for (const { path, body } of endpoints) {
@@ -827,5 +834,171 @@ describe('Quota management', () => {
 			body: JSON.stringify({ bucketName: 'bucket_2' }),
 		}, env);
 		expect(second.status).toBe(429);
+	});
+});
+
+describe('Crypto payment administration', () => {
+	const contractAddress = '0x1111111111111111111111111111111111111111';
+	const recipientAddress = '0x2222222222222222222222222222222222222222';
+
+	async function createCryptoOffer(adminToken: string) {
+		const planRes = await app.request('/api/admin/create-plan', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ name: 'Crypto Pro', maxBuckets: 5 }),
+		}, env);
+		expect(planRes.status).toBe(200);
+		const plan = await planRes.json() as { id: string };
+
+		const chainRes = await app.request('/api/admin/create-payment-chain', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({
+				chainId: 8453,
+				name: 'Base',
+				nativeCurrencyName: 'Ether',
+				nativeCurrencySymbol: 'ETH',
+				nativeCurrencyDecimals: 18,
+				blockExplorerUrl: 'https://basescan.org',
+				confirmationsRequired: 1,
+			}),
+		}, env);
+		expect(chainRes.status).toBe(200);
+
+		const assetRes = await app.request('/api/admin/create-payment-asset', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ symbol: 'USDC', name: 'USD Coin' }),
+		}, env);
+		expect(assetRes.status).toBe(200);
+		const asset = await assetRes.json() as { id: string };
+
+		const deploymentRes = await app.request('/api/admin/create-payment-asset-deployment', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({
+				assetId: asset.id,
+				chainId: 8453,
+				contractAddress,
+				decimals: 6,
+				recipientAddress,
+			}),
+		}, env);
+		expect(deploymentRes.status).toBe(200);
+		const deployment = await deploymentRes.json() as { id: string };
+
+		const priceRes = await app.request('/api/admin/create-payment-asset-plan-price', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({
+				deploymentId: deployment.id,
+				planId: plan.id,
+				amountBaseUnits: '30000000',
+				durationDays: 90,
+			}),
+		}, env);
+		expect(priceRes.status).toBe(200);
+		const price = await priceRes.json() as { id: string };
+		return { plan, asset, deployment, price };
+	}
+
+	async function createLinkedWallet(userId: string, chainId = 8453, address = '0x3333333333333333333333333333333333333333') {
+		const now = Date.now();
+		const id = `wallet-${now}-${Math.random()}`;
+		await env.DB.prepare(
+			'INSERT INTO user_wallets (id, user_id, chain_id, address, label, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, ?, ?)',
+		).bind(id, userId, chainId, address, now, now).run();
+		return { id, chainId, address };
+	}
+
+	test('admin can create chain, asset, deployment, and plan price', async () => {
+		const { adminToken } = await setupAdminAndUser();
+		const { price } = await createCryptoOffer(adminToken);
+
+		const listRes = await app.request('/api/admin/list-payment-asset-plan-prices', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({}),
+		}, env);
+		expect(listRes.status).toBe(200);
+		const prices = await listRes.json() as Array<{ id: string; assetSymbol: string; chainId: number; amountBaseUnits: string }>;
+		expect(prices).toContainEqual(expect.objectContaining({
+			id: price.id,
+			assetSymbol: 'USDC',
+			chainId: 8453,
+			amountBaseUnits: '30000000',
+		}));
+	});
+
+	test('same chain and contract address cannot be registered twice', async () => {
+		const { adminToken } = await setupAdminAndUser();
+		const { asset } = await createCryptoOffer(adminToken);
+
+		const duplicateRes = await app.request('/api/admin/create-payment-asset-deployment', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({
+				assetId: asset.id,
+				chainId: 8453,
+				contractAddress,
+				decimals: 6,
+				recipientAddress,
+			}),
+		}, env);
+		expect(duplicateRes.status).toBe(400);
+		const body = await duplicateRes.json() as { error: string };
+		expect(body.error).toBe('PAYMENT_ASSET_DEPLOYMENT_ALREADY_EXISTS');
+	});
+
+	test('user can list offers and create an order with a price snapshot', async () => {
+		const { adminToken, userToken, userId } = await setupAdminAndUser();
+		const { price } = await createCryptoOffer(adminToken);
+		const wallet = await createLinkedWallet(userId);
+
+		const offersRes = await app.request('/api/billing/list-crypto-offers', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({}),
+		}, env);
+		expect(offersRes.status).toBe(200);
+		const offers = await offersRes.json() as Array<{ id: string; assetSymbol: string; chainName: string }>;
+		expect(offers).toContainEqual(expect.objectContaining({ id: price.id, assetSymbol: 'USDC', chainName: 'Base' }));
+
+		const orderRes = await app.request('/api/billing/create-crypto-order', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({ priceId: price.id, payerWalletId: wallet.id }),
+		}, env);
+		expect(orderRes.status).toBe(200);
+		const order = await orderRes.json() as { amountBaseUnits: string; chainId: number; contractAddress: string; recipientAddress: string; payerAddress: string; status: string };
+		expect(order).toMatchObject({
+			amountBaseUnits: '30000000',
+			chainId: 8453,
+			contractAddress,
+			payerAddress: wallet.address,
+			recipientAddress,
+			status: 'pending',
+		});
+	});
+
+	test('confirming an order rejects missing RPC configuration', async () => {
+		const { adminToken, userToken, userId } = await setupAdminAndUser();
+		const { price } = await createCryptoOffer(adminToken);
+		const wallet = await createLinkedWallet(userId);
+		const orderRes = await app.request('/api/billing/create-crypto-order', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({ priceId: price.id, payerWalletId: wallet.id }),
+		}, env);
+		const order = await orderRes.json() as { id: string };
+
+		const confirmRes = await app.request('/api/billing/confirm-crypto-order', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({ orderId: order.id, txHash: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }),
+		}, env);
+		expect(confirmRes.status).toBe(400);
+		const body = await confirmRes.json() as { error: string };
+		expect(body.error).toBe('PAYMENT_CHAIN_RPC_NOT_CONFIGURED');
 	});
 });

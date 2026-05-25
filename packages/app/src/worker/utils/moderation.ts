@@ -12,7 +12,8 @@ export type ModerationAction =
 	| 'file_uploaded'
 	| 'file_renamed'
 	| 'file_deleted'
-	| 'file_token_created';
+	| 'file_token_created'
+	| 'crypto_payment_order_confirmed';
 
 export type ModerationAuditAction =
 	| 'admin_user_suspended'
@@ -34,6 +35,19 @@ export type ModerationAuditAction =
 	| 'admin_plan_deleted'
 	| 'admin_user_plan_assigned'
 	| 'admin_user_plan_deleted'
+	| 'admin_payment_chain_created'
+	| 'admin_payment_chain_updated'
+	| 'admin_payment_chain_deleted'
+	| 'admin_payment_asset_created'
+	| 'admin_payment_asset_updated'
+	| 'admin_payment_asset_deleted'
+	| 'admin_payment_deployment_created'
+	| 'admin_payment_deployment_updated'
+	| 'admin_payment_deployment_deleted'
+	| 'admin_payment_price_created'
+	| 'admin_payment_price_updated'
+	| 'admin_payment_price_deleted'
+	| 'admin_crypto_payment_order_confirmed'
 	| 'admin_file_previewed'
 	| 'admin_file_moderation_forced_private_updated';
 

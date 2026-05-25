@@ -128,6 +128,11 @@ export const ROUTE_DEF = [
 		component: page(() => import('@/pages/admin/plans.vue')),
 	},
 	{
+		path: '/admin/crypto-payments',
+		name: 'admin-crypto-payments',
+		component: page(() => import('@/pages/admin/crypto-payments.vue')),
+	},
+	{
 		path: '/admin/users/:userId',
 		name: 'admin-user-quota',
 		component: page(() => import('@/pages/admin/users/user-quota.vue')),

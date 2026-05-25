@@ -19,6 +19,7 @@ declare namespace Cloudflare {
 		GOOGLE_CLIENT_ID: string;
 		GOOGLE_CLIENT_SECRET: string;
 		GOOGLE_REDIRECT_URI: string;
+		EVM_CHAIN_RPC_URLS: string;
 	}
 }
 interface Env extends Cloudflare.Env {}

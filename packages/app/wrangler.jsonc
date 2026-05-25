@@ -20,7 +20,9 @@
     // Set GOOGLE_CLIENT_SECRET in .dev.vars for local dev, or as a Worker secret in production
     "GOOGLE_CLIENT_ID": "",
     // Optional: override the OAuth redirect URI (default: auto-detected from request URL)
-    "GOOGLE_REDIRECT_URI": ""
+    "GOOGLE_REDIRECT_URI": "",
+    // JSON object keyed by decimal EVM chain ID. Set production values as Worker vars/secrets.
+    "EVM_CHAIN_RPC_URLS": ""
   },
   "r2_buckets": [
     {

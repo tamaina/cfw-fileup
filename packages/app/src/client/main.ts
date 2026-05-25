@@ -3,6 +3,8 @@ import './styles/main.css';
 import App from './App.vue';
 
 import { createStoragePlugin, createThemePlugin, V0StyleSheetThemeAdapter } from '@vuetify/v0';
+import { WagmiPlugin } from '@wagmi/vue';
+import { wagmiConfig } from './wagmi';
 
 type ThemeName = 'light' | 'dark';
 
@@ -69,4 +71,5 @@ createApp(App)
 		adapter: new V0StyleSheetThemeAdapter({ prefix: 'color' }),
 		themes,
 	}))
+	.use(WagmiPlugin, { config: wagmiConfig })
 	.mount('#app');
