@@ -247,14 +247,19 @@ app.post(
 		const rpcUrl = getPaymentChainRpcUrl(c.env, challenge.chainId);
 		if (!rpcUrl) throw apiError(400, 'PAYMENT_CHAIN_RPC_NOT_CONFIGURED');
 		const client = createPublicClient({ transport: http(rpcUrl) });
-		const verified = await verifySiweMessage(client, {
-			address: getAddress(challenge.address),
-			domain: challenge.domain,
-			message: challenge.message,
-			nonce: challenge.nonce,
-			signature: body.signature as Hex,
-			time: new Date(now),
-		});
+		let verified: boolean;
+		try {
+			verified = await verifySiweMessage(client, {
+				address: getAddress(challenge.address),
+				domain: challenge.domain,
+				message: challenge.message,
+				nonce: challenge.nonce,
+				signature: body.signature as Hex,
+				time: new Date(now),
+			});
+		} catch {
+			throw apiError(400, 'WALLET_SIGNATURE_INVALID');
+		}
 		if (!verified) throw apiError(400, 'WALLET_SIGNATURE_INVALID');
 
 		const existing = await db

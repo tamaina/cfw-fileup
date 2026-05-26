@@ -1051,6 +1051,57 @@ describe('Crypto payment administration', () => {
 		expect(body.error).toBe('PAYMENT_ASSET_DEPLOYMENT_ALREADY_EXISTS');
 	});
 
+	test('invalid checksum payment addresses return a payment validation error', async () => {
+		const { adminToken } = await setupAdminAndUser();
+		const { asset } = await createCryptoOffer(adminToken);
+
+		const invalidChecksumRes = await app.request('/api/admin/create-payment-asset-deployment', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({
+				assetId: asset.id,
+				chainId: 8453,
+				tokenSymbol: 'USDC',
+				tokenName: 'USD Coin',
+				contractAddress: '0xAa00000000000000000000000000000000000000',
+				decimals: 6,
+				recipientAddress,
+			}),
+		}, env);
+		expect(invalidChecksumRes.status).toBe(400);
+		const body = await invalidChecksumRes.json() as { error: string };
+		expect(body.error).toBe('PAYMENT_TRANSACTION_INVALID');
+	});
+
+	test('malformed wallet signatures return wallet signature invalid', async () => {
+		const { userToken } = await setupAdminAndUser();
+		await enableCryptoPayments();
+
+		const beginRes = await app.request('/api/account/wallets/link/begin', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({
+				chainId: 8453,
+				address: '0x3333333333333333333333333333333333333333',
+			}),
+		}, env);
+		expect(beginRes.status).toBe(200);
+		const challenge = await beginRes.json() as { nonce: string; message: string };
+
+		const verifyRes = await app.request('/api/account/wallets/link/verify', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({
+				nonce: challenge.nonce,
+				message: challenge.message,
+				signature: '0xabc',
+			}),
+		}, env);
+		expect(verifyRes.status).toBe(400);
+		const body = await verifyRes.json() as { error: string };
+		expect(body.error).toBe('WALLET_SIGNATURE_INVALID');
+	});
+
 	test('expired plan prices are kept for admin history but hidden from user offers', async () => {
 		const { adminToken, userToken, userId } = await setupAdminAndUser();
 		const { plan, asset, deployment, price } = await createCryptoOffer(adminToken);

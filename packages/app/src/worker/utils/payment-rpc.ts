@@ -1,4 +1,5 @@
 import { isAddress } from 'viem';
+import { apiError } from './api-error';
 
 export function getPaymentChainRpcUrls(env: Env): Record<string, string> {
 	const raw = (env as unknown as Record<string, unknown>).EVM_CHAIN_RPC_URLS;
@@ -34,6 +35,6 @@ export function isPaymentChainRpcConfigured(env: Env, chainId: number): boolean 
 }
 
 export function normalizeEthAddress(address: string): `0x${string}` {
-	if (!isAddress(address)) throw new Error('Invalid Ethereum address');
+	if (!isAddress(address)) throw apiError(400, 'PAYMENT_TRANSACTION_INVALID');
 	return address.toLowerCase() as `0x${string}`;
 }
