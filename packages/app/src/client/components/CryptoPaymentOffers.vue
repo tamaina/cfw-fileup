@@ -85,6 +85,7 @@ const selectedPurchasePriceId = ref<string | null>(null);
 const selectedDialogDeploymentId = ref<string | null>(null);
 const error = ref('');
 const success = ref('');
+const purchaseProgress = ref('');
 const walletSetupMode = ref(false);
 const {
 	walletAddress,
@@ -93,7 +94,6 @@ const {
 	switchOrAddWalletChain,
 	watchWalletAsset,
 	sendWalletTransaction,
-	waitForWalletTransactionReceipt,
 } = useWallet();
 
 const hasLinkedWallets = computed(() => wallets.value.length > 0);
@@ -637,6 +637,7 @@ async function buyOffer(offer: Offer): Promise<void> {
 	buyingOfferId.value = offer.id;
 	error.value = '';
 	success.value = '';
+	purchaseProgress.value = '';
 	try {
 		if (offer.deploymentId == null || offer.chainId == null || offer.contractAddress == null || offer.recipientAddress == null || offer.confirmationsRequired == null) {
 			throw new Error('このプランで利用できるチェーンがありません');
@@ -654,18 +655,23 @@ async function buyOffer(offer: Offer): Promise<void> {
 		});
 		if (!orderResult.ok) throw new Error(orderResult.data.message);
 		const txHash = await sendTokenTransfer(from, orderResult.data.contractAddress, orderResult.data.recipientAddress, orderResult.data.amountBaseUnits, offer.chainId);
-		await waitForTransactionConfirmations(txHash, offer.chainId, Math.max(1, offer.confirmationsRequired));
+		purchaseProgress.value = '支払いを送信しました。ブロックチェーン上で確認中です。';
 		const confirmResult = await apiPost('/api/billing/confirm-crypto-order', { orderId: orderResult.data.id, txHash });
-			if (!confirmResult.ok) throw new Error(confirmResult.data.message);
-			success.value = '決済を確認し、プランを反映しました';
-			closePurchaseDialog();
-			await load();
+		if (!confirmResult.ok) throw new Error(confirmResult.data.message);
+		const confirmedOrder = confirmResult.data.status === 'paid'
+			? confirmResult.data
+			: await waitForSubmittedOrder(confirmResult.data.id);
+		if (confirmedOrder.status !== 'paid') throw new Error('支払いの確認がまだ完了していません。決済履歴から再確認できます。');
+		success.value = '決済を確認し、プランを反映しました';
+		closePurchaseDialog();
+		await load();
 		emit('purchased');
 	} catch (e) {
 		emit('purchased');
 		error.value = String(e);
 	} finally {
 		buyingOfferId.value = null;
+		purchaseProgress.value = '';
 	}
 }
 
@@ -686,13 +692,20 @@ async function sendTokenTransfer(from: string, contractAddress: string, recipien
 	return txHash as `0x${string}`;
 }
 
-async function waitForTransactionConfirmations(txHash: `0x${string}`, chainId: number, confirmationsRequired: number): Promise<void> {
-	await waitForWalletTransactionReceipt(txHash, {
-		chainId,
-		confirmations: confirmationsRequired,
-		pollingInterval: RECEIPT_POLL_INTERVAL_MS,
-		timeout: RECEIPT_TIMEOUT_MS,
-	});
+async function waitForSubmittedOrder(orderId: string): Promise<ApiSuccess<'/api/billing/check-crypto-order'>['data']> {
+	const startedAt = Date.now();
+	while (Date.now() - startedAt <= RECEIPT_TIMEOUT_MS) {
+		await sleep(RECEIPT_POLL_INTERVAL_MS);
+		const result = await apiPost('/api/billing/check-crypto-order', { orderId });
+		if (!result.ok) throw new Error(result.data.message);
+		if (result.data.status === 'paid' || result.data.status === 'expired' || result.data.status === 'failed') return result.data;
+		purchaseProgress.value = '支払い確認を待っています。この画面を閉じても、決済履歴から再確認できます。';
+	}
+	throw new Error('支払いの確認がまだ完了していません。決済履歴から再確認できます。');
+}
+
+function sleep(ms: number): Promise<void> {
+	return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 function formatAmount(amountBaseUnits: string, decimals: number | null, symbol: string): string {
@@ -735,6 +748,7 @@ onMounted(load);
   <div>
     <div v-if="error" class="alert alert-error mb-4">{{ error }}</div>
     <div v-if="success" class="alert alert-success mb-4">{{ success }}</div>
+    <div v-if="purchaseProgress" class="alert alert-info mb-4">{{ purchaseProgress }}</div>
     <div v-if="loading" class="page-loading">
       <span class="spinner" />読み込み中...
     </div>

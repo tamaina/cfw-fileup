@@ -247,6 +247,16 @@ export const billingApiDef = {
 			404: errorResponse('Payment order not found', ['PAYMENT_ORDER_NOT_FOUND']),
 		},
 	},
+	'/api/billing/check-crypto-order': {
+		summary: 'Check a submitted crypto payment order',
+		tags: ['billing'],
+		req: v.object({ orderId: IdString }),
+		res: {
+			200: { description: 'Success', content: { 'application/json': { vSchema: CryptoPaymentOrderResponse } } },
+			400: errorResponse('Invalid payment transaction', ['PAYMENT_CHAIN_RPC_NOT_CONFIGURED', 'PAYMENT_ORDER_EXPIRED', 'PAYMENT_TRANSACTION_INVALID']),
+			404: errorResponse('Payment order not found', ['PAYMENT_ORDER_NOT_FOUND']),
+		},
+	},
 	'/api/billing/cancel-crypto-order': {
 		summary: 'Cancel a pending crypto payment order before transaction submission',
 		tags: ['billing'],

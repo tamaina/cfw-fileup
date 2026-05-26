@@ -12,6 +12,7 @@ const activeTab = ref<ActiveTab>('plans');
 const payments = ref<Payment[]>([]);
 const loadingPayments = ref(true);
 const cancelingPaymentId = ref<string | null>(null);
+const checkingPaymentId = ref<string | null>(null);
 const offersReloadKey = ref(0);
 const error = ref('');
 
@@ -63,6 +64,24 @@ async function cancelPayment(payment: Payment): Promise<void> {
 	}
 }
 
+async function checkPayment(payment: Payment): Promise<void> {
+	checkingPaymentId.value = payment.id;
+	error.value = '';
+	try {
+		const result = await apiPost('/api/billing/check-crypto-order', { orderId: payment.id });
+		if (!result.ok) {
+			error.value = result.data.message || '支払いの再確認に失敗しました';
+			return;
+		}
+		await loadPayments();
+		if (result.data.status === 'paid') offersReloadKey.value += 1;
+	} catch (e) {
+		error.value = String(e);
+	} finally {
+		checkingPaymentId.value = null;
+	}
+}
+
 function formatDate(value: number | null): string {
 	return value == null ? '-' : new Date(value).toLocaleString();
 }
@@ -84,6 +103,10 @@ function canCancelPayment(payment: Payment): boolean {
 	return payment.status === 'pending' && payment.txHash == null;
 }
 
+function canCheckPayment(payment: Payment): boolean {
+	return payment.status === 'pending' && payment.txHash != null;
+}
+
 function paymentPlanName(payment: Payment): string {
 	return payment.planName ?? 'プラン';
 }
@@ -103,6 +126,18 @@ function paymentStatusLabel(status: Payment['status']): string {
 		case 'expired': return '期限切れ';
 		case 'failed': return '失敗';
 	}
+}
+
+function paymentStatusClass(payment: Payment): string {
+	if (payment.status === 'paid') return 'badge badge-success';
+	if (payment.status === 'expired' || payment.status === 'failed') return 'badge badge-danger';
+	if (payment.txHash != null) return 'badge badge-info';
+	return 'badge badge-muted';
+}
+
+function paymentStatusText(payment: Payment): string {
+	if (payment.status === 'pending' && payment.txHash != null) return '確認待ち';
+	return paymentStatusLabel(payment.status);
 }
 
 onMounted(loadPayments);
@@ -169,7 +204,7 @@ onMounted(loadPayments);
                       {{ payment.quoteCurrentPlanName }} の残り期間を {{ formatAmount(payment.quoteCurrentPlanPriceAmountBaseUnits ?? '0', payment.decimals, payment.assetSymbol) }} / {{ formatDuration(payment.quoteCurrentPlanPriceDurationDays ?? 1, payment.quoteCurrentPlanPriceDurationUnit ?? 'days') }} で按分
                     </div>
                   </td>
-                  <td><span class="badge badge-info">{{ paymentStatusLabel(payment.status) }}</span></td>
+                  <td><span :class="paymentStatusClass(payment)">{{ paymentStatusText(payment) }}</span></td>
                   <td>
                     <code :class="$style.hashText" :title="payment.txHash ?? undefined">{{ payment.txHash ?? '-' }}</code>
                   </td>
@@ -177,6 +212,9 @@ onMounted(loadPayments);
 	                  <td :class="['col-actions', $style.actionsCell]">
 	                    <button v-show="canCancelPayment(payment)" class="btn btn-secondary btn-sm" :class="$style.actionButton" type="button" :disabled="cancelingPaymentId !== null" @click="cancelPayment(payment)">
                       {{ cancelingPaymentId === payment.id ? 'キャンセル中...' : 'キャンセル' }}
+                    </button>
+                    <button v-show="canCheckPayment(payment)" class="btn btn-secondary btn-sm" :class="$style.actionButton" type="button" :disabled="checkingPaymentId !== null" @click="checkPayment(payment)">
+                      {{ checkingPaymentId === payment.id ? '確認中...' : '再確認' }}
                     </button>
                   </td>
                 </tr>

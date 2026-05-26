@@ -5,7 +5,7 @@ import { apiDef, getResponseDefWithAuth, type JsonCtx } from '../../shared/api';
 import { calculatePaymentQuote, type PaymentDurationUnit, type PaymentQuote } from '../../shared/billing-quote';
 import { authMiddleware } from '../middleware/auth';
 import { cryptoPaymentOrders, paymentAssetDeployments, paymentAssetPlanPrices, paymentAssets, paymentChains, plans, userPlanAssignments, userWallets } from '../scheme/index';
-import { confirmCryptoPaymentOrder, getCryptoPaymentOrderExpiresAt } from '../utils/billing';
+import { checkCryptoPaymentOrder, confirmCryptoPaymentOrder, getCryptoPaymentOrderExpiresAt } from '../utils/billing';
 import { apiError } from '../utils/api-error';
 import { canAcceptCryptoPayments } from '../utils/crypto-payments';
 import { getDb } from '../utils/db';
@@ -329,12 +329,37 @@ app.post(
 	describeRoute(omitResAndReq(apiDef['/api/billing/confirm-crypto-order'])),
 	validator('json', apiDef['/api/billing/confirm-crypto-order'].req),
 	describeResponse(async (c: JsonCtx<'/api/billing/confirm-crypto-order', Env>) => {
+		const db = getDb(c.env);
 		const user = c.get('user');
 		const body = c.req.valid('json');
+		const before = await db
+			.select({ status: cryptoPaymentOrders.status })
+			.from(cryptoPaymentOrders)
+			.where(and(eq(cryptoPaymentOrders.id, body.orderId), eq(cryptoPaymentOrders.userId, user.id)))
+			.get();
 		const order = await confirmCryptoPaymentOrder(c.env, user.id, body.orderId, body.txHash);
-		await recordModerationEvent(c, 'crypto_payment_order_confirmed', { orderId: order.id, chainId: order.chainId, txHash: order.txHash }, user.id, user.tokenId);
+		if (before?.status !== 'paid' && order.status === 'paid') await recordModerationEvent(c, 'crypto_payment_order_confirmed', { orderId: order.id, chainId: order.chainId, txHash: order.txHash }, user.id, user.tokenId);
 		return c.json(order, 200);
 	}, getResponseDefWithAuth('/api/billing/confirm-crypto-order')),
+);
+
+app.post(
+	'/check-crypto-order',
+	describeRoute(omitResAndReq(apiDef['/api/billing/check-crypto-order'])),
+	validator('json', apiDef['/api/billing/check-crypto-order'].req),
+	describeResponse(async (c: JsonCtx<'/api/billing/check-crypto-order', Env>) => {
+		const db = getDb(c.env);
+		const user = c.get('user');
+		const body = c.req.valid('json');
+		const before = await db
+			.select({ status: cryptoPaymentOrders.status })
+			.from(cryptoPaymentOrders)
+			.where(and(eq(cryptoPaymentOrders.id, body.orderId), eq(cryptoPaymentOrders.userId, user.id)))
+			.get();
+		const order = await checkCryptoPaymentOrder(c.env, user.id, body.orderId);
+		if (before?.status !== 'paid' && order.status === 'paid') await recordModerationEvent(c, 'crypto_payment_order_confirmed', { orderId: order.id, chainId: order.chainId, txHash: order.txHash }, user.id, user.tokenId);
+		return c.json(order, 200);
+	}, getResponseDefWithAuth('/api/billing/check-crypto-order')),
 );
 
 app.post(
