@@ -1,4 +1,4 @@
--- PR URL: TBD
+-- https://github.com/tamaina/cfw-fileup/pull/109
 CREATE TABLE `crypto_payment_orders` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
