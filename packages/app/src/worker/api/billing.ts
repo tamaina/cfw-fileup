@@ -1,11 +1,13 @@
 import { Hono } from 'hono';
 import { describeResponse, describeRoute, validator } from 'hono-openapi';
-import { and, desc, eq, lt } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, isNull, lt, or } from 'drizzle-orm';
 import { apiDef, getResponseDefWithAuth, type JsonCtx } from '../../shared/api';
+import { calculatePaymentQuote, type PaymentDurationUnit, type PaymentQuote } from '../../shared/billing-quote';
 import { authMiddleware } from '../middleware/auth';
-import { cryptoPaymentOrders, paymentAssetDeployments, paymentAssetPlanPrices, paymentAssets, paymentChains, plans, userWallets } from '../scheme/index';
+import { cryptoPaymentOrders, paymentAssetDeployments, paymentAssetPlanPrices, paymentAssets, paymentChains, plans, userPlanAssignments, userWallets } from '../scheme/index';
 import { confirmCryptoPaymentOrder, getCryptoPaymentOrderExpiresAt } from '../utils/billing';
 import { apiError } from '../utils/api-error';
+import { canAcceptCryptoPayments } from '../utils/crypto-payments';
 import { getDb } from '../utils/db';
 import { recordModerationEvent } from '../utils/moderation';
 import { omitResAndReq } from '../utils/omit';
@@ -14,18 +16,97 @@ import { isPaymentChainRpcConfigured } from '../utils/payment-rpc';
 import { genEaidx } from '../../shared/eaid-x';
 
 const app = new Hono<{ Bindings: Env }>();
+const QUOTE_TTL_MS = 15 * 60 * 1000;
 
 app.use(authMiddleware);
 
-async function listEnabledOffers(env: Env) {
+async function createPaymentOfferQuote(env: Env, userId: string, offer: {
+	assetId: string;
+	planId: string;
+	planName: string;
+	amountBaseUnits: string;
+	durationDays: number;
+	durationUnit: PaymentDurationUnit;
+}, quoteCreatedAt: number): Promise<PaymentQuote> {
+	const db = getDb(env);
+	const activeAssignment = await db
+		.select({
+			planId: userPlanAssignments.planId,
+			expiresAt: userPlanAssignments.expiresAt,
+			planName: plans.name,
+		})
+		.from(userPlanAssignments)
+		.innerJoin(plans, eq(userPlanAssignments.planId, plans.id))
+		.where(and(eq(userPlanAssignments.userId, userId), gt(userPlanAssignments.expiresAt, quoteCreatedAt)))
+		.get();
+	const currentPlanPrice = activeAssignment && activeAssignment.planId !== offer.planId
+		? await getReferencePlanPrice(env, offer.assetId, activeAssignment.planId, quoteCreatedAt)
+		: null;
+	const currentPlan = activeAssignment && activeAssignment.planId === offer.planId
+		? {
+			id: activeAssignment.planId,
+			name: activeAssignment.planName,
+			expiresAt: activeAssignment.expiresAt,
+			price: {
+				amountBaseUnits: offer.amountBaseUnits,
+				durationDays: offer.durationDays,
+				durationUnit: offer.durationUnit,
+			},
+		}
+		: activeAssignment && currentPlanPrice ? {
+			id: activeAssignment.planId,
+			name: activeAssignment.planName,
+			expiresAt: activeAssignment.expiresAt,
+			price: currentPlanPrice,
+		} : null;
+	return calculatePaymentQuote({
+		quoteCreatedAt,
+		quoteTtlMs: QUOTE_TTL_MS,
+		targetPlanId: offer.planId,
+		targetPlanPrice: {
+			amountBaseUnits: offer.amountBaseUnits,
+			durationDays: offer.durationDays,
+			durationUnit: offer.durationUnit,
+		},
+		currentPlan,
+	});
+}
+
+async function getReferencePlanPrice(env: Env, assetId: string, planId: string, quoteCreatedAt: number) {
+	const currentPlanPrices = await getDb(env)
+		.select({
+			amountBaseUnits: paymentAssetPlanPrices.amountBaseUnits,
+			durationDays: paymentAssetPlanPrices.durationDays,
+			durationUnit: paymentAssetPlanPrices.durationUnit,
+			expiresAt: paymentAssetPlanPrices.expiresAt,
+			createdAt: paymentAssetPlanPrices.createdAt,
+		})
+		.from(paymentAssetPlanPrices)
+		.where(and(
+			eq(paymentAssetPlanPrices.assetId, assetId),
+			eq(paymentAssetPlanPrices.planId, planId),
+		));
+	const activePrices = currentPlanPrices.filter(price => price.expiresAt == null || price.expiresAt > quoteCreatedAt);
+	const price = (activePrices.length > 0 ? activePrices : currentPlanPrices)
+		.sort((a, b) => (b.expiresAt ?? Number.MAX_SAFE_INTEGER) - (a.expiresAt ?? Number.MAX_SAFE_INTEGER) || b.createdAt - a.createdAt)[0];
+	return price ? {
+		amountBaseUnits: price.amountBaseUnits,
+		durationDays: price.durationDays,
+		durationUnit: price.durationUnit,
+	} : null;
+}
+
+async function listEnabledOffers(env: Env, userId: string, quoteCreatedAt = Date.now()) {
 	const db = getDb(env);
 	const rows = await db
 		.select({
 			id: paymentAssetPlanPrices.id,
-			deploymentId: paymentAssetPlanPrices.deploymentId,
+			deploymentId: paymentAssetDeployments.id,
 			assetId: paymentAssets.id,
 			assetSymbol: paymentAssets.symbol,
 			assetName: paymentAssets.name,
+			tokenSymbol: paymentAssetDeployments.tokenSymbol,
+			tokenName: paymentAssetDeployments.tokenName,
 			chainId: paymentChains.chainId,
 			chainName: paymentChains.name,
 			confirmationsRequired: paymentChains.confirmationsRequired,
@@ -34,15 +115,23 @@ async function listEnabledOffers(env: Env) {
 			decimals: paymentAssetDeployments.decimals,
 			planId: plans.id,
 			planName: plans.name,
+			planMaxBuckets: plans.maxBuckets,
+			planMaxBucketSizeBytes: plans.maxBucketSizeBytes,
+			planMaxFilesPerBucket: plans.maxFilesPerBucket,
+			planMaxDailyUploads: plans.maxDailyUploads,
+			planCanUseDownloadCount: plans.canUseDownloadCount,
+			planSortOrder: plans.sortOrder,
 			amountBaseUnits: paymentAssetPlanPrices.amountBaseUnits,
 			durationDays: paymentAssetPlanPrices.durationDays,
+			durationUnit: paymentAssetPlanPrices.durationUnit,
 			isEnabled: paymentAssetPlanPrices.isEnabled,
+			expiresAt: paymentAssetPlanPrices.expiresAt,
 			createdAt: paymentAssetPlanPrices.createdAt,
 			updatedAt: paymentAssetPlanPrices.updatedAt,
 		})
 		.from(paymentAssetPlanPrices)
-		.innerJoin(paymentAssetDeployments, eq(paymentAssetPlanPrices.deploymentId, paymentAssetDeployments.id))
-		.innerJoin(paymentAssets, eq(paymentAssetDeployments.assetId, paymentAssets.id))
+		.innerJoin(paymentAssets, eq(paymentAssetPlanPrices.assetId, paymentAssets.id))
+		.innerJoin(paymentAssetDeployments, eq(paymentAssetDeployments.assetId, paymentAssets.id))
 		.innerJoin(paymentChains, eq(paymentAssetDeployments.chainId, paymentChains.chainId))
 		.innerJoin(plans, eq(paymentAssetPlanPrices.planId, plans.id))
 		.where(and(
@@ -50,36 +139,70 @@ async function listEnabledOffers(env: Env) {
 			eq(paymentAssetDeployments.isEnabled, true),
 			eq(paymentAssets.isEnabled, true),
 			eq(paymentChains.isEnabled, true),
+			eq(plans.isEnabled, true),
+			or(isNull(paymentAssetPlanPrices.expiresAt), gt(paymentAssetPlanPrices.expiresAt, Date.now())),
 		))
-		.orderBy(desc(paymentAssetPlanPrices.id));
+		.orderBy(
+			asc(plans.sortOrder),
+			asc(plans.createdAt),
+			asc(plans.id),
+			asc(paymentAssetPlanPrices.durationUnit),
+			asc(paymentAssetPlanPrices.durationDays),
+			asc(paymentAssetPlanPrices.amountBaseUnits),
+			desc(paymentAssetPlanPrices.id),
+		);
 
-	return rows.map(row => ({
+	return await Promise.all(rows.map(async row => ({
 		id: row.id,
 		deploymentId: row.deploymentId,
 		assetId: row.assetId,
 		assetSymbol: row.assetSymbol,
 		assetName: row.assetName,
+		tokenSymbol: row.tokenSymbol,
+		tokenName: row.tokenName,
 		chainId: row.chainId,
 		chainName: row.chainName,
 		confirmationsRequired: row.confirmationsRequired,
 		contractAddress: row.contractAddress,
 		recipientAddress: row.recipientAddress,
 		decimals: row.decimals,
-		plan: { id: row.planId, name: row.planName },
+		plan: {
+			id: row.planId,
+			name: row.planName,
+			maxBuckets: row.planMaxBuckets,
+			maxBucketSizeBytes: row.planMaxBucketSizeBytes,
+			maxFilesPerBucket: row.planMaxFilesPerBucket,
+			maxDailyUploads: row.planMaxDailyUploads,
+			canUseDownloadCount: row.planCanUseDownloadCount,
+			sortOrder: row.planSortOrder,
+		},
 		amountBaseUnits: row.amountBaseUnits,
 		durationDays: row.durationDays,
+		durationUnit: row.durationUnit,
 		isEnabled: row.isEnabled,
+		expiresAt: row.expiresAt,
 		isRpcConfigured: isPaymentChainRpcConfigured(env, row.chainId),
+		quote: await createPaymentOfferQuote(env, userId, {
+			assetId: row.assetId,
+			planId: row.planId,
+			planName: row.planName,
+			amountBaseUnits: row.amountBaseUnits,
+			durationDays: row.durationDays,
+			durationUnit: row.durationUnit,
+		}, quoteCreatedAt),
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
-	}));
+	})));
 }
 
 app.post(
 	'/list-crypto-offers',
 	describeRoute(omitResAndReq(apiDef['/api/billing/list-crypto-offers'])),
 	validator('json', apiDef['/api/billing/list-crypto-offers'].req),
-	describeResponse(async (c: JsonCtx<'/api/billing/list-crypto-offers', Env>) => c.json(await listEnabledOffers(c.env), 200), getResponseDefWithAuth('/api/billing/list-crypto-offers')),
+	describeResponse(async (c: JsonCtx<'/api/billing/list-crypto-offers', Env>) => {
+		if (!await canAcceptCryptoPayments(c.env)) return c.json([], 200);
+		return c.json(await listEnabledOffers(c.env, c.get('user').id), 200);
+	}, getResponseDefWithAuth('/api/billing/list-crypto-offers')),
 );
 
 app.post(
@@ -87,6 +210,7 @@ app.post(
 	describeRoute(omitResAndReq(apiDef['/api/billing/create-crypto-order'])),
 	validator('json', apiDef['/api/billing/create-crypto-order'].req),
 	describeResponse(async (c: JsonCtx<'/api/billing/create-crypto-order', Env>) => {
+		if (!await canAcceptCryptoPayments(c.env)) throw apiError(403, 'FORBIDDEN');
 		const db = getDb(c.env);
 		const user = c.get('user');
 		const body = c.req.valid('json');
@@ -107,29 +231,56 @@ app.post(
 				chainName: paymentChains.name,
 				assetSymbol: paymentAssets.symbol,
 				assetName: paymentAssets.name,
+				tokenSymbol: paymentAssetDeployments.tokenSymbol,
+				tokenName: paymentAssetDeployments.tokenName,
 				contractAddress: paymentAssetDeployments.contractAddress,
 				recipientAddress: paymentAssetDeployments.recipientAddress,
 				amountBaseUnits: paymentAssetPlanPrices.amountBaseUnits,
 				decimals: paymentAssetDeployments.decimals,
 				durationDays: paymentAssetPlanPrices.durationDays,
+				durationUnit: paymentAssetPlanPrices.durationUnit,
+				expiresAt: paymentAssetPlanPrices.expiresAt,
+				planName: plans.name,
 			})
 			.from(paymentAssetPlanPrices)
-			.innerJoin(paymentAssetDeployments, eq(paymentAssetPlanPrices.deploymentId, paymentAssetDeployments.id))
-			.innerJoin(paymentAssets, eq(paymentAssetDeployments.assetId, paymentAssets.id))
+			.innerJoin(paymentAssets, eq(paymentAssetPlanPrices.assetId, paymentAssets.id))
+			.innerJoin(paymentAssetDeployments, eq(paymentAssetDeployments.assetId, paymentAssets.id))
 			.innerJoin(paymentChains, eq(paymentAssetDeployments.chainId, paymentChains.chainId))
 			.innerJoin(plans, eq(paymentAssetPlanPrices.planId, plans.id))
 			.where(and(
 				eq(paymentAssetPlanPrices.id, body.priceId),
+				eq(paymentAssetDeployments.id, body.deploymentId),
+				eq(paymentAssetDeployments.chainId, wallet.chainId),
 				eq(paymentAssetPlanPrices.isEnabled, true),
 				eq(paymentAssetDeployments.isEnabled, true),
 				eq(paymentAssets.isEnabled, true),
 				eq(paymentChains.isEnabled, true),
+				eq(plans.isEnabled, true),
+				or(isNull(paymentAssetPlanPrices.expiresAt), gt(paymentAssetPlanPrices.expiresAt, Date.now())),
 			))
 			.get();
 		if (!price) throw apiError(404, 'PAYMENT_PRICE_NOT_FOUND');
 		if (wallet.chainId !== price.chainId) throw apiError(400, 'WALLET_NOT_FOUND');
+		if (!isPaymentChainRpcConfigured(c.env, price.chainId)) throw apiError(400, 'PAYMENT_CHAIN_RPC_NOT_CONFIGURED');
 
 		const now = Date.now();
+		if (body.quoteCreatedAt > now + 60_000 || now - body.quoteCreatedAt > QUOTE_TTL_MS) {
+			throw apiError(400, 'PAYMENT_QUOTE_EXPIRED');
+		}
+		const quote = await createPaymentOfferQuote(c.env, user.id, {
+			assetId: price.assetId,
+			planId: price.planId,
+			planName: price.planName,
+			amountBaseUnits: price.amountBaseUnits,
+			durationDays: price.durationDays,
+			durationUnit: price.durationUnit,
+		}, body.quoteCreatedAt);
+		if (quote.payableAmountBaseUnits !== body.quotedAmountBaseUnits) {
+			throw apiError(400, 'PAYMENT_QUOTE_INVALID');
+		}
+		if (BigInt(quote.payableAmountBaseUnits) <= 0n) {
+			throw apiError(400, 'PAYMENT_QUOTE_INVALID');
+		}
 		const order = {
 			id: genEaidx(now),
 			userId: user.id,
@@ -141,13 +292,26 @@ app.post(
 			assetId: price.assetId,
 			chainId: price.chainId,
 			chainName: price.chainName,
-			assetSymbol: price.assetSymbol,
-			assetName: price.assetName,
+			assetSymbol: price.tokenSymbol,
+			assetName: price.tokenName,
+			planName: price.planName,
 			contractAddress: price.contractAddress,
 			recipientAddress: price.recipientAddress,
-			amountBaseUnits: price.amountBaseUnits,
+			amountBaseUnits: quote.payableAmountBaseUnits,
 			decimals: price.decimals,
 			durationDays: price.durationDays,
+			durationUnit: price.durationUnit,
+			quoteCreatedAt: quote.quoteCreatedAt,
+			quoteExpiresAt: quote.quoteExpiresAt,
+			quoteBaseAmountBaseUnits: quote.baseAmountBaseUnits,
+			quoteDiscountBaseUnits: quote.discountBaseUnits,
+			quoteEffectiveExpiresAt: quote.effectiveExpiresAt,
+			quoteCurrentPlanId: quote.currentPlan?.id ?? null,
+			quoteCurrentPlanName: quote.currentPlan?.name ?? null,
+			quoteCurrentPlanExpiresAt: quote.currentPlan?.expiresAt ?? null,
+			quoteCurrentPlanPriceAmountBaseUnits: quote.currentPlan?.priceAmountBaseUnits ?? null,
+			quoteCurrentPlanPriceDurationDays: quote.currentPlan?.priceDurationDays ?? null,
+			quoteCurrentPlanPriceDurationUnit: quote.currentPlan?.priceDurationUnit ?? null,
 			status: 'pending' as const,
 			txHash: null,
 			createdAt: now,
@@ -171,6 +335,28 @@ app.post(
 		await recordModerationEvent(c, 'crypto_payment_order_confirmed', { orderId: order.id, chainId: order.chainId, txHash: order.txHash }, user.id, user.tokenId);
 		return c.json(order, 200);
 	}, getResponseDefWithAuth('/api/billing/confirm-crypto-order')),
+);
+
+app.post(
+	'/cancel-crypto-order',
+	describeRoute(omitResAndReq(apiDef['/api/billing/cancel-crypto-order'])),
+	validator('json', apiDef['/api/billing/cancel-crypto-order'].req),
+	describeResponse(async (c: JsonCtx<'/api/billing/cancel-crypto-order', Env>) => {
+		const db = getDb(c.env);
+		const user = c.get('user');
+		const body = c.req.valid('json');
+		const deleted = await db
+			.delete(cryptoPaymentOrders)
+			.where(and(
+				eq(cryptoPaymentOrders.id, body.orderId),
+				eq(cryptoPaymentOrders.userId, user.id),
+				eq(cryptoPaymentOrders.status, 'pending'),
+				isNull(cryptoPaymentOrders.txHash),
+			))
+			.returning({ id: cryptoPaymentOrders.id });
+		if (deleted.length === 0) throw apiError(404, 'PAYMENT_ORDER_NOT_FOUND');
+		return c.json({ ok: true }, 200);
+	}, getResponseDefWithAuth('/api/billing/cancel-crypto-order')),
 );
 
 app.post(

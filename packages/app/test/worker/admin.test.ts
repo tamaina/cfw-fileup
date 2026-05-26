@@ -42,7 +42,6 @@ describe('Admin access control', () => {
 			{ path: '/api/admin/list-plans', body: {} },
 			{ path: '/api/admin/create-plan', body: { name: 'Pro' } },
 			{ path: '/api/admin/update-plan', body: { planId: 'x', name: 'Pro' } },
-			{ path: '/api/admin/delete-plan', body: { planId: 'x' } },
 			{ path: '/api/admin/assign-user-plan', body: { userId: 'x', planId: 'x', expiresAt: Date.now() + 1_000 } },
 			{ path: '/api/admin/get-user-plan', body: { userId: 'x' } },
 			{ path: '/api/admin/delete-user-plan', body: { userId: 'x' } },
@@ -645,7 +644,7 @@ describe('Quota management', () => {
 		expect(res.status).toBe(200);
 	});
 
-	test('admin can create, update, list, assign, unassign, and delete a plan', async () => {
+	test('admin can create, update, list, assign, unassign, and disable a plan', async () => {
 		const { adminToken, userId } = await setupAdminAndUser();
 		const expiresAt = Date.now() + 86_400_000;
 
@@ -655,16 +654,19 @@ describe('Quota management', () => {
 			body: JSON.stringify({ name: 'Pro', maxBuckets: 10, maxDailyUploads: 100 }),
 		}, env);
 		expect(createRes.status).toBe(200);
-		const created = await createRes.json() as { id: string; name: string; maxBuckets: number };
+		const created = await createRes.json() as { id: string; name: string; maxBuckets: number; isEnabled: boolean };
 		expect(created.name).toBe('Pro');
 		expect(created.maxBuckets).toBe(10);
+		expect(created.isEnabled).toBe(true);
 
 		const updateRes = await app.request('/api/admin/update-plan', {
 			method: 'POST',
 			headers: authHeaders(adminToken),
-			body: JSON.stringify({ planId: created.id, name: 'Pro Plus', maxBuckets: 12, maxDailyUploads: 120 }),
+			body: JSON.stringify({ planId: created.id, name: 'Pro Plus', maxBuckets: 12, maxDailyUploads: 120, isEnabled: false }),
 		}, env);
 		expect(updateRes.status).toBe(200);
+		const updated = await updateRes.json() as { isEnabled: boolean };
+		expect(updated.isEnabled).toBe(false);
 
 		const listRes = await app.request('/api/admin/list-plans', {
 			method: 'POST',
@@ -672,8 +674,8 @@ describe('Quota management', () => {
 			body: JSON.stringify({}),
 		}, env);
 		expect(listRes.status).toBe(200);
-		const plans = await listRes.json() as Array<{ id: string; name: string }>;
-		expect(plans).toContainEqual(expect.objectContaining({ id: created.id, name: 'Pro Plus' }));
+		const plans = await listRes.json() as Array<{ id: string; name: string; isEnabled: boolean }>;
+		expect(plans).toContainEqual(expect.objectContaining({ id: created.id, name: 'Pro Plus', isEnabled: false }));
 
 		const assignRes = await app.request('/api/admin/assign-user-plan', {
 			method: 'POST',
@@ -707,13 +709,6 @@ describe('Quota management', () => {
 		}, env);
 		expect(deletedAssignmentRes.status).toBe(200);
 		expect(await deletedAssignmentRes.json()).toBeNull();
-
-		const deleteRes = await app.request('/api/admin/delete-plan', {
-			method: 'POST',
-			headers: authHeaders(adminToken),
-			body: JSON.stringify({ planId: created.id }),
-		}, env);
-		expect(deleteRes.status).toBe(200);
 	});
 
 	test('active plan quota overrides per-user quota', async () => {
@@ -839,6 +834,7 @@ describe('Quota management', () => {
 
 describe('Crypto payment administration', () => {
 	const contractAddress = '0x1111111111111111111111111111111111111111';
+	const usdtContractAddress = '0x5555555555555555555555555555555555555555';
 	const recipientAddress = '0x2222222222222222222222222222222222222222';
 
 	async function createCryptoOffer(adminToken: string) {
@@ -868,7 +864,7 @@ describe('Crypto payment administration', () => {
 		const assetRes = await app.request('/api/admin/create-payment-asset', {
 			method: 'POST',
 			headers: authHeaders(adminToken),
-			body: JSON.stringify({ symbol: 'USDC', name: 'USD Coin' }),
+			body: JSON.stringify({ symbol: 'USD', name: 'US Dollar' }),
 		}, env);
 		expect(assetRes.status).toBe(200);
 		const asset = await assetRes.json() as { id: string };
@@ -879,19 +875,21 @@ describe('Crypto payment administration', () => {
 			body: JSON.stringify({
 				assetId: asset.id,
 				chainId: 8453,
+				tokenSymbol: 'USDC',
+				tokenName: 'USD Coin',
 				contractAddress,
 				decimals: 6,
 				recipientAddress,
 			}),
 		}, env);
 		expect(deploymentRes.status).toBe(200);
-		const deployment = await deploymentRes.json() as { id: string };
+		const deployment = await deploymentRes.json() as { id: string; tokenSymbol: string; tokenName: string };
 
 		const priceRes = await app.request('/api/admin/create-payment-asset-plan-price', {
 			method: 'POST',
 			headers: authHeaders(adminToken),
 			body: JSON.stringify({
-				deploymentId: deployment.id,
+				assetId: asset.id,
 				planId: plan.id,
 				amountBaseUnits: '30000000',
 				durationDays: 90,
@@ -911,6 +909,47 @@ describe('Crypto payment administration', () => {
 		return { id, chainId, address };
 	}
 
+	async function enableCryptoPayments(rpcUrls = '{"8453":"https://example.invalid/rpc"}') {
+		(env as unknown as Record<string, string>).EVM_CHAIN_RPC_URLS = rpcUrls;
+		await env.DB.prepare(
+			'INSERT INTO app_settings (key, value) VALUES (\'crypto_payments_enabled\', \'true\') ON CONFLICT(key) DO UPDATE SET value = \'true\'',
+		).run();
+	}
+
+	async function disableCryptoPayments() {
+		await env.DB.prepare(
+			'INSERT INTO app_settings (key, value) VALUES (\'crypto_payments_enabled\', \'false\') ON CONFLICT(key) DO UPDATE SET value = \'false\'',
+		).run();
+	}
+
+	async function getOfferQuote(userToken: string, priceId: string, deploymentId: string) {
+		const offersRes = await app.request('/api/billing/list-crypto-offers', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({}),
+		}, env);
+		expect(offersRes.status).toBe(200);
+		const offers = await offersRes.json() as Array<{ id: string; deploymentId: string; quote: { payableAmountBaseUnits: string; quoteCreatedAt: number } }>;
+		const offer = offers.find(item => item.id === priceId && item.deploymentId === deploymentId);
+		expect(offer).toBeTruthy();
+		return offer!.quote;
+	}
+
+	async function createOrderBody(userToken: string, priceId: string, deploymentId: string, payerWalletId: string) {
+		const quote = await getOfferQuote(userToken, priceId, deploymentId);
+		return createOrderBodyWithQuote(priceId, deploymentId, payerWalletId, quote);
+	}
+
+	function createOrderBodyWithQuote(priceId: string, deploymentId: string, payerWalletId: string, quote: { payableAmountBaseUnits: string; quoteCreatedAt: number }) {
+		return {
+			priceId,
+			deploymentId,
+			payerWalletId,
+			quotedAmountBaseUnits: quote.payableAmountBaseUnits,
+			quoteCreatedAt: quote.quoteCreatedAt,
+		};
+	}
+
 	test('admin can create chain, asset, deployment, and plan price', async () => {
 		const { adminToken } = await setupAdminAndUser();
 		const { price } = await createCryptoOffer(adminToken);
@@ -921,13 +960,73 @@ describe('Crypto payment administration', () => {
 			body: JSON.stringify({}),
 		}, env);
 		expect(listRes.status).toBe(200);
-		const prices = await listRes.json() as Array<{ id: string; assetSymbol: string; chainId: number; amountBaseUnits: string }>;
+		const prices = await listRes.json() as Array<{ id: string; assetSymbol: string; chainId: number | null; amountBaseUnits: string }>;
 		expect(prices).toContainEqual(expect.objectContaining({
 			id: price.id,
-			assetSymbol: 'USDC',
-			chainId: 8453,
+			assetSymbol: 'USD',
+			chainId: null,
 			amountBaseUnits: '30000000',
 		}));
+	});
+
+	test('indefinite plan prices cannot duplicate the same asset plan and duration', async () => {
+		const { adminToken } = await setupAdminAndUser();
+		const { plan, asset } = await createCryptoOffer(adminToken);
+
+		const duplicateRes = await app.request('/api/admin/create-payment-asset-plan-price', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({
+				assetId: asset.id,
+				planId: plan.id,
+				amountBaseUnits: '35000000',
+				durationDays: 90,
+				durationUnit: 'days',
+				expiresAt: null,
+			}),
+		}, env);
+		expect(duplicateRes.status).toBe(400);
+		const body = await duplicateRes.json() as { error: string };
+		expect(body.error).toBe('PAYMENT_PRICE_ALREADY_EXISTS');
+	});
+
+	test('plan prices cannot be lower for a longer duration on the same asset plan', async () => {
+		const { adminToken } = await setupAdminAndUser();
+		const { plan, asset } = await createCryptoOffer(adminToken);
+
+		const invertedRes = await app.request('/api/admin/create-payment-asset-plan-price', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({
+				assetId: asset.id,
+				planId: plan.id,
+				amountBaseUnits: '25000000',
+				durationDays: 180,
+				durationUnit: 'days',
+			}),
+		}, env);
+		expect(invertedRes.status).toBe(400);
+		const body = await invertedRes.json() as { error: string };
+		expect(body.error).toBe('PAYMENT_PRICE_ORDER_INVALID');
+	});
+
+	test('expiring plan prices can overlap regular prices without duration price order checks', async () => {
+		const { adminToken } = await setupAdminAndUser();
+		const { plan, asset } = await createCryptoOffer(adminToken);
+
+		const campaignRes = await app.request('/api/admin/create-payment-asset-plan-price', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({
+				assetId: asset.id,
+				planId: plan.id,
+				amountBaseUnits: '25000000',
+				durationDays: 180,
+				durationUnit: 'days',
+				expiresAt: Date.now() + 86_400_000,
+			}),
+		}, env);
+		expect(campaignRes.status).toBe(200);
 	});
 
 	test('same chain and contract address cannot be registered twice', async () => {
@@ -940,6 +1039,8 @@ describe('Crypto payment administration', () => {
 			body: JSON.stringify({
 				assetId: asset.id,
 				chainId: 8453,
+				tokenSymbol: 'USDC',
+				tokenName: 'USD Coin',
 				contractAddress,
 				decimals: 6,
 				recipientAddress,
@@ -950,9 +1051,113 @@ describe('Crypto payment administration', () => {
 		expect(body.error).toBe('PAYMENT_ASSET_DEPLOYMENT_ALREADY_EXISTS');
 	});
 
+	test('expired plan prices are kept for admin history but hidden from user offers', async () => {
+		const { adminToken, userToken, userId } = await setupAdminAndUser();
+		const { plan, asset, deployment, price } = await createCryptoOffer(adminToken);
+		await enableCryptoPayments();
+		const wallet = await createLinkedWallet(userId);
+		const expiredAt = Date.now() - 1_000;
+
+		const updateRes = await app.request('/api/admin/update-payment-asset-plan-price', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({
+				priceId: price.id,
+				assetId: asset.id,
+				planId: plan.id,
+				amountBaseUnits: '30000000',
+				durationDays: 90,
+				durationUnit: 'days',
+				expiresAt: expiredAt,
+			}),
+		}, env);
+		expect(updateRes.status).toBe(200);
+
+		const replacementRes = await app.request('/api/admin/create-payment-asset-plan-price', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({
+				assetId: asset.id,
+				planId: plan.id,
+				amountBaseUnits: '35000000',
+				durationDays: 90,
+				durationUnit: 'days',
+			}),
+		}, env);
+		expect(replacementRes.status).toBe(200);
+		const replacement = await replacementRes.json() as { id: string };
+
+		const adminListRes = await app.request('/api/admin/list-payment-asset-plan-prices', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({}),
+		}, env);
+		expect(adminListRes.status).toBe(200);
+		const adminPrices = await adminListRes.json() as Array<{ id: string; expiresAt: number | null }>;
+		expect(adminPrices).toContainEqual(expect.objectContaining({ id: price.id, expiresAt: expiredAt }));
+		expect(adminPrices).toContainEqual(expect.objectContaining({ id: replacement.id, expiresAt: null }));
+
+		const offersRes = await app.request('/api/billing/list-crypto-offers', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({}),
+		}, env);
+		expect(offersRes.status).toBe(200);
+		const offers = await offersRes.json() as Array<{ id: string; amountBaseUnits: string }>;
+		expect(offers).not.toContainEqual(expect.objectContaining({ id: price.id }));
+		expect(offers).toContainEqual(expect.objectContaining({ id: replacement.id, amountBaseUnits: '35000000' }));
+
+		const expiredOrderRes = await app.request('/api/billing/create-crypto-order', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({ priceId: price.id, deploymentId: deployment.id, payerWalletId: wallet.id, quotedAmountBaseUnits: '30000000', quoteCreatedAt: Date.now() }),
+		}, env);
+		expect(expiredOrderRes.status).toBe(404);
+
+		const expireReplacementRes = await app.request('/api/admin/update-payment-asset-plan-price', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({
+				priceId: replacement.id,
+				assetId: asset.id,
+				planId: plan.id,
+				amountBaseUnits: '35000000',
+				durationDays: 90,
+				durationUnit: 'days',
+				expiresAt: expiredAt,
+			}),
+		}, env);
+		expect(expireReplacementRes.status).toBe(200);
+
+		const clearExpiresRes = await app.request('/api/admin/update-payment-asset-plan-price', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({
+				priceId: price.id,
+				assetId: asset.id,
+				planId: plan.id,
+				amountBaseUnits: '30000000',
+				durationDays: 90,
+				durationUnit: 'days',
+				expiresAt: null,
+			}),
+		}, env);
+		expect(clearExpiresRes.status).toBe(200);
+
+		const restoredOffersRes = await app.request('/api/billing/list-crypto-offers', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({}),
+		}, env);
+		expect(restoredOffersRes.status).toBe(200);
+		const restoredOffers = await restoredOffersRes.json() as Array<{ id: string }>;
+		expect(restoredOffers).toContainEqual(expect.objectContaining({ id: price.id }));
+	});
+
 	test('user can list offers and create an order with a price snapshot', async () => {
 		const { adminToken, userToken, userId } = await setupAdminAndUser();
-		const { price } = await createCryptoOffer(adminToken);
+		const { deployment, price } = await createCryptoOffer(adminToken);
+		await enableCryptoPayments();
 		const wallet = await createLinkedWallet(userId);
 
 		const offersRes = await app.request('/api/billing/list-crypto-offers', {
@@ -961,13 +1166,13 @@ describe('Crypto payment administration', () => {
 			body: JSON.stringify({}),
 		}, env);
 		expect(offersRes.status).toBe(200);
-		const offers = await offersRes.json() as Array<{ id: string; assetSymbol: string; chainName: string }>;
-		expect(offers).toContainEqual(expect.objectContaining({ id: price.id, assetSymbol: 'USDC', chainName: 'Base' }));
+		const offers = await offersRes.json() as Array<{ id: string; assetSymbol: string; tokenSymbol: string; chainName: string }>;
+		expect(offers).toContainEqual(expect.objectContaining({ id: price.id, assetSymbol: 'USD', tokenSymbol: 'USDC', chainName: 'Base' }));
 
 		const orderRes = await app.request('/api/billing/create-crypto-order', {
 			method: 'POST',
 			headers: authHeaders(userToken),
-			body: JSON.stringify({ priceId: price.id, payerWalletId: wallet.id }),
+			body: JSON.stringify({ priceId: price.id, deploymentId: deployment.id, payerWalletId: wallet.id, quotedAmountBaseUnits: '30000000', quoteCreatedAt: Date.now() }),
 		}, env);
 		expect(orderRes.status).toBe(200);
 		const order = await orderRes.json() as { amountBaseUnits: string; chainId: number; contractAddress: string; recipientAddress: string; payerAddress: string; status: string };
@@ -981,16 +1186,485 @@ describe('Crypto payment administration', () => {
 		});
 	});
 
-	test('confirming an order rejects missing RPC configuration', async () => {
+	test('one USD price can be paid through multiple token deployments', async () => {
 		const { adminToken, userToken, userId } = await setupAdminAndUser();
-		const { price } = await createCryptoOffer(adminToken);
+		const { asset, price } = await createCryptoOffer(adminToken);
+		await enableCryptoPayments();
+		const wallet = await createLinkedWallet(userId);
+
+		const usdtDeploymentRes = await app.request('/api/admin/create-payment-asset-deployment', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({
+				assetId: asset.id,
+				chainId: 8453,
+				tokenSymbol: 'USDT',
+				tokenName: 'Tether USD',
+				contractAddress: usdtContractAddress,
+				decimals: 6,
+				recipientAddress,
+			}),
+		}, env);
+		expect(usdtDeploymentRes.status).toBe(200);
+		const usdtDeployment = await usdtDeploymentRes.json() as { id: string };
+
+		const offersRes = await app.request('/api/billing/list-crypto-offers', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({}),
+		}, env);
+		expect(offersRes.status).toBe(200);
+		const offers = await offersRes.json() as Array<{ id: string; deploymentId: string; assetSymbol: string; tokenSymbol: string; quote: { payableAmountBaseUnits: string; quoteCreatedAt: number } }>;
+		expect(offers.filter(offer => offer.id === price.id).map(offer => offer.tokenSymbol).sort()).toEqual(['USDC', 'USDT']);
+		const usdtOffer = offers.find(offer => offer.deploymentId === usdtDeployment.id);
+		expect(usdtOffer).toEqual(expect.objectContaining({ assetSymbol: 'USD', tokenSymbol: 'USDT' }));
+
+		const orderRes = await app.request('/api/billing/create-crypto-order', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify(createOrderBodyWithQuote(price.id, usdtDeployment.id, wallet.id, usdtOffer!.quote)),
+		}, env);
+		expect(orderRes.status).toBe(200);
+		const order = await orderRes.json() as { assetSymbol: string; deploymentId: string; contractAddress: string };
+		expect(order).toMatchObject({
+			assetSymbol: 'USDT',
+			deploymentId: usdtDeployment.id,
+			contractAddress: usdtContractAddress,
+		});
+	});
+
+	test('user can cancel their own pending crypto order before transaction submission', async () => {
+		const { adminToken, userToken, userId } = await setupAdminAndUser();
+		const { deployment, price } = await createCryptoOffer(adminToken);
+		await enableCryptoPayments();
+		const wallet = await createLinkedWallet(userId);
+
+		const orderRes = await app.request('/api/billing/create-crypto-order', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({ priceId: price.id, deploymentId: deployment.id, payerWalletId: wallet.id, quotedAmountBaseUnits: '30000000', quoteCreatedAt: Date.now() }),
+		}, env);
+		expect(orderRes.status).toBe(200);
+		const order = await orderRes.json() as { id: string; status: string; txHash: string | null };
+		expect(order).toMatchObject({ status: 'pending', txHash: null });
+
+		const cancelRes = await app.request('/api/billing/cancel-crypto-order', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({ orderId: order.id }),
+		}, env);
+		expect(cancelRes.status).toBe(200);
+
+		const paymentsRes = await app.request('/api/billing/list-my-payments', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({ limit: 20, cursor: null }),
+		}, env);
+		expect(paymentsRes.status).toBe(200);
+		const payments = await paymentsRes.json() as { items: Array<{ id: string }> };
+		expect(payments.items).not.toContainEqual(expect.objectContaining({ id: order.id }));
+
+		const secondCancelRes = await app.request('/api/billing/cancel-crypto-order', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({ orderId: order.id }),
+		}, env);
+		expect(secondCancelRes.status).toBe(404);
+	});
+
+	test('payment offers preview same-plan extension and upgrade discount', async () => {
+		const { adminToken, userToken, userId } = await setupAdminAndUser();
+		const { plan, asset, deployment, price } = await createCryptoOffer(adminToken);
+		await enableCryptoPayments();
+		const wallet = await createLinkedWallet(userId);
+		const assignmentExpiresAt = Date.now() + 30 * 86_400_000;
+
+		const assignRes = await app.request('/api/admin/assign-user-plan', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ userId, planId: plan.id, expiresAt: assignmentExpiresAt }),
+		}, env);
+		expect(assignRes.status).toBe(200);
+
+		const upgradePlanRes = await app.request('/api/admin/create-plan', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ name: 'Crypto Max', maxBuckets: 20 }),
+		}, env);
+		expect(upgradePlanRes.status).toBe(200);
+		const upgradePlan = await upgradePlanRes.json() as { id: string };
+		const upgradePriceRes = await app.request('/api/admin/create-payment-asset-plan-price', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({
+				assetId: asset.id,
+				planId: upgradePlan.id,
+				amountBaseUnits: '90000000',
+				durationDays: 90,
+				durationUnit: 'days',
+			}),
+		}, env);
+		expect(upgradePriceRes.status).toBe(200);
+		const upgradePrice = await upgradePriceRes.json() as { id: string };
+
+		const offersRes = await app.request('/api/billing/list-crypto-offers', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({}),
+		}, env);
+		expect(offersRes.status).toBe(200);
+		const offers = await offersRes.json() as Array<{
+			id: string;
+			quote: {
+				baseAmountBaseUnits: string;
+				discountBaseUnits: string;
+				payableAmountBaseUnits: string;
+				effectiveExpiresAt: number;
+				quoteCreatedAt: number;
+				currentPlan: { id: string } | null;
+			};
+		}>;
+		const samePlanOffer = offers.find(offer => offer.id === price.id);
+		const upgradeOffer = offers.find(offer => offer.id === upgradePrice.id);
+		expect(samePlanOffer?.quote.payableAmountBaseUnits).toBe('30000000');
+		expect(samePlanOffer?.quote.discountBaseUnits).toBe('0');
+		expect(samePlanOffer?.quote.effectiveExpiresAt ?? 0).toBeGreaterThan(assignmentExpiresAt);
+		expect(upgradeOffer?.quote.baseAmountBaseUnits).toBe('90000000');
+		expect(BigInt(upgradeOffer?.quote.discountBaseUnits ?? '0')).toBeGreaterThan(0n);
+		expect(BigInt(upgradeOffer?.quote.payableAmountBaseUnits ?? '90000000')).toBeLessThan(90_000_000n);
+		expect(upgradeOffer?.quote.currentPlan).toEqual(expect.objectContaining({ id: plan.id }));
+
+		const invalidQuoteRes = await app.request('/api/billing/create-crypto-order', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({
+				priceId: upgradePrice.id,
+				deploymentId: deployment.id,
+				payerWalletId: wallet.id,
+				quotedAmountBaseUnits: '90000000',
+				quoteCreatedAt: upgradeOffer!.quote.quoteCreatedAt,
+			}),
+		}, env);
+		expect(invalidQuoteRes.status).toBe(400);
+		const invalidQuote = await invalidQuoteRes.json() as { error: string };
+		expect(invalidQuote.error).toBe('PAYMENT_QUOTE_INVALID');
+
+		const orderRes = await app.request('/api/billing/create-crypto-order', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify(createOrderBodyWithQuote(upgradePrice.id, deployment.id, wallet.id, upgradeOffer!.quote)),
+		}, env);
+		expect(orderRes.status).toBe(200);
+		const order = await orderRes.json() as {
+			amountBaseUnits: string;
+			planName: string;
+			quoteBaseAmountBaseUnits: string;
+			quoteDiscountBaseUnits: string;
+			quoteEffectiveExpiresAt: number;
+			quoteCurrentPlanId: string | null;
+		};
+		expect(BigInt(order.amountBaseUnits)).toBeLessThan(90_000_000n);
+		expect(order.planName).toBe('Crypto Max');
+		expect(order.quoteBaseAmountBaseUnits).toBe('90000000');
+		expect(BigInt(order.quoteDiscountBaseUnits)).toBeGreaterThan(0n);
+		expect(order.quoteEffectiveExpiresAt).toBe(upgradeOffer!.quote.effectiveExpiresAt);
+		expect(order.quoteCurrentPlanId).toBe(plan.id);
+	});
+
+	test('payment offers do not discount first purchase or expired subscriptions', async () => {
+		const { adminToken, userToken, userId } = await setupAdminAndUser();
+		const { plan, deployment, price } = await createCryptoOffer(adminToken);
+		await enableCryptoPayments();
+
+		const firstOffersRes = await app.request('/api/billing/list-crypto-offers', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({}),
+		}, env);
+		expect(firstOffersRes.status).toBe(200);
+		const firstOffers = await firstOffersRes.json() as Array<{
+			id: string;
+			quote: { discountBaseUnits: string; payableAmountBaseUnits: string; currentPlan: { id: string } | null };
+		}>;
+		expect(firstOffers.find(offer => offer.id === price.id)?.quote).toMatchObject({
+			discountBaseUnits: '0',
+			payableAmountBaseUnits: '30000000',
+			currentPlan: null,
+		});
+
+		const assignRes = await app.request('/api/admin/assign-user-plan', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ userId, planId: plan.id, expiresAt: Date.now() - 1_000 }),
+		}, env);
+		expect(assignRes.status).toBe(200);
+
+		const expiredOffersRes = await app.request('/api/billing/list-crypto-offers', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({}),
+		}, env);
+		expect(expiredOffersRes.status).toBe(200);
+		const expiredOffers = await expiredOffersRes.json() as Array<{
+			id: string;
+			quote: { discountBaseUnits: string; payableAmountBaseUnits: string; currentPlan: { id: string } | null };
+		}>;
+		expect(expiredOffers.find(offer => offer.id === price.id)?.quote).toMatchObject({
+			discountBaseUnits: '0',
+			payableAmountBaseUnits: '30000000',
+			currentPlan: null,
+		});
+	});
+
+	test('disabled plans remain assignable but hidden from user payment offers', async () => {
+		const { adminToken, userToken, userId } = await setupAdminAndUser();
+		const { plan, deployment, price } = await createCryptoOffer(adminToken);
+		await enableCryptoPayments();
+		const wallet = await createLinkedWallet(userId);
+
+		const disablePlanRes = await app.request('/api/admin/update-plan', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ planId: plan.id, name: 'Crypto Pro', maxBuckets: 5, isEnabled: false }),
+		}, env);
+		expect(disablePlanRes.status).toBe(200);
+
+		const assignRes = await app.request('/api/admin/assign-user-plan', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ userId, planId: plan.id, expiresAt: Date.now() + 86_400_000 }),
+		}, env);
+		expect(assignRes.status).toBe(200);
+
+		const offersRes = await app.request('/api/billing/list-crypto-offers', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({}),
+		}, env);
+		expect(offersRes.status).toBe(200);
+		const offers = await offersRes.json() as Array<{ id: string }>;
+		expect(offers).not.toContainEqual(expect.objectContaining({ id: price.id }));
+
+		const orderRes = await app.request('/api/billing/create-crypto-order', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({ priceId: price.id, deploymentId: deployment.id, payerWalletId: wallet.id, quotedAmountBaseUnits: '30000000', quoteCreatedAt: Date.now() }),
+		}, env);
+		expect(orderRes.status).toBe(403);
+		const orderError = await orderRes.json() as { error: string };
+		expect(orderError.error).toBe('FORBIDDEN');
+	});
+
+	test('disabled payment assets hide offers and reject order creation', async () => {
+		const { adminToken, userToken, userId } = await setupAdminAndUser();
+		const { asset, deployment, price } = await createCryptoOffer(adminToken);
+		await enableCryptoPayments();
+		const wallet = await createLinkedWallet(userId);
+
+		const disableAssetRes = await app.request('/api/admin/update-payment-asset', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({
+				assetId: asset.id,
+				symbol: 'USD',
+				name: 'US Dollar',
+				isEnabled: false,
+			}),
+		}, env);
+		expect(disableAssetRes.status).toBe(200);
+
+		const offersRes = await app.request('/api/billing/list-crypto-offers', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({}),
+		}, env);
+		expect(offersRes.status).toBe(200);
+		const offers = await offersRes.json() as Array<{ id: string }>;
+		expect(offers).not.toContainEqual(expect.objectContaining({ id: price.id }));
+
+		const orderRes = await app.request('/api/billing/create-crypto-order', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({
+				priceId: price.id,
+				deploymentId: deployment.id,
+				payerWalletId: wallet.id,
+				quotedAmountBaseUnits: '30000000',
+				quoteCreatedAt: Date.now(),
+			}),
+		}, env);
+		expect(orderRes.status).toBe(403);
+		const orderError = await orderRes.json() as { error: string };
+		expect(orderError.error).toBe('FORBIDDEN');
+
+		const enableAssetRes = await app.request('/api/admin/update-payment-asset', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({
+				assetId: asset.id,
+				symbol: 'USD',
+				name: 'US Dollar',
+				isEnabled: true,
+			}),
+		}, env);
+		expect(enableAssetRes.status).toBe(200);
+
+		const restoredOffersRes = await app.request('/api/billing/list-crypto-offers', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({}),
+		}, env);
+		expect(restoredOffersRes.status).toBe(200);
+		const restoredOffers = await restoredOffersRes.json() as Array<{ id: string }>;
+		expect(restoredOffers).toContainEqual(expect.objectContaining({ id: price.id }));
+	});
+
+	test('admin can update deployment recipient and disable the deployment', async () => {
+		const { adminToken, userToken, userId } = await setupAdminAndUser();
+		const { asset, deployment, price } = await createCryptoOffer(adminToken);
+		await enableCryptoPayments();
+		const wallet = await createLinkedWallet(userId);
+		const newRecipientAddress = '0x4444444444444444444444444444444444444444';
+
+		const updateRes = await app.request('/api/admin/update-payment-asset-deployment', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({
+				deploymentId: deployment.id,
+				assetId: asset.id,
+				chainId: 8453,
+				tokenSymbol: deployment.tokenSymbol,
+				tokenName: deployment.tokenName,
+				contractAddress,
+				decimals: 6,
+				recipientAddress: newRecipientAddress,
+				isEnabled: true,
+			}),
+		}, env);
+		expect(updateRes.status).toBe(200);
+		const updated = await updateRes.json() as { recipientAddress: string };
+		expect(updated.recipientAddress).toBe(newRecipientAddress);
+
+		const orderRes = await app.request('/api/billing/create-crypto-order', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({ priceId: price.id, deploymentId: deployment.id, payerWalletId: wallet.id, quotedAmountBaseUnits: '30000000', quoteCreatedAt: Date.now() }),
+		}, env);
+		expect(orderRes.status).toBe(200);
+		const order = await orderRes.json() as { recipientAddress: string };
+		expect(order.recipientAddress).toBe(newRecipientAddress);
+
+		const disableRes = await app.request('/api/admin/update-payment-asset-deployment', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({
+				deploymentId: deployment.id,
+				assetId: asset.id,
+				chainId: 8453,
+				tokenSymbol: deployment.tokenSymbol,
+				tokenName: deployment.tokenName,
+				contractAddress,
+				decimals: 6,
+				recipientAddress: newRecipientAddress,
+				isEnabled: false,
+			}),
+		}, env);
+		expect(disableRes.status).toBe(200);
+
+		const offersRes = await app.request('/api/billing/list-crypto-offers', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({}),
+		}, env);
+		expect(offersRes.status).toBe(200);
+		const offers = await offersRes.json() as Array<{ id: string }>;
+		expect(offers).toEqual([]);
+	});
+
+	test('RPC-disabled crypto payments return empty availability without endpoint errors', async () => {
+		const { adminToken, userToken, userId } = await setupAdminAndUser();
+		const { deployment, price } = await createCryptoOffer(adminToken);
+		const wallet = await createLinkedWallet(userId);
+		await enableCryptoPayments('');
+
+		const metaRes = await app.request('/api/meta', { method: 'GET' }, env);
+		expect(metaRes.status).toBe(200);
+		const meta = await metaRes.json() as { cryptoPaymentsEnabled: boolean };
+		expect(meta.cryptoPaymentsEnabled).toBe(false);
+
+		const offersRes = await app.request('/api/billing/list-crypto-offers', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({}),
+		}, env);
+		expect(offersRes.status).toBe(200);
+		expect(await offersRes.json()).toEqual([]);
+
+		const walletChainsRes = await app.request('/api/account/wallets/link/chains', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({}),
+		}, env);
+		expect(walletChainsRes.status).toBe(200);
+		expect(await walletChainsRes.json()).toEqual([]);
+
+		const chainsRes = await app.request('/api/admin/list-payment-chains', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({}),
+		}, env);
+		expect(chainsRes.status).toBe(200);
+		const chains = await chainsRes.json() as Array<{ chainId: number; isRpcConfigured: boolean }>;
+		expect(chains).toContainEqual(expect.objectContaining({ chainId: 8453, isRpcConfigured: false }));
+
+		const deploymentsRes = await app.request('/api/admin/list-payment-asset-deployments', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({}),
+		}, env);
+		expect(deploymentsRes.status).toBe(200);
+		const deployments = await deploymentsRes.json() as Array<{ chainId: number; isRpcConfigured: boolean }>;
+		expect(deployments).toContainEqual(expect.objectContaining({ chainId: 8453, isRpcConfigured: false }));
+
+		const orderRes = await app.request('/api/billing/create-crypto-order', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({ priceId: price.id, deploymentId: deployment.id, payerWalletId: wallet.id, quotedAmountBaseUnits: '30000000', quoteCreatedAt: Date.now() }),
+		}, env);
+		expect(orderRes.status).toBe(403);
+		const orderError = await orderRes.json() as { error: string };
+		expect(orderError.error).toBe('FORBIDDEN');
+	});
+
+	test('creating an order is rejected when crypto payments are not acceptable', async () => {
+		const { adminToken, userToken, userId } = await setupAdminAndUser();
+		const { deployment, price } = await createCryptoOffer(adminToken);
 		const wallet = await createLinkedWallet(userId);
 		const orderRes = await app.request('/api/billing/create-crypto-order', {
 			method: 'POST',
 			headers: authHeaders(userToken),
-			body: JSON.stringify({ priceId: price.id, payerWalletId: wallet.id }),
+			body: JSON.stringify({ priceId: price.id, deploymentId: deployment.id, payerWalletId: wallet.id, quotedAmountBaseUnits: '30000000', quoteCreatedAt: Date.now() }),
 		}, env);
+		expect(orderRes.status).toBe(403);
+		const body = await orderRes.json() as { error: string };
+		expect(body.error).toBe('FORBIDDEN');
+	});
+
+	test('confirming an existing order is not blocked when crypto payments are disabled after order creation', async () => {
+		const { adminToken, userToken, userId } = await setupAdminAndUser();
+		const { deployment, price } = await createCryptoOffer(adminToken);
+		await enableCryptoPayments();
+		const wallet = await createLinkedWallet(userId);
+
+		const orderRes = await app.request('/api/billing/create-crypto-order', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify(await createOrderBody(userToken, price.id, deployment.id, wallet.id)),
+		}, env);
+		expect(orderRes.status).toBe(200);
 		const order = await orderRes.json() as { id: string };
+		await disableCryptoPayments();
+		await env.DB.prepare('UPDATE crypto_payment_orders SET expires_at = ? WHERE id = ?').bind(Date.now() - 1_000, order.id).run();
 
 		const confirmRes = await app.request('/api/billing/confirm-crypto-order', {
 			method: 'POST',
@@ -999,6 +1673,105 @@ describe('Crypto payment administration', () => {
 		}, env);
 		expect(confirmRes.status).toBe(400);
 		const body = await confirmRes.json() as { error: string };
+		expect(body.error).toBe('PAYMENT_ORDER_EXPIRED');
+	});
+
+	test('creating an order rejects the selected chain when its RPC is not configured', async () => {
+		const { adminToken, userToken, userId } = await setupAdminAndUser();
+		const { asset, price } = await createCryptoOffer(adminToken);
+		await enableCryptoPayments('{"8453":"https://example.invalid/rpc"}');
+
+		const polygonChainRes = await app.request('/api/admin/create-payment-chain', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({
+				chainId: 137,
+				name: 'Polygon',
+				nativeCurrencyName: 'MATIC',
+				nativeCurrencySymbol: 'MATIC',
+				nativeCurrencyDecimals: 18,
+				blockExplorerUrl: 'https://polygonscan.com',
+				confirmationsRequired: 1,
+			}),
+		}, env);
+		expect(polygonChainRes.status).toBe(200);
+
+		const polygonDeploymentRes = await app.request('/api/admin/create-payment-asset-deployment', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({
+				assetId: asset.id,
+				chainId: 137,
+				tokenSymbol: 'USDC',
+				tokenName: 'USD Coin',
+				contractAddress: '0x6666666666666666666666666666666666666666',
+				decimals: 6,
+				recipientAddress,
+			}),
+		}, env);
+		expect(polygonDeploymentRes.status).toBe(200);
+		const polygonDeployment = await polygonDeploymentRes.json() as { id: string };
+		const wallet = await createLinkedWallet(userId, 137);
+
+		const orderRes = await app.request('/api/billing/create-crypto-order', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify({
+				priceId: price.id,
+				deploymentId: polygonDeployment.id,
+				payerWalletId: wallet.id,
+				quotedAmountBaseUnits: '30000000',
+				quoteCreatedAt: Date.now(),
+			}),
+		}, env);
+		expect(orderRes.status).toBe(400);
+		const body = await orderRes.json() as { error: string };
 		expect(body.error).toBe('PAYMENT_CHAIN_RPC_NOT_CONFIGURED');
+	});
+
+	test('creating an order rejects a zero payable quote', async () => {
+		const { adminToken, userToken, userId } = await setupAdminAndUser();
+		const { asset, deployment, price } = await createCryptoOffer(adminToken);
+		await enableCryptoPayments();
+		const wallet = await createLinkedWallet(userId);
+
+		const expensivePlanRes = await app.request('/api/admin/create-plan', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ name: 'Expensive Plan', maxBuckets: 50 }),
+		}, env);
+		expect(expensivePlanRes.status).toBe(200);
+		const expensivePlan = await expensivePlanRes.json() as { id: string };
+
+		const expensivePriceRes = await app.request('/api/admin/create-payment-asset-plan-price', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({
+				assetId: asset.id,
+				planId: expensivePlan.id,
+				amountBaseUnits: '90000000',
+				durationDays: 90,
+				durationUnit: 'days',
+			}),
+		}, env);
+		expect(expensivePriceRes.status).toBe(200);
+
+		const assignRes = await app.request('/api/admin/assign-user-plan', {
+			method: 'POST',
+			headers: authHeaders(adminToken),
+			body: JSON.stringify({ userId, planId: expensivePlan.id, expiresAt: Date.now() + 90 * 86_400_000 }),
+		}, env);
+		expect(assignRes.status).toBe(200);
+
+		const quote = await getOfferQuote(userToken, price.id, deployment.id);
+		expect(quote.payableAmountBaseUnits).toBe('0');
+		const orderRes = await app.request('/api/billing/create-crypto-order', {
+			method: 'POST',
+			headers: authHeaders(userToken),
+			body: JSON.stringify(createOrderBodyWithQuote(price.id, deployment.id, wallet.id, quote)),
+		}, env);
+		expect(orderRes.status).toBe(400);
+		const body = await orderRes.json() as { error: string };
+		expect(body.error).toBe('PAYMENT_QUOTE_INVALID');
 	});
 });

@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { describeResponse, describeRoute, validator } from 'hono-openapi';
-import { and, desc, eq, lt, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, lt, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 import * as v from 'valibot';
 import { genEaidx, parseEaidx } from '../../shared/eaid-x';
@@ -30,6 +30,16 @@ const app = new Hono<{ Bindings: Env }>();
 
 app.use(authMiddleware);
 app.use(adminMiddleware);
+
+async function getNextPlanSortOrder(env: Env): Promise<number> {
+	const latestPlan = await getDb(env)
+		.select({ sortOrder: plans.sortOrder })
+		.from(plans)
+		.orderBy(desc(plans.sortOrder))
+		.limit(1)
+		.get();
+	return (latestPlan?.sortOrder ?? 0) + 10;
+}
 
 app.post(
 	'/suspend-user',
@@ -852,7 +862,7 @@ app.post(
 	validator('json', apiDef['/api/admin/list-plans'].req),
 	describeResponse(async (c: JsonCtx<'/api/admin/list-plans', Env>) => {
 		const db = getDb(c.env);
-		const allPlans = await db.select().from(plans).all();
+		const allPlans = await db.select().from(plans).orderBy(asc(plans.sortOrder), asc(plans.createdAt), asc(plans.id)).all();
 		return c.json(allPlans, 200);
 	}, getResponseDefWithAuth('/api/admin/list-plans')),
 );
@@ -873,6 +883,8 @@ app.post(
 			maxFilesPerBucket: body.maxFilesPerBucket ?? null,
 			maxDailyUploads: body.maxDailyUploads ?? null,
 			canUseDownloadCount: body.canUseDownloadCount ?? false,
+			isEnabled: body.isEnabled ?? true,
+			sortOrder: body.sortOrder ?? await getNextPlanSortOrder(c.env),
 			createdAt: now,
 			updatedAt: now,
 		};
@@ -906,6 +918,8 @@ app.post(
 			maxFilesPerBucket: body.maxFilesPerBucket ?? null,
 			maxDailyUploads: body.maxDailyUploads ?? null,
 			canUseDownloadCount: body.canUseDownloadCount ?? false,
+			isEnabled: body.isEnabled ?? true,
+			sortOrder: body.sortOrder ?? existing.sortOrder,
 			createdAt: existing.createdAt,
 			updatedAt: Date.now(),
 		};
@@ -917,6 +931,8 @@ app.post(
 			maxFilesPerBucket: updated.maxFilesPerBucket,
 			maxDailyUploads: updated.maxDailyUploads,
 			canUseDownloadCount: updated.canUseDownloadCount,
+			isEnabled: updated.isEnabled,
+			sortOrder: updated.sortOrder,
 			updatedAt: updated.updatedAt,
 		}).where(eq(plans.id, body.planId));
 		await refreshEffectiveQuotaForPlanUsers(c.env, body.planId, updated.updatedAt);
@@ -926,32 +942,6 @@ app.post(
 
 		return c.json(updated, 200);
 	}, getResponseDefWithAuth('/api/admin/update-plan')),
-);
-
-app.post(
-	'/delete-plan',
-	describeRoute(omitResAndReq(apiDef['/api/admin/delete-plan'])),
-	validator('json', apiDef['/api/admin/delete-plan'].req),
-	describeResponse(async (c: JsonCtx<'/api/admin/delete-plan', Env>) => {
-		const db = getDb(c.env);
-		const body = c.req.valid('json');
-		const existing = await db.select({ id: plans.id }).from(plans).where(eq(plans.id, body.planId)).get();
-		if (!existing) {
-			throw apiError(404, 'PLAN_NOT_FOUND');
-		}
-
-		const assignedUsers = await db
-			.select({ userId: userPlanAssignments.userId })
-			.from(userPlanAssignments)
-			.where(eq(userPlanAssignments.planId, body.planId));
-		await db.delete(plans).where(eq(plans.id, body.planId));
-		for (const assignedUser of assignedUsers) {
-			await refreshEffectiveQuotaForUser(c.env, assignedUser.userId);
-		}
-		await recordModerationAuditLog(c, 'admin_plan_deleted', { data: { planId: body.planId } });
-
-		return c.json({ ok: true }, 200);
-	}, getResponseDefWithAuth('/api/admin/delete-plan')),
 );
 
 app.post(

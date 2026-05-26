@@ -5,6 +5,7 @@ import type { ApiEndpointDefinitionRecord } from '../api.types.js';
 const EthereumAddress = v.pipe(v.string(), v.regex(/^0x[a-fA-F0-9]{40}$/));
 const TransactionHash = v.pipe(v.string(), v.regex(/^0x[a-fA-F0-9]{64}$/));
 const BigIntString = v.pipe(v.string(), v.regex(/^(0|[1-9]\d*)$/));
+const PaymentDurationUnit = v.picklist(['days', 'months', 'years']);
 
 const PaymentChainResponse = v.pipe(
 	v.object({
@@ -43,6 +44,8 @@ const PaymentAssetDeploymentResponse = v.pipe(
 		assetName: v.string(),
 		chainId: v.number(),
 		chainName: v.string(),
+		tokenSymbol: v.string(),
+		tokenName: v.string(),
 		contractAddress: EthereumAddress,
 		decimals: v.number(),
 		recipientAddress: EthereumAddress,
@@ -54,29 +57,74 @@ const PaymentAssetDeploymentResponse = v.pipe(
 	v.metadata({ ref: 'PaymentAssetDeployment' }),
 );
 
+const PaymentAssetDeploymentMetadataResponse = v.pipe(
+	v.object({
+		symbol: v.nullable(v.string()),
+		name: v.nullable(v.string()),
+		decimals: v.number(),
+	}),
+	v.metadata({ ref: 'PaymentAssetDeploymentMetadata' }),
+);
+
+const PaymentChainRpcTestResponse = v.pipe(
+	v.object({
+		ok: v.literal(true),
+		chainId: v.number(),
+	}),
+	v.metadata({ ref: 'PaymentChainRpcTest' }),
+);
+
 const PlanSummaryResponse = v.object({
 	id: IdString,
 	name: v.string(),
+	maxBuckets: v.nullable(v.number()),
+	maxBucketSizeBytes: v.nullable(v.number()),
+	maxFilesPerBucket: v.nullable(v.number()),
+	maxDailyUploads: v.nullable(v.number()),
+	canUseDownloadCount: v.boolean(),
+	sortOrder: v.number(),
+});
+
+const PaymentOfferQuoteResponse = v.object({
+	quoteCreatedAt: v.number(),
+	quoteExpiresAt: v.number(),
+	baseAmountBaseUnits: BigIntString,
+	discountBaseUnits: BigIntString,
+	payableAmountBaseUnits: BigIntString,
+	effectiveExpiresAt: v.number(),
+	currentPlan: v.nullable(v.object({
+		id: IdString,
+		name: v.string(),
+		expiresAt: v.number(),
+		priceAmountBaseUnits: BigIntString,
+		priceDurationDays: v.number(),
+		priceDurationUnit: PaymentDurationUnit,
+	})),
 });
 
 const PaymentAssetPlanPriceResponse = v.pipe(
 	v.object({
 		id: IdString,
-		deploymentId: IdString,
+		deploymentId: v.nullable(IdString),
 		assetId: IdString,
 		assetSymbol: v.string(),
 		assetName: v.string(),
-		chainId: v.number(),
-		chainName: v.string(),
-		confirmationsRequired: v.number(),
-		contractAddress: EthereumAddress,
-		recipientAddress: EthereumAddress,
-		decimals: v.number(),
+		tokenSymbol: v.nullable(v.string()),
+		tokenName: v.nullable(v.string()),
+		chainId: v.nullable(v.number()),
+		chainName: v.nullable(v.string()),
+		confirmationsRequired: v.nullable(v.number()),
+		contractAddress: v.nullable(EthereumAddress),
+		recipientAddress: v.nullable(EthereumAddress),
+		decimals: v.nullable(v.number()),
 		plan: PlanSummaryResponse,
 		amountBaseUnits: BigIntString,
 		durationDays: v.number(),
+		durationUnit: PaymentDurationUnit,
 		isEnabled: v.boolean(),
+		expiresAt: v.nullable(v.number()),
 		isRpcConfigured: v.boolean(),
+		quote: PaymentOfferQuoteResponse,
 		createdAt: v.number(),
 		updatedAt: v.number(),
 	}),
@@ -97,11 +145,24 @@ const CryptoPaymentOrderResponse = v.pipe(
 		chainName: v.string(),
 		assetSymbol: v.string(),
 		assetName: v.string(),
+		planName: v.string(),
 		contractAddress: EthereumAddress,
 		recipientAddress: EthereumAddress,
 		amountBaseUnits: BigIntString,
 		decimals: v.number(),
 		durationDays: v.number(),
+		durationUnit: PaymentDurationUnit,
+		quoteCreatedAt: v.number(),
+		quoteExpiresAt: v.number(),
+		quoteBaseAmountBaseUnits: BigIntString,
+		quoteDiscountBaseUnits: BigIntString,
+		quoteEffectiveExpiresAt: v.number(),
+		quoteCurrentPlanId: v.nullable(IdString),
+		quoteCurrentPlanName: v.nullable(v.string()),
+		quoteCurrentPlanExpiresAt: v.nullable(v.number()),
+		quoteCurrentPlanPriceAmountBaseUnits: v.nullable(BigIntString),
+		quoteCurrentPlanPriceDurationDays: v.nullable(v.number()),
+		quoteCurrentPlanPriceDurationUnit: v.nullable(PaymentDurationUnit),
 		status: CryptoPaymentOrderStatus,
 		txHash: v.nullable(TransactionHash),
 		createdAt: v.number(),
@@ -132,6 +193,8 @@ const AssetInput = {
 const DeploymentInput = {
 	assetId: IdString,
 	chainId: v.pipe(v.number(), v.integer(), v.minValue(1)),
+	tokenSymbol: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(20)),
+	tokenName: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(100)),
 	contractAddress: EthereumAddress,
 	decimals: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(255)),
 	recipientAddress: EthereumAddress,
@@ -139,11 +202,13 @@ const DeploymentInput = {
 } as const;
 
 const PriceInput = {
-	deploymentId: IdString,
+	assetId: IdString,
 	planId: IdString,
 	amountBaseUnits: BigIntString,
 	durationDays: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(3650)),
+	durationUnit: v.optional(PaymentDurationUnit, 'days'),
 	isEnabled: v.optional(v.boolean(), true),
+	expiresAt: v.optional(v.nullable(v.pipe(v.number(), v.integer(), v.minValue(0))), null),
 } as const;
 
 const OkResponse = { 200: { description: 'Success', content: { 'application/json': { vSchema: v.object({ ok: v.literal(true) }) } } } };
@@ -159,10 +224,16 @@ export const billingApiDef = {
 	'/api/billing/create-crypto-order': {
 		summary: 'Create a crypto payment order',
 		tags: ['billing'],
-		req: v.object({ priceId: IdString, payerWalletId: IdString }),
+		req: v.object({
+			priceId: IdString,
+			deploymentId: IdString,
+			payerWalletId: IdString,
+			quotedAmountBaseUnits: BigIntString,
+			quoteCreatedAt: v.pipe(v.number(), v.integer(), v.minValue(0)),
+		}),
 		res: {
 			200: { description: 'Success', content: { 'application/json': { vSchema: CryptoPaymentOrderResponse } } },
-			400: errorResponse('Payment wallet not found', ['WALLET_NOT_FOUND']),
+			400: errorResponse('Invalid payment quote, wallet, or RPC configuration', ['PAYMENT_CHAIN_RPC_NOT_CONFIGURED', 'PAYMENT_QUOTE_EXPIRED', 'PAYMENT_QUOTE_INVALID', 'WALLET_NOT_FOUND']),
 			404: errorResponse('Payment price not found', ['PAYMENT_PRICE_NOT_FOUND']),
 		},
 	},
@@ -175,6 +246,12 @@ export const billingApiDef = {
 			400: errorResponse('Invalid payment transaction', ['PAYMENT_CHAIN_RPC_NOT_CONFIGURED', 'PAYMENT_ORDER_EXPIRED', 'PAYMENT_TRANSACTION_ALREADY_USED', 'PAYMENT_TRANSACTION_INVALID']),
 			404: errorResponse('Payment order not found', ['PAYMENT_ORDER_NOT_FOUND']),
 		},
+	},
+	'/api/billing/cancel-crypto-order': {
+		summary: 'Cancel a pending crypto payment order before transaction submission',
+		tags: ['billing'],
+		req: v.object({ orderId: IdString }),
+		res: { ...OkResponse, 404: errorResponse('Payment order not found', ['PAYMENT_ORDER_NOT_FOUND']) },
 	},
 	'/api/billing/list-my-payments': {
 		summary: 'List current user crypto payments',
@@ -206,6 +283,16 @@ export const billingApiDef = {
 		req: v.object({ chainId: v.pipe(v.number(), v.integer(), v.minValue(1)) }),
 		res: { ...OkResponse, 404: errorResponse('Payment chain not found', ['PAYMENT_CHAIN_NOT_FOUND']) },
 	},
+	'/api/admin/test-payment-chain-rpc': {
+		summary: 'Test payment chain RPC connectivity',
+		tags: ['admin', 'billing'],
+		req: v.object({ chainId: v.pipe(v.number(), v.integer(), v.minValue(1)) }),
+		res: {
+			200: { description: 'Success', content: { 'application/json': { vSchema: PaymentChainRpcTestResponse } } },
+			400: errorResponse('Payment chain RPC not configured or invalid chain', ['PAYMENT_CHAIN_RPC_NOT_CONFIGURED', 'PAYMENT_TRANSACTION_INVALID']),
+			404: errorResponse('Payment chain not found', ['PAYMENT_CHAIN_NOT_FOUND']),
+		},
+	},
 	'/api/admin/list-payment-assets': {
 		summary: 'List payment assets',
 		tags: ['admin', 'billing'],
@@ -236,6 +323,19 @@ export const billingApiDef = {
 		req: v.object({}),
 		res: { 200: { description: 'Success', content: { 'application/json': { vSchema: v.array(PaymentAssetDeploymentResponse) } } } },
 	},
+	'/api/admin/resolve-payment-asset-deployment': {
+		summary: 'Resolve payment asset deployment metadata from chain',
+		tags: ['admin', 'billing'],
+		req: v.object({
+			chainId: v.pipe(v.number(), v.integer(), v.minValue(1)),
+			contractAddress: EthereumAddress,
+		}),
+		res: {
+			200: { description: 'Success', content: { 'application/json': { vSchema: PaymentAssetDeploymentMetadataResponse } } },
+			400: errorResponse('Payment chain RPC not configured or invalid contract', ['PAYMENT_CHAIN_RPC_NOT_CONFIGURED', 'PAYMENT_TRANSACTION_INVALID']),
+			404: errorResponse('Payment chain not found', ['PAYMENT_CHAIN_NOT_FOUND']),
+		},
+	},
 	'/api/admin/create-payment-asset-deployment': {
 		summary: 'Create payment asset deployment',
 		tags: ['admin', 'billing'],
@@ -248,12 +348,6 @@ export const billingApiDef = {
 		req: v.object({ deploymentId: IdString, ...DeploymentInput }),
 		res: { 200: { description: 'Success', content: { 'application/json': { vSchema: PaymentAssetDeploymentResponse } } }, 400: errorResponse('Payment deployment already exists', ['PAYMENT_ASSET_DEPLOYMENT_ALREADY_EXISTS']), 404: errorResponse('Payment deployment not found', ['PAYMENT_ASSET_DEPLOYMENT_NOT_FOUND', 'PAYMENT_CHAIN_NOT_FOUND', 'PAYMENT_ASSET_NOT_FOUND']) },
 	},
-	'/api/admin/delete-payment-asset-deployment': {
-		summary: 'Delete payment asset deployment',
-		tags: ['admin', 'billing'],
-		req: v.object({ deploymentId: IdString }),
-		res: { ...OkResponse, 404: errorResponse('Payment deployment not found', ['PAYMENT_ASSET_DEPLOYMENT_NOT_FOUND']) },
-	},
 	'/api/admin/list-payment-asset-plan-prices': {
 		summary: 'List payment asset plan prices',
 		tags: ['admin', 'billing'],
@@ -264,13 +358,13 @@ export const billingApiDef = {
 		summary: 'Create payment asset plan price',
 		tags: ['admin', 'billing'],
 		req: v.object(PriceInput),
-		res: { 200: { description: 'Success', content: { 'application/json': { vSchema: PaymentAssetPlanPriceResponse } } }, 404: errorResponse('Payment deployment or plan not found', ['PAYMENT_ASSET_DEPLOYMENT_NOT_FOUND', 'PLAN_NOT_FOUND']) },
+		res: { 200: { description: 'Success', content: { 'application/json': { vSchema: PaymentAssetPlanPriceResponse } } }, 400: errorResponse('Invalid payment price', ['PAYMENT_PRICE_ALREADY_EXISTS', 'PAYMENT_PRICE_ORDER_INVALID']), 404: errorResponse('Payment asset or plan not found', ['PAYMENT_ASSET_NOT_FOUND', 'PLAN_NOT_FOUND']) },
 	},
 	'/api/admin/update-payment-asset-plan-price': {
 		summary: 'Update payment asset plan price',
 		tags: ['admin', 'billing'],
 		req: v.object({ priceId: IdString, ...PriceInput }),
-		res: { 200: { description: 'Success', content: { 'application/json': { vSchema: PaymentAssetPlanPriceResponse } } }, 404: errorResponse('Payment price, deployment, or plan not found', ['PAYMENT_PRICE_NOT_FOUND', 'PAYMENT_ASSET_DEPLOYMENT_NOT_FOUND', 'PLAN_NOT_FOUND']) },
+		res: { 200: { description: 'Success', content: { 'application/json': { vSchema: PaymentAssetPlanPriceResponse } } }, 400: errorResponse('Invalid payment price', ['PAYMENT_PRICE_ALREADY_EXISTS', 'PAYMENT_PRICE_ORDER_INVALID']), 404: errorResponse('Payment price, asset, or plan not found', ['PAYMENT_PRICE_NOT_FOUND', 'PAYMENT_ASSET_NOT_FOUND', 'PLAN_NOT_FOUND']) },
 	},
 	'/api/admin/delete-payment-asset-plan-price': {
 		summary: 'Delete payment asset plan price',

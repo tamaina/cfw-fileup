@@ -1,5 +1,5 @@
 import * as v from 'valibot';
-import { errorResponse, PageRequestFields, pagedResponse } from '../api.schemas.js';
+import { errorResponse, PageRequestFields, pagedResponse, IdString } from '../api.schemas.js';
 import { nameFormatValidation } from '../name-validation.js';
 import { MAX_PASSPHRASE_LENGTH, MAX_USERNAME_LENGTH } from '../const.js';
 import type { ApiEndpointDefinitionRecord } from '../api.types.js';
@@ -28,6 +28,17 @@ const EffectiveQuotaResponse = v.pipe(
 	}),
 	v.metadata({ ref: 'AccountEffectiveQuota' }),
 );
+const CurrentPlanResponse = v.pipe(
+	v.nullable(v.object({
+		userId: IdString,
+		planId: IdString,
+		planName: v.string(),
+		expiresAt: v.number(),
+		createdAt: v.number(),
+		updatedAt: v.number(),
+	})),
+	v.metadata({ ref: 'AccountCurrentPlan' }),
+);
 const EthereumAddress = v.pipe(v.string(), v.regex(/^0x[a-fA-F0-9]{40}$/));
 const HexSignature = v.pipe(v.string(), v.regex(/^0x[a-fA-F0-9]+$/));
 const WalletResponse = v.pipe(
@@ -40,6 +51,17 @@ const WalletResponse = v.pipe(
 		updatedAt: v.number(),
 	}),
 	v.metadata({ ref: 'UserWallet' }),
+);
+const WalletLinkChainResponse = v.pipe(
+	v.object({
+		chainId: v.number(),
+		name: v.string(),
+		nativeCurrencyName: v.string(),
+		nativeCurrencySymbol: v.string(),
+		nativeCurrencyDecimals: v.number(),
+		blockExplorerUrl: v.nullable(v.string()),
+	}),
+	v.metadata({ ref: 'WalletLinkChain' }),
 );
 
 export const accountApiDef = {
@@ -111,6 +133,23 @@ export const accountApiDef = {
 			200: { description: 'Success', content: { 'application/json': { vSchema: v.array(WalletResponse) } } },
 		},
 	},
+	'/api/account/wallets/link/chains': {
+		summary: 'List wallet link chains',
+		tags: ['account'],
+		req: v.object({}),
+		res: {
+			200: { description: 'Success', content: { 'application/json': { vSchema: v.array(WalletLinkChainResponse) } } },
+		},
+	},
+	'/api/account/wallets/unlink': {
+		summary: 'Unlink wallet',
+		tags: ['account'],
+		req: v.object({ walletId: IdString }),
+		res: {
+			200: { description: 'Success', content: { 'application/json': { vSchema: v.object({ ok: v.literal(true) }) } } },
+			404: errorResponse('Wallet not found', ['WALLET_NOT_FOUND']),
+		},
+	},
 	'/api/account/wallets/link/begin': {
 		summary: 'Begin linking a wallet with SIWE',
 		tags: ['account'],
@@ -153,6 +192,14 @@ export const accountApiDef = {
 		req: v.object({}),
 		res: {
 			200: { description: 'Success', content: { 'application/json': { vSchema: EffectiveQuotaResponse } } },
+		},
+	},
+	'/api/account/current-plan': {
+		summary: 'Get current account plan assignment',
+		tags: ['account'],
+		req: v.object({}),
+		res: {
+			200: { description: 'Success', content: { 'application/json': { vSchema: CurrentPlanResponse } } },
 		},
 	},
 	'/api/account/update': {

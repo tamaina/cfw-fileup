@@ -34,6 +34,7 @@
     "@lucide/vue": "^1.16.0",
     "@simplewebauthn/browser": "^13.3.0",
     "@simplewebauthn/server": "^13.3.0",
+    "@tanstack/vue-query": "^5.100.14",
     "@valibot/to-json-schema": "^1.7.0",
     "@vuetify/v0": "1.0.0-alpha.4",
     "@wagmi/vue": "^0.5.16",

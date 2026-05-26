@@ -53,6 +53,11 @@ export const ROUTE_DEF = [
 		component: page(() => import('@/pages/my/quota.vue')),
 	},
 	{
+		path: '/my/payments',
+		name: 'my-payments',
+		component: page(() => import('@/pages/my/payments.vue')),
+	},
+	{
 		path: '/my/passkeys',
 		name: 'my-passkeys',
 		component: page(() => import('@/pages/my/passkeys.vue')),

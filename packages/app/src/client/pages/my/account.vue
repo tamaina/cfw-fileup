@@ -5,24 +5,20 @@ import { startAuthentication } from '@simplewebauthn/browser';
 import type { PublicKeyCredentialRequestOptionsJSON } from '@simplewebauthn/browser';
 import { apiPost, type ApiSuccess } from '@/utils/api';
 import { authStore, fetchCurrentUser, setToken } from '@/store/auth';
-import { useWallet } from '@/composables/useWallet';
+import WalletSettings from '@/components/WalletSettings.vue';
 import type { ApiReq } from '../../../shared/api';
 
 type LinkedMisskeyAccount = ApiSuccess<'/api/account/linked-misskey/list'>['data'][number];
-type LinkedWallet = ApiSuccess<'/api/account/wallets/list'>['data'][number];
 
 const indieauthProfileUrl = ref('');
 const currentPassword = ref('');
 const googleLoading = ref(false);
 const indieauthLoading = ref(false);
 const passkeyLoading = ref(false);
-const walletLoading = ref(false);
 const error = ref('');
 const success = ref('');
 const googleAuthEnabled = ref(false);
 const misskeyAccounts = ref<LinkedMisskeyAccount[]>([]);
-const wallets = ref<LinkedWallet[]>([]);
-const { walletAddress, walletChainId, connectWallet, signWalletMessage } = useWallet();
 
 const hasGoogle = computed(() => authStore.user?.hasGoogle ?? false);
 const hasPassword = computed(() => authStore.user?.hasPassword ?? true);
@@ -48,12 +44,6 @@ async function loadMisskeyAccounts(): Promise<void> {
 	if (!authStore.user) return;
 	const result = await apiPost('/api/account/linked-misskey/list');
 	if (result.ok) misskeyAccounts.value = result.data;
-}
-
-async function loadWallets(): Promise<void> {
-	if (!authStore.user) return;
-	const result = await apiPost('/api/account/wallets/list');
-	if (result.ok) wallets.value = result.data;
 }
 
 function consumeCallbackParams(): void {
@@ -160,40 +150,10 @@ async function linkIndieAuth({ valid }: { valid: boolean }): Promise<void> {
 	}
 }
 
-async function linkWallet(): Promise<void> {
-	error.value = '';
-	success.value = '';
-	walletLoading.value = true;
-	try {
-		const { address, chainId } = await connectWallet();
-		const beginResult = await apiPost('/api/account/wallets/link/begin', { address, chainId });
-		if (!beginResult.ok) {
-			error.value = beginResult.data.message || 'ウォレット連携の開始に失敗しました';
-			return;
-		}
-		const signature = await signWalletMessage(beginResult.data.message);
-		const verifyResult = await apiPost('/api/account/wallets/link/verify', {
-			nonce: beginResult.data.nonce,
-			message: beginResult.data.message,
-			signature,
-		});
-		if (!verifyResult.ok) {
-			error.value = verifyResult.data.message || 'ウォレット署名の検証に失敗しました';
-			return;
-		}
-		success.value = 'ウォレットを連携しました';
-		await loadWallets();
-	} catch (e) {
-		error.value = String(e);
-	} finally {
-		walletLoading.value = false;
-	}
-}
-
 onMounted(async () => {
 	consumeCallbackParams();
 	await Promise.all([fetchCurrentUser(), loadMeta()]);
-	await Promise.all([loadMisskeyAccounts(), loadWallets()]);
+	await loadMisskeyAccounts();
 });
 </script>
 
@@ -269,29 +229,7 @@ onMounted(async () => {
         </div>
       </div>
 
-      <div :class="['card', $style.card]">
-        <div :class="$style.serviceHeader">
-          <div>
-            <h3 :class="$style.serviceTitle">Wallet</h3>
-            <p :class="$style.serviceDescription">暗号資産決済で使用するウォレットをSIWE署名で連携します。</p>
-          </div>
-          <span :class="['badge', wallets.length > 0 ? 'badge-success' : 'badge-info']">
-            {{ wallets.length > 0 ? `${wallets.length}件連携済み` : '未連携' }}
-          </span>
-        </div>
-        <button class="btn btn-primary" type="button" :disabled="walletLoading" @click="linkWallet">
-          {{ walletLoading ? '処理中...' : 'ウォレットを連携' }}
-        </button>
-        <div v-if="walletAddress" :class="$style.walletHint">
-          {{ walletAddress }} / chain {{ walletChainId ?? '-' }}
-        </div>
-        <div v-if="wallets.length > 0" :class="$style.linkedList">
-          <div v-for="wallet in wallets" :key="wallet.id" :class="$style.linkedItem">
-            <div :class="$style.linkedName">{{ wallet.address }}</div>
-            <div :class="$style.linkedLink">chain {{ wallet.chainId }}</div>
-          </div>
-        </div>
-      </div>
+      <WalletSettings />
     </template>
   </div>
 </template>
@@ -339,6 +277,10 @@ onMounted(async () => {
 }
 
 .linkedItem {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
   border: 1px solid var(--color-border);
   border-radius: 8px;
   padding: 12px;
@@ -363,10 +305,9 @@ onMounted(async () => {
   text-decoration: underline;
 }
 
-.walletHint {
-  margin-top: 8px;
-  color: var(--color-text-muted);
-  font-size: 0.875rem;
-  overflow-wrap: anywhere;
+@media (max-width: 600px) {
+  .linkedItem {
+    flex-direction: column;
+  }
 }
 </style>

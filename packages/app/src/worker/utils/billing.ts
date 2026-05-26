@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, ne } from 'drizzle-orm';
+import { and, desc, eq, ne } from 'drizzle-orm';
 import { createPublicClient, decodeEventLog, http, isAddress, parseAbiItem, type Hex } from 'viem';
 import { genEaidx } from '../../shared/eaid-x';
 import { cryptoPaymentOrders, paymentChains, userPlanAssignments } from '../scheme/index';
@@ -9,7 +9,6 @@ import { refreshEffectiveQuotaForUser } from './rate-limit';
 
 const TRANSFER_EVENT = parseAbiItem('event Transfer(address indexed from, address indexed to, uint256 value)');
 const ORDER_TTL_MS = 30 * 60 * 1000;
-const DAY_MS = 86_400_000;
 const TX_TIMESTAMP_TOLERANCE_MS = 2_000;
 
 type OrderForConfirmation = typeof cryptoPaymentOrders.$inferSelect;
@@ -33,6 +32,7 @@ export async function confirmCryptoPaymentOrder(env: Env, userId: string, orderI
 		await db.update(cryptoPaymentOrders).set({ status: 'expired', updatedAt: now }).where(eq(cryptoPaymentOrders.id, order.id));
 		throw apiError(400, 'PAYMENT_ORDER_EXPIRED');
 	}
+	assertValidBigIntString(order.amountBaseUnits);
 
 	const normalizedTxHash = normalizeTransactionHash(txHash);
 	const usedOrder = await db
@@ -136,22 +136,13 @@ async function getConfirmationsRequired(env: Env, chainId: number): Promise<numb
 
 async function applyPaidOrderPlan(env: Env, order: OrderForConfirmation, now: number): Promise<void> {
 	const db = getDb(env);
-	const activeAssignment = await db
-		.select()
-		.from(userPlanAssignments)
-		.where(and(eq(userPlanAssignments.userId, order.userId), gt(userPlanAssignments.expiresAt, now)))
-		.get();
-	const durationMs = order.durationDays * DAY_MS;
-	const expiresAt = activeAssignment?.planId === order.planId
-		? activeAssignment.expiresAt + durationMs
-		: now + durationMs;
 
 	await db
 		.insert(userPlanAssignments)
 		.values({
 			userId: order.userId,
 			planId: order.planId,
-			expiresAt,
+			expiresAt: order.quoteEffectiveExpiresAt,
 			createdAt: now,
 			updatedAt: now,
 		})
@@ -159,10 +150,10 @@ async function applyPaidOrderPlan(env: Env, order: OrderForConfirmation, now: nu
 			target: userPlanAssignments.userId,
 			set: {
 				planId: order.planId,
-				expiresAt,
+				expiresAt: order.quoteEffectiveExpiresAt,
 				updatedAt: now,
 			},
-		});
+	});
 }
 
 export function normalizeTransactionHash(txHash: string): Hex {

@@ -54,6 +54,9 @@ async function fetchSettings(): Promise<void> {
 				case 'reject_mismatched_file_type':
 					map.reject_mismatched_file_type = s.value;
 					break;
+				case 'crypto_payments_enabled':
+					map.crypto_payments_enabled = s.value;
+					break;
 				case 'forbidden_usernames':
 					map.forbidden_usernames = s.value;
 					break;
@@ -178,6 +181,18 @@ async function saveSetting<TKey extends KnownSettingKey>(key: TKey, value: v.Inf
           @save="saveSetting('reject_mismatched_file_type', $event)"
         >
           有効にすると、ファイルヘッダから推定した種類と拡張子が一致しないアップロードを完了時に拒否します。
+        </SettingItem>
+
+        <SettingItem
+          v-model="values['crypto_payments_enabled']"
+          :schema="KNOWN_SETTINGS['crypto_payments_enabled']"
+          title="Crypto payments"
+          :saving="saving['crypto_payments_enabled']"
+          :show-save-button="true"
+          :save-on-change="false"
+          @save="saveSetting('crypto_payments_enabled', $event)"
+        >
+          有効にすると、チェーン・RPC・デプロイメント・価格設定が揃っている場合に暗号資産決済を受け付けます。
         </SettingItem>
 
         <SettingItem

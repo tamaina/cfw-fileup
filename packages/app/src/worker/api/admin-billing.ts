@@ -1,18 +1,35 @@
 import { Hono } from 'hono';
 import { describeResponse, describeRoute, validator } from 'hono-openapi';
-import { and, desc, eq, lt, ne } from 'drizzle-orm';
+import { and, desc, eq, isNull, lt, ne } from 'drizzle-orm';
+import { createPublicClient, http, parseAbi } from 'viem';
 import { genEaidx } from '../../shared/eaid-x';
 import { apiDef, getResponseDefWithAuth, type JsonCtx } from '../../shared/api';
+import { type PaymentDurationUnit } from '../../shared/billing-quote';
 import { authMiddleware, adminMiddleware } from '../middleware/auth';
 import { cryptoPaymentOrders, paymentAssetDeployments, paymentAssetPlanPrices, paymentAssets, paymentChains, plans } from '../scheme/index';
-import { apiError } from '../utils/api-error';
+import { ApiError, apiError } from '../utils/api-error';
 import { getDb } from '../utils/db';
 import { recordModerationAuditLog } from '../utils/moderation';
 import { omitResAndReq } from '../utils/omit';
 import { idPage, pageParams } from '../utils/pagination';
-import { isPaymentChainRpcConfigured, normalizeEthAddress } from '../utils/payment-rpc';
+import { getPaymentChainRpcUrl, isPaymentChainRpcConfigured, normalizeEthAddress } from '../utils/payment-rpc';
 
 const app = new Hono<{ Bindings: Env }>();
+const ERC20_METADATA_ABI = parseAbi([
+	'function symbol() view returns (string)',
+	'function name() view returns (string)',
+	'function decimals() view returns (uint8)',
+]);
+
+type PaymentPriceRuleInput = {
+	id?: string;
+	assetId: string;
+	planId: string;
+	amountBaseUnits: string;
+	durationDays: number;
+	durationUnit: PaymentDurationUnit;
+	expiresAt: number | null;
+};
 
 app.use(authMiddleware);
 app.use(adminMiddleware);
@@ -24,7 +41,7 @@ function mapChain(env: Env, chain: typeof paymentChains.$inferSelect) {
 	};
 }
 
-async function listDeployments(env: Env) {
+async function listDeployments(env: Env, deploymentId?: string) {
 	const db = getDb(env);
 	const rows = await db
 		.select({
@@ -34,6 +51,8 @@ async function listDeployments(env: Env) {
 			assetName: paymentAssets.name,
 			chainId: paymentAssetDeployments.chainId,
 			chainName: paymentChains.name,
+			tokenSymbol: paymentAssetDeployments.tokenSymbol,
+			tokenName: paymentAssetDeployments.tokenName,
 			contractAddress: paymentAssetDeployments.contractAddress,
 			decimals: paymentAssetDeployments.decimals,
 			recipientAddress: paymentAssetDeployments.recipientAddress,
@@ -44,6 +63,7 @@ async function listDeployments(env: Env) {
 		.from(paymentAssetDeployments)
 		.innerJoin(paymentAssets, eq(paymentAssetDeployments.assetId, paymentAssets.id))
 		.innerJoin(paymentChains, eq(paymentAssetDeployments.chainId, paymentChains.chainId))
+		.where(deploymentId ? eq(paymentAssetDeployments.id, deploymentId) : undefined)
 		.orderBy(desc(paymentAssetDeployments.id));
 
 	return rows.map(row => ({
@@ -53,63 +73,190 @@ async function listDeployments(env: Env) {
 }
 
 async function getDeploymentResponse(env: Env, deploymentId: string) {
-	return (await listDeployments(env)).find(deployment => deployment.id === deploymentId) ?? null;
+	return (await listDeployments(env, deploymentId))[0] ?? null;
 }
 
-async function listPrices(env: Env) {
+async function listPrices(env: Env, priceId?: string) {
 	const db = getDb(env);
 	const rows = await db
 		.select({
 			id: paymentAssetPlanPrices.id,
-			deploymentId: paymentAssetPlanPrices.deploymentId,
 			assetId: paymentAssets.id,
 			assetSymbol: paymentAssets.symbol,
 			assetName: paymentAssets.name,
-			chainId: paymentChains.chainId,
-			chainName: paymentChains.name,
-			confirmationsRequired: paymentChains.confirmationsRequired,
-			contractAddress: paymentAssetDeployments.contractAddress,
-			recipientAddress: paymentAssetDeployments.recipientAddress,
-			decimals: paymentAssetDeployments.decimals,
 			planId: plans.id,
 			planName: plans.name,
+			planMaxBuckets: plans.maxBuckets,
+			planMaxBucketSizeBytes: plans.maxBucketSizeBytes,
+			planMaxFilesPerBucket: plans.maxFilesPerBucket,
+			planMaxDailyUploads: plans.maxDailyUploads,
+			planCanUseDownloadCount: plans.canUseDownloadCount,
+			planSortOrder: plans.sortOrder,
 			amountBaseUnits: paymentAssetPlanPrices.amountBaseUnits,
 			durationDays: paymentAssetPlanPrices.durationDays,
+			durationUnit: paymentAssetPlanPrices.durationUnit,
 			isEnabled: paymentAssetPlanPrices.isEnabled,
+			expiresAt: paymentAssetPlanPrices.expiresAt,
 			createdAt: paymentAssetPlanPrices.createdAt,
 			updatedAt: paymentAssetPlanPrices.updatedAt,
 		})
 		.from(paymentAssetPlanPrices)
-		.innerJoin(paymentAssetDeployments, eq(paymentAssetPlanPrices.deploymentId, paymentAssetDeployments.id))
-		.innerJoin(paymentAssets, eq(paymentAssetDeployments.assetId, paymentAssets.id))
-		.innerJoin(paymentChains, eq(paymentAssetDeployments.chainId, paymentChains.chainId))
+		.innerJoin(paymentAssets, eq(paymentAssetPlanPrices.assetId, paymentAssets.id))
 		.innerJoin(plans, eq(paymentAssetPlanPrices.planId, plans.id))
+		.where(priceId ? eq(paymentAssetPlanPrices.id, priceId) : undefined)
 		.orderBy(desc(paymentAssetPlanPrices.id));
 
 	return rows.map(row => ({
 		id: row.id,
-		deploymentId: row.deploymentId,
+		deploymentId: null,
 		assetId: row.assetId,
 		assetSymbol: row.assetSymbol,
 		assetName: row.assetName,
-		chainId: row.chainId,
-		chainName: row.chainName,
-		confirmationsRequired: row.confirmationsRequired,
-		contractAddress: row.contractAddress,
-		recipientAddress: row.recipientAddress,
-		decimals: row.decimals,
-		plan: { id: row.planId, name: row.planName },
+		tokenSymbol: null,
+		tokenName: null,
+		chainId: null,
+		chainName: null,
+		confirmationsRequired: null,
+		contractAddress: null,
+		recipientAddress: null,
+		decimals: null,
+		plan: {
+			id: row.planId,
+			name: row.planName,
+			maxBuckets: row.planMaxBuckets,
+			maxBucketSizeBytes: row.planMaxBucketSizeBytes,
+			maxFilesPerBucket: row.planMaxFilesPerBucket,
+			maxDailyUploads: row.planMaxDailyUploads,
+			canUseDownloadCount: row.planCanUseDownloadCount,
+			sortOrder: row.planSortOrder,
+		},
 		amountBaseUnits: row.amountBaseUnits,
 		durationDays: row.durationDays,
+		durationUnit: row.durationUnit,
 		isEnabled: row.isEnabled,
-		isRpcConfigured: isPaymentChainRpcConfigured(env, row.chainId),
+		expiresAt: row.expiresAt,
+		isRpcConfigured: false,
+		quote: {
+			quoteCreatedAt: row.updatedAt,
+			quoteExpiresAt: row.updatedAt,
+			baseAmountBaseUnits: row.amountBaseUnits,
+			discountBaseUnits: '0',
+			payableAmountBaseUnits: row.amountBaseUnits,
+			effectiveExpiresAt: row.updatedAt,
+			currentPlan: null,
+		},
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
 	}));
 }
 
 async function getPriceResponse(env: Env, priceId: string) {
-	return (await listPrices(env)).find(price => price.id === priceId) ?? null;
+	return (await listPrices(env, priceId))[0] ?? null;
+}
+
+function durationSortValue(value: number, unit: PaymentDurationUnit): number {
+	const date = new Date(Date.UTC(2024, 0, 1));
+	if (unit === 'days') date.setUTCDate(date.getUTCDate() + value);
+	if (unit === 'months') date.setUTCMonth(date.getUTCMonth() + value);
+	if (unit === 'years') date.setUTCFullYear(date.getUTCFullYear() + value);
+	return date.getTime();
+}
+
+async function assertPaymentPriceRules(env: Env, input: PaymentPriceRuleInput): Promise<void> {
+	if (input.expiresAt !== null) return;
+
+	const db = getDb(env);
+	const existingPrices = await db
+		.select({
+			id: paymentAssetPlanPrices.id,
+			amountBaseUnits: paymentAssetPlanPrices.amountBaseUnits,
+			durationDays: paymentAssetPlanPrices.durationDays,
+			durationUnit: paymentAssetPlanPrices.durationUnit,
+			expiresAt: paymentAssetPlanPrices.expiresAt,
+		})
+		.from(paymentAssetPlanPrices)
+		.where(and(
+			eq(paymentAssetPlanPrices.assetId, input.assetId),
+			eq(paymentAssetPlanPrices.planId, input.planId),
+			input.id ? ne(paymentAssetPlanPrices.id, input.id) : undefined,
+			isNull(paymentAssetPlanPrices.expiresAt),
+		));
+
+	if (existingPrices.some(price => (
+		price.durationDays === input.durationDays
+		&& price.durationUnit === input.durationUnit
+	))) {
+		throw apiError(400, 'PAYMENT_PRICE_ALREADY_EXISTS');
+	}
+
+	const inputDuration = durationSortValue(input.durationDays, input.durationUnit);
+	const inputAmount = BigInt(input.amountBaseUnits);
+	for (const price of existingPrices) {
+		const existingDuration = durationSortValue(price.durationDays, price.durationUnit);
+		const existingAmount = BigInt(price.amountBaseUnits);
+		if (inputDuration > existingDuration && inputAmount < existingAmount) {
+			throw apiError(400, 'PAYMENT_PRICE_ORDER_INVALID');
+		}
+		if (inputDuration < existingDuration && inputAmount > existingAmount) {
+			throw apiError(400, 'PAYMENT_PRICE_ORDER_INVALID');
+		}
+	}
+}
+
+function chainAuditData(chain: typeof paymentChains.$inferSelect): Record<string, unknown> {
+	return {
+		chainId: chain.chainId,
+		chainName: chain.name,
+		nativeCurrencyName: chain.nativeCurrencyName,
+		nativeCurrencySymbol: chain.nativeCurrencySymbol,
+		nativeCurrencyDecimals: chain.nativeCurrencyDecimals,
+		blockExplorerUrl: chain.blockExplorerUrl,
+		confirmationsRequired: chain.confirmationsRequired,
+		isEnabled: chain.isEnabled,
+	};
+}
+
+function assetAuditData(asset: typeof paymentAssets.$inferSelect): Record<string, unknown> {
+	return {
+		assetId: asset.id,
+		assetSymbol: asset.symbol,
+		assetName: asset.name,
+		isEnabled: asset.isEnabled,
+	};
+}
+
+function deploymentAuditData(deployment: NonNullable<Awaited<ReturnType<typeof getDeploymentResponse>>>): Record<string, unknown> {
+	return {
+		deploymentId: deployment.id,
+		assetId: deployment.assetId,
+		assetSymbol: deployment.assetSymbol,
+		assetName: deployment.assetName,
+		tokenSymbol: deployment.tokenSymbol,
+		tokenName: deployment.tokenName,
+		chainId: deployment.chainId,
+		chainName: deployment.chainName,
+		contractAddress: deployment.contractAddress,
+		decimals: deployment.decimals,
+		recipientAddress: deployment.recipientAddress,
+		isEnabled: deployment.isEnabled,
+		isRpcConfigured: deployment.isRpcConfigured,
+	};
+}
+
+function priceAuditData(price: NonNullable<Awaited<ReturnType<typeof getPriceResponse>>>): Record<string, unknown> {
+	return {
+		priceId: price.id,
+		planId: price.plan.id,
+		planName: price.plan.name,
+		assetId: price.assetId,
+		assetSymbol: price.assetSymbol,
+		assetName: price.assetName,
+		amountBaseUnits: price.amountBaseUnits,
+		durationDays: price.durationDays,
+		durationUnit: price.durationUnit,
+		isEnabled: price.isEnabled,
+		expiresAt: price.expiresAt,
+	};
 }
 
 app.post(
@@ -133,7 +280,7 @@ app.post(
 		const now = Date.now();
 		const chain = { ...body, createdAt: now, updatedAt: now };
 		await db.insert(paymentChains).values(chain);
-		await recordModerationAuditLog(c, 'admin_payment_chain_created', { data: { chainId: chain.chainId } });
+		await recordModerationAuditLog(c, 'admin_payment_chain_created', { data: chainAuditData(chain) });
 		return c.json(mapChain(c.env, chain), 200);
 	}, getResponseDefWithAuth('/api/admin/create-payment-chain')),
 );
@@ -149,7 +296,7 @@ app.post(
 		if (!existing) throw apiError(404, 'PAYMENT_CHAIN_NOT_FOUND');
 		const updated = { ...existing, ...body, updatedAt: Date.now() };
 		await db.update(paymentChains).set(updated).where(eq(paymentChains.chainId, body.chainId));
-		await recordModerationAuditLog(c, 'admin_payment_chain_updated', { data: { chainId: body.chainId } });
+		await recordModerationAuditLog(c, 'admin_payment_chain_updated', { data: chainAuditData(updated) });
 		return c.json(mapChain(c.env, updated), 200);
 	}, getResponseDefWithAuth('/api/admin/update-payment-chain')),
 );
@@ -161,12 +308,36 @@ app.post(
 	describeResponse(async (c: JsonCtx<'/api/admin/delete-payment-chain', Env>) => {
 		const db = getDb(c.env);
 		const body = c.req.valid('json');
-		const existing = await db.select({ chainId: paymentChains.chainId }).from(paymentChains).where(eq(paymentChains.chainId, body.chainId)).get();
+		const existing = await db.select().from(paymentChains).where(eq(paymentChains.chainId, body.chainId)).get();
 		if (!existing) throw apiError(404, 'PAYMENT_CHAIN_NOT_FOUND');
 		await db.delete(paymentChains).where(eq(paymentChains.chainId, body.chainId));
-		await recordModerationAuditLog(c, 'admin_payment_chain_deleted', { data: { chainId: body.chainId } });
+		await recordModerationAuditLog(c, 'admin_payment_chain_deleted', { data: chainAuditData(existing) });
 		return c.json({ ok: true }, 200);
 	}, getResponseDefWithAuth('/api/admin/delete-payment-chain')),
+);
+
+app.post(
+	'/test-payment-chain-rpc',
+	describeRoute(omitResAndReq(apiDef['/api/admin/test-payment-chain-rpc'])),
+	validator('json', apiDef['/api/admin/test-payment-chain-rpc'].req),
+	describeResponse(async (c: JsonCtx<'/api/admin/test-payment-chain-rpc', Env>) => {
+		const db = getDb(c.env);
+		const body = c.req.valid('json');
+		const chain = await db.select({ chainId: paymentChains.chainId }).from(paymentChains).where(eq(paymentChains.chainId, body.chainId)).get();
+		if (!chain) throw apiError(404, 'PAYMENT_CHAIN_NOT_FOUND');
+		const rpcUrl = getPaymentChainRpcUrl(c.env, body.chainId);
+		if (!rpcUrl) throw apiError(400, 'PAYMENT_CHAIN_RPC_NOT_CONFIGURED');
+
+		try {
+			const client = createPublicClient({ transport: http(rpcUrl) });
+			const actualChainId = await client.getChainId();
+			if (actualChainId !== body.chainId) throw apiError(400, 'PAYMENT_TRANSACTION_INVALID');
+			return c.json({ ok: true as const, chainId: actualChainId }, 200);
+		} catch (e) {
+			if (e instanceof ApiError) throw e;
+			throw apiError(400, 'PAYMENT_TRANSACTION_INVALID');
+		}
+	}, getResponseDefWithAuth('/api/admin/test-payment-chain-rpc')),
 );
 
 app.post(
@@ -189,7 +360,7 @@ app.post(
 		const now = Date.now();
 		const asset = { id: genEaidx(now), symbol: body.symbol, name: body.name, isEnabled: body.isEnabled, createdAt: now, updatedAt: now };
 		await db.insert(paymentAssets).values(asset);
-		await recordModerationAuditLog(c, 'admin_payment_asset_created', { data: { assetId: asset.id, symbol: asset.symbol } });
+		await recordModerationAuditLog(c, 'admin_payment_asset_created', { data: assetAuditData(asset) });
 		return c.json(asset, 200);
 	}, getResponseDefWithAuth('/api/admin/create-payment-asset')),
 );
@@ -205,7 +376,7 @@ app.post(
 		if (!existing) throw apiError(404, 'PAYMENT_ASSET_NOT_FOUND');
 		const updated = { ...existing, symbol: body.symbol, name: body.name, isEnabled: body.isEnabled, updatedAt: Date.now() };
 		await db.update(paymentAssets).set(updated).where(eq(paymentAssets.id, body.assetId));
-		await recordModerationAuditLog(c, 'admin_payment_asset_updated', { data: { assetId: body.assetId, symbol: updated.symbol } });
+		await recordModerationAuditLog(c, 'admin_payment_asset_updated', { data: assetAuditData(updated) });
 		return c.json(updated, 200);
 	}, getResponseDefWithAuth('/api/admin/update-payment-asset')),
 );
@@ -217,10 +388,10 @@ app.post(
 	describeResponse(async (c: JsonCtx<'/api/admin/delete-payment-asset', Env>) => {
 		const db = getDb(c.env);
 		const body = c.req.valid('json');
-		const existing = await db.select({ id: paymentAssets.id }).from(paymentAssets).where(eq(paymentAssets.id, body.assetId)).get();
+		const existing = await db.select().from(paymentAssets).where(eq(paymentAssets.id, body.assetId)).get();
 		if (!existing) throw apiError(404, 'PAYMENT_ASSET_NOT_FOUND');
 		await db.delete(paymentAssets).where(eq(paymentAssets.id, body.assetId));
-		await recordModerationAuditLog(c, 'admin_payment_asset_deleted', { data: { assetId: body.assetId } });
+		await recordModerationAuditLog(c, 'admin_payment_asset_deleted', { data: assetAuditData(existing) });
 		return c.json({ ok: true }, 200);
 	}, getResponseDefWithAuth('/api/admin/delete-payment-asset')),
 );
@@ -230,6 +401,42 @@ app.post(
 	describeRoute(omitResAndReq(apiDef['/api/admin/list-payment-asset-deployments'])),
 	validator('json', apiDef['/api/admin/list-payment-asset-deployments'].req),
 	describeResponse(async (c: JsonCtx<'/api/admin/list-payment-asset-deployments', Env>) => c.json(await listDeployments(c.env), 200), getResponseDefWithAuth('/api/admin/list-payment-asset-deployments')),
+);
+
+app.post(
+	'/resolve-payment-asset-deployment',
+	describeRoute(omitResAndReq(apiDef['/api/admin/resolve-payment-asset-deployment'])),
+	validator('json', apiDef['/api/admin/resolve-payment-asset-deployment'].req),
+	describeResponse(async (c: JsonCtx<'/api/admin/resolve-payment-asset-deployment', Env>) => {
+		const db = getDb(c.env);
+		const body = c.req.valid('json');
+		const chain = await db.select({ chainId: paymentChains.chainId }).from(paymentChains).where(eq(paymentChains.chainId, body.chainId)).get();
+		if (!chain) throw apiError(404, 'PAYMENT_CHAIN_NOT_FOUND');
+		const rpcUrl = getPaymentChainRpcUrl(c.env, body.chainId);
+		if (!rpcUrl) throw apiError(400, 'PAYMENT_CHAIN_RPC_NOT_CONFIGURED');
+
+		const contractAddress = normalizeEthAddress(body.contractAddress);
+		const client = createPublicClient({ transport: http(rpcUrl) });
+		try {
+			const [symbolResult, nameResult, decimalsResult] = await Promise.allSettled([
+				client.readContract({ address: contractAddress, abi: ERC20_METADATA_ABI, functionName: 'symbol' }),
+				client.readContract({ address: contractAddress, abi: ERC20_METADATA_ABI, functionName: 'name' }),
+				client.readContract({ address: contractAddress, abi: ERC20_METADATA_ABI, functionName: 'decimals' }),
+			]);
+			if (decimalsResult.status !== 'fulfilled') throw apiError(400, 'PAYMENT_TRANSACTION_INVALID');
+			const decimals = Number(decimalsResult.value);
+			if (!Number.isInteger(decimals) || decimals < 0 || decimals > 255) throw apiError(400, 'PAYMENT_TRANSACTION_INVALID');
+
+			return c.json({
+				symbol: symbolResult.status === 'fulfilled' ? symbolResult.value : null,
+				name: nameResult.status === 'fulfilled' ? nameResult.value : null,
+				decimals,
+			}, 200);
+		} catch (e) {
+			if (e instanceof ApiError) throw e;
+			throw apiError(400, 'PAYMENT_TRANSACTION_INVALID');
+		}
+	}, getResponseDefWithAuth('/api/admin/resolve-payment-asset-deployment')),
 );
 
 app.post(
@@ -257,6 +464,8 @@ app.post(
 			id: genEaidx(now),
 			assetId: body.assetId,
 			chainId: body.chainId,
+			tokenSymbol: body.tokenSymbol,
+			tokenName: body.tokenName,
 			contractAddress,
 			decimals: body.decimals,
 			recipientAddress: normalizeEthAddress(body.recipientAddress),
@@ -265,9 +474,9 @@ app.post(
 			updatedAt: now,
 		};
 		await db.insert(paymentAssetDeployments).values(deployment);
-		await recordModerationAuditLog(c, 'admin_payment_deployment_created', { data: { deploymentId: deployment.id } });
 		const response = await getDeploymentResponse(c.env, deployment.id);
 		if (!response) throw apiError(404, 'PAYMENT_ASSET_DEPLOYMENT_NOT_FOUND');
+		await recordModerationAuditLog(c, 'admin_payment_deployment_created', { data: deploymentAuditData(response) });
 		return c.json(response, 200);
 	}, getResponseDefWithAuth('/api/admin/create-payment-asset-deployment')),
 );
@@ -302,6 +511,8 @@ app.post(
 			...existing,
 			assetId: body.assetId,
 			chainId: body.chainId,
+			tokenSymbol: body.tokenSymbol,
+			tokenName: body.tokenName,
 			contractAddress,
 			decimals: body.decimals,
 			recipientAddress: normalizeEthAddress(body.recipientAddress),
@@ -309,26 +520,11 @@ app.post(
 			updatedAt: Date.now(),
 		};
 		await db.update(paymentAssetDeployments).set(updated).where(eq(paymentAssetDeployments.id, body.deploymentId));
-		await recordModerationAuditLog(c, 'admin_payment_deployment_updated', { data: { deploymentId: body.deploymentId } });
 		const response = await getDeploymentResponse(c.env, body.deploymentId);
 		if (!response) throw apiError(404, 'PAYMENT_ASSET_DEPLOYMENT_NOT_FOUND');
+		await recordModerationAuditLog(c, 'admin_payment_deployment_updated', { data: deploymentAuditData(response) });
 		return c.json(response, 200);
 	}, getResponseDefWithAuth('/api/admin/update-payment-asset-deployment')),
-);
-
-app.post(
-	'/delete-payment-asset-deployment',
-	describeRoute(omitResAndReq(apiDef['/api/admin/delete-payment-asset-deployment'])),
-	validator('json', apiDef['/api/admin/delete-payment-asset-deployment'].req),
-	describeResponse(async (c: JsonCtx<'/api/admin/delete-payment-asset-deployment', Env>) => {
-		const db = getDb(c.env);
-		const body = c.req.valid('json');
-		const existing = await db.select({ id: paymentAssetDeployments.id }).from(paymentAssetDeployments).where(eq(paymentAssetDeployments.id, body.deploymentId)).get();
-		if (!existing) throw apiError(404, 'PAYMENT_ASSET_DEPLOYMENT_NOT_FOUND');
-		await db.delete(paymentAssetDeployments).where(eq(paymentAssetDeployments.id, body.deploymentId));
-		await recordModerationAuditLog(c, 'admin_payment_deployment_deleted', { data: { deploymentId: body.deploymentId } });
-		return c.json({ ok: true }, 200);
-	}, getResponseDefWithAuth('/api/admin/delete-payment-asset-deployment')),
 );
 
 app.post(
@@ -345,18 +541,19 @@ app.post(
 	describeResponse(async (c: JsonCtx<'/api/admin/create-payment-asset-plan-price', Env>) => {
 		const db = getDb(c.env);
 		const body = c.req.valid('json');
-		const [deployment, plan] = await Promise.all([
-			db.select({ id: paymentAssetDeployments.id }).from(paymentAssetDeployments).where(eq(paymentAssetDeployments.id, body.deploymentId)).get(),
+		const [asset, plan] = await Promise.all([
+			db.select({ id: paymentAssets.id }).from(paymentAssets).where(eq(paymentAssets.id, body.assetId)).get(),
 			db.select({ id: plans.id }).from(plans).where(eq(plans.id, body.planId)).get(),
 		]);
-		if (!deployment) throw apiError(404, 'PAYMENT_ASSET_DEPLOYMENT_NOT_FOUND');
+		if (!asset) throw apiError(404, 'PAYMENT_ASSET_NOT_FOUND');
 		if (!plan) throw apiError(404, 'PLAN_NOT_FOUND');
+		await assertPaymentPriceRules(c.env, body);
 		const now = Date.now();
-		const price = { id: genEaidx(now), deploymentId: body.deploymentId, planId: body.planId, amountBaseUnits: body.amountBaseUnits, durationDays: body.durationDays, isEnabled: body.isEnabled, createdAt: now, updatedAt: now };
+		const price = { id: genEaidx(now), assetId: body.assetId, planId: body.planId, amountBaseUnits: body.amountBaseUnits, durationDays: body.durationDays, durationUnit: body.durationUnit, isEnabled: body.isEnabled, expiresAt: body.expiresAt, createdAt: now, updatedAt: now };
 		await db.insert(paymentAssetPlanPrices).values(price);
-		await recordModerationAuditLog(c, 'admin_payment_price_created', { data: { priceId: price.id } });
 		const response = await getPriceResponse(c.env, price.id);
 		if (!response) throw apiError(404, 'PAYMENT_PRICE_NOT_FOUND');
+		await recordModerationAuditLog(c, 'admin_payment_price_created', { data: priceAuditData(response) });
 		return c.json(response, 200);
 	}, getResponseDefWithAuth('/api/admin/create-payment-asset-plan-price')),
 );
@@ -370,17 +567,18 @@ app.post(
 		const body = c.req.valid('json');
 		const existing = await db.select().from(paymentAssetPlanPrices).where(eq(paymentAssetPlanPrices.id, body.priceId)).get();
 		if (!existing) throw apiError(404, 'PAYMENT_PRICE_NOT_FOUND');
-		const [deployment, plan] = await Promise.all([
-			db.select({ id: paymentAssetDeployments.id }).from(paymentAssetDeployments).where(eq(paymentAssetDeployments.id, body.deploymentId)).get(),
+		const [asset, plan] = await Promise.all([
+			db.select({ id: paymentAssets.id }).from(paymentAssets).where(eq(paymentAssets.id, body.assetId)).get(),
 			db.select({ id: plans.id }).from(plans).where(eq(plans.id, body.planId)).get(),
 		]);
-		if (!deployment) throw apiError(404, 'PAYMENT_ASSET_DEPLOYMENT_NOT_FOUND');
+		if (!asset) throw apiError(404, 'PAYMENT_ASSET_NOT_FOUND');
 		if (!plan) throw apiError(404, 'PLAN_NOT_FOUND');
-		const updated = { ...existing, deploymentId: body.deploymentId, planId: body.planId, amountBaseUnits: body.amountBaseUnits, durationDays: body.durationDays, isEnabled: body.isEnabled, updatedAt: Date.now() };
+		await assertPaymentPriceRules(c.env, { id: body.priceId, ...body });
+		const updated = { ...existing, assetId: body.assetId, planId: body.planId, amountBaseUnits: body.amountBaseUnits, durationDays: body.durationDays, durationUnit: body.durationUnit, isEnabled: body.isEnabled, expiresAt: body.expiresAt, updatedAt: Date.now() };
 		await db.update(paymentAssetPlanPrices).set(updated).where(eq(paymentAssetPlanPrices.id, body.priceId));
-		await recordModerationAuditLog(c, 'admin_payment_price_updated', { data: { priceId: body.priceId } });
 		const response = await getPriceResponse(c.env, body.priceId);
 		if (!response) throw apiError(404, 'PAYMENT_PRICE_NOT_FOUND');
+		await recordModerationAuditLog(c, 'admin_payment_price_updated', { data: priceAuditData(response) });
 		return c.json(response, 200);
 	}, getResponseDefWithAuth('/api/admin/update-payment-asset-plan-price')),
 );
@@ -392,10 +590,10 @@ app.post(
 	describeResponse(async (c: JsonCtx<'/api/admin/delete-payment-asset-plan-price', Env>) => {
 		const db = getDb(c.env);
 		const body = c.req.valid('json');
-		const existing = await db.select({ id: paymentAssetPlanPrices.id }).from(paymentAssetPlanPrices).where(eq(paymentAssetPlanPrices.id, body.priceId)).get();
+		const existing = await getPriceResponse(c.env, body.priceId);
 		if (!existing) throw apiError(404, 'PAYMENT_PRICE_NOT_FOUND');
 		await db.delete(paymentAssetPlanPrices).where(eq(paymentAssetPlanPrices.id, body.priceId));
-		await recordModerationAuditLog(c, 'admin_payment_price_deleted', { data: { priceId: body.priceId } });
+		await recordModerationAuditLog(c, 'admin_payment_price_deleted', { data: priceAuditData(existing) });
 		return c.json({ ok: true }, 200);
 	}, getResponseDefWithAuth('/api/admin/delete-payment-asset-plan-price')),
 );

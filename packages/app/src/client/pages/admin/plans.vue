@@ -5,7 +5,6 @@ import { Button } from '@vuetify/v0';
 import { authStore } from '@/store/auth';
 import { apiPost } from '@/utils/api';
 import NirA from '@/components/NirA.vue';
-import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import { BYTE_SIZE_UNITS, byteSizeUnitMultiplier, formatBytes, pickByteSizeUnit, type ByteSizeUnit } from '@/utils/byte-size';
 
 interface Plan {
@@ -16,11 +15,14 @@ interface Plan {
 	maxFilesPerBucket: number | null;
 	maxDailyUploads: number | null;
 	canUseDownloadCount: boolean;
+	isEnabled: boolean;
+	sortOrder: number;
 	createdAt: number;
 	updatedAt: number;
 }
 
-type PlanForm = Pick<Plan, 'name' | 'maxBuckets' | 'maxBucketSizeBytes' | 'maxFilesPerBucket' | 'maxDailyUploads' | 'canUseDownloadCount'>;
+type PlanForm = Pick<Plan, 'name' | 'maxBuckets' | 'maxBucketSizeBytes' | 'maxFilesPerBucket' | 'maxDailyUploads' | 'canUseDownloadCount' | 'isEnabled' | 'sortOrder'>;
+type NullableNumberPlanFormKey = 'maxBuckets' | 'maxBucketSizeBytes' | 'maxFilesPerBucket' | 'maxDailyUploads';
 
 const quotaValueSchema = v.nullable(v.pipe(
 	v.number(),
@@ -28,6 +30,7 @@ const quotaValueSchema = v.nullable(v.pipe(
 	v.minValue(0, '0以上の数値を入力してください'),
 ));
 const nameSchema = v.pipe(v.string(), v.trim(), v.minLength(1, 'プラン名を入力してください'), v.maxLength(100, '100文字以内で入力してください'));
+const sortOrderSchema = v.pipe(v.number(), v.integer('整数を入力してください'));
 
 const plans = ref<Plan[]>([]);
 const form = ref<PlanForm>(emptyForm());
@@ -36,11 +39,8 @@ const bucketSizeUnit = ref<ByteSizeUnit>('MiB');
 const editingPlanId = ref<string | null>(null);
 const loading = ref(true);
 const saving = ref(false);
-const deleting = ref(false);
 const error = ref('');
 const success = ref('');
-const deleteDialog = ref(false);
-const deleteTarget = ref<Plan | null>(null);
 
 const isEditing = computed(() => editingPlanId.value != null);
 const nameError = computed(() => {
@@ -60,7 +60,11 @@ const quotaError = computed(() => {
 	}
 	return null;
 });
-const canSave = computed(() => nameError.value == null && quotaError.value == null && !saving.value);
+const sortOrderError = computed(() => {
+	const result = v.safeParse(sortOrderSchema, form.value.sortOrder);
+	return result.success ? null : result.issues[0]?.message ?? '入力値が正しくありません';
+});
+const canSave = computed(() => nameError.value == null && quotaError.value == null && sortOrderError.value == null && !saving.value);
 
 onMounted(fetchPlans);
 
@@ -72,12 +76,19 @@ function emptyForm(): PlanForm {
 		maxFilesPerBucket: null,
 		maxDailyUploads: null,
 		canUseDownloadCount: false,
+		isEnabled: true,
+		sortOrder: 0,
 	};
 }
 
-function onNumberInput(key: Exclude<keyof PlanForm, 'name' | 'canUseDownloadCount'>, e: Event): void {
+function onNumberInput(key: NullableNumberPlanFormKey, e: Event): void {
 	const raw = (e.target as HTMLInputElement).value;
 	form.value[key] = raw === '' ? null : Number(raw);
+}
+
+function onSortOrderInput(e: Event): void {
+	const raw = (e.target as HTMLInputElement).value;
+	form.value.sortOrder = raw === '' ? Number.NaN : Number(raw);
 }
 
 function syncBucketSizeInput(value: number | null): void {
@@ -137,6 +148,8 @@ function startEdit(plan: Plan): void {
 		maxFilesPerBucket: plan.maxFilesPerBucket,
 		maxDailyUploads: plan.maxDailyUploads,
 		canUseDownloadCount: plan.canUseDownloadCount,
+		isEnabled: plan.isEnabled,
+		sortOrder: plan.sortOrder,
 	};
 	syncBucketSizeInput(plan.maxBucketSizeBytes);
 	success.value = '';
@@ -170,29 +183,29 @@ async function savePlan(): Promise<void> {
 	}
 }
 
-function requestDelete(plan: Plan): void {
-	deleteTarget.value = plan;
-	deleteDialog.value = true;
-}
-
-async function executeDelete(): Promise<void> {
-	if (!deleteTarget.value) return;
-	const planId = deleteTarget.value.id;
-	deleteDialog.value = false;
-	deleteTarget.value = null;
-	deleting.value = true;
+async function togglePlanEnabled(plan: Plan): Promise<void> {
+	saving.value = true;
 	error.value = '';
 	success.value = '';
 	try {
-		const result = await apiPost('/api/admin/delete-plan', { planId });
-		if (!result.ok) throw new Error('削除に失敗しました');
-		if (editingPlanId.value === planId) resetForm();
-		success.value = 'プランを削除しました';
+		const result = await apiPost('/api/admin/update-plan', {
+			planId: plan.id,
+			name: plan.name,
+			maxBuckets: plan.maxBuckets,
+			maxBucketSizeBytes: plan.maxBucketSizeBytes,
+			maxFilesPerBucket: plan.maxFilesPerBucket,
+			maxDailyUploads: plan.maxDailyUploads,
+			canUseDownloadCount: plan.canUseDownloadCount,
+			isEnabled: !plan.isEnabled,
+			sortOrder: plan.sortOrder,
+		});
+		if (!result.ok) throw new Error('保存に失敗しました');
+		success.value = plan.isEnabled ? 'プランを無効化しました' : 'プランを有効化しました';
 		await fetchPlans();
 	} catch (e) {
 		error.value = String(e);
 	} finally {
-		deleting.value = false;
+		saving.value = false;
 	}
 }
 </script>
@@ -221,6 +234,11 @@ async function executeDelete(): Promise<void> {
             <input v-model="form.name" class="form-input" type="text" maxlength="100">
             <span v-if="nameError" :class="$style.validationError">{{ nameError }}</span>
           </label>
+          <label :class="$style.field">
+            <span>並び順</span>
+            <input :value="Number.isNaN(form.sortOrder) ? '' : form.sortOrder" class="form-input" type="number" step="1" @input="onSortOrderInput">
+            <span v-if="sortOrderError" :class="$style.validationError">{{ sortOrderError }}</span>
+          </label>
           <div :class="$style.quotaGrid">
             <label :class="$style.field">
               <span>バケット数上限</span>
@@ -248,6 +266,10 @@ async function executeDelete(): Promise<void> {
               <input v-model="form.canUseDownloadCount" type="checkbox">
               <span>DL数カウントを許可</span>
             </label>
+            <label :class="$style.checkboxField">
+              <input v-model="form.isEnabled" type="checkbox">
+              <span>有効</span>
+            </label>
           </div>
           <p v-if="quotaError" :class="$style.validationError">{{ quotaError }}</p>
           <div class="flex gap-2">
@@ -268,17 +290,20 @@ async function executeDelete(): Promise<void> {
               <thead>
                 <tr>
                   <th>プラン名</th>
+                  <th>並び順</th>
                   <th>バケット</th>
                   <th>サイズ</th>
                   <th>ファイル</th>
                   <th>日次</th>
                   <th>DL数</th>
+                  <th>状態</th>
                   <th class="col-actions">操作</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="plan in plans" :key="plan.id">
                   <td :class="$style.nameCell">{{ plan.name }}</td>
+                  <td>{{ plan.sortOrder }}</td>
                   <td>{{ formatQuota(plan.maxBuckets) }}</td>
                   <td>{{ formatQuota(plan.maxBucketSizeBytes, formatBytes) }}</td>
                   <td>{{ formatQuota(plan.maxFilesPerBucket) }}</td>
@@ -288,18 +313,22 @@ async function executeDelete(): Promise<void> {
                       {{ plan.canUseDownloadCount ? '許可' : '不可' }}
                     </span>
                   </td>
+                  <td>
+                    <span :class="plan.isEnabled ? 'badge badge-success' : 'badge badge-muted'">
+                      {{ plan.isEnabled ? '有効' : '無効' }}
+                    </span>
+                  </td>
                   <td class="col-actions">
                     <div class="flex gap-2">
                       <button type="button" class="btn btn-secondary" @click="startEdit(plan)">編集</button>
-                      <Button.Root type="button" class="btn btn-ghost-danger" :loading="deleting" @click="requestDelete(plan)">
-                        <Button.Loading>削除中...</Button.Loading>
-                        <Button.Content>削除</Button.Content>
-                      </Button.Root>
+                      <button type="button" class="btn btn-secondary" :disabled="saving" @click="togglePlanEnabled(plan)">
+                        {{ plan.isEnabled ? '無効化' : '有効化' }}
+                      </button>
                     </div>
                   </td>
                 </tr>
                 <tr v-if="plans.length === 0">
-                  <td colspan="7" class="text-muted">プランはまだありません。</td>
+                  <td colspan="9" class="text-muted">プランはまだありません。</td>
                 </tr>
               </tbody>
             </table>
@@ -308,15 +337,6 @@ async function executeDelete(): Promise<void> {
       </div>
     </template>
 
-    <ConfirmDialog
-      v-model:open="deleteDialog"
-      title="プランを削除"
-      :message="deleteTarget ? `プラン「${deleteTarget.name}」を削除しますか？割当も解除されます。` : ''"
-      confirm-label="削除する"
-      :danger="true"
-      @confirm="executeDelete"
-      @cancel="deleteDialog = false"
-    />
   </div>
 </template>
 

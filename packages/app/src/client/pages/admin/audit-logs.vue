@@ -34,11 +34,22 @@ const actionLabels: Record<string, string> = {
 	admin_setting_updated: '設定更新',
 	admin_plan_created: 'プラン作成',
 	admin_plan_updated: 'プラン更新',
-	admin_plan_deleted: 'プラン削除',
 	admin_user_plan_assigned: 'ユーザープラン割当',
 	admin_user_plan_deleted: 'ユーザープラン削除',
 	admin_file_previewed: 'ファイルプレビュー',
 	admin_file_moderation_forced_private_updated: '強制非公開更新',
+	admin_payment_chain_created: '決済チェーン作成',
+	admin_payment_chain_updated: '決済チェーン更新',
+	admin_payment_chain_deleted: '決済チェーン削除',
+	admin_payment_asset_created: '決済通貨作成',
+	admin_payment_asset_updated: '決済通貨更新',
+	admin_payment_asset_deleted: '決済通貨削除',
+	admin_payment_deployment_created: '決済デプロイメント作成',
+	admin_payment_deployment_updated: '決済デプロイメント更新',
+	admin_payment_price_created: '決済価格作成',
+	admin_payment_price_updated: '決済価格更新',
+	admin_payment_price_deleted: '決済価格削除',
+	admin_crypto_payment_order_confirmed: '決済注文確認',
 };
 
 onMounted(() => loadLogs());
@@ -85,6 +96,64 @@ function dataString(data: AuditLog['data'], key: string): string | null {
 	if (data == null) return null;
 	const value = data[key];
 	return typeof value === 'string' && value !== '' ? value : null;
+}
+
+function dataNumber(data: AuditLog['data'], key: string): number | null {
+	if (data == null) return null;
+	const value = data[key];
+	return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function formatIdLabel(label: string | null, id: string | number | null): string | null {
+	if (label == null && id == null) return null;
+	if (label == null) return String(id);
+	if (id == null) return label;
+	return `${label} (${id})`;
+}
+
+function formatDuration(data: AuditLog['data']): string | null {
+	const duration = dataNumber(data, 'durationDays');
+	if (duration == null) return null;
+	const unit = dataString(data, 'durationUnit') ?? 'days';
+	const unitLabel = unit === 'months' ? 'か月' : unit === 'years' ? '年' : '日';
+	return `${duration}${unitLabel}`;
+}
+
+function auditDataSummary(data: AuditLog['data']): string {
+	if (data == null) return '-';
+	const priceId = dataString(data, 'priceId');
+	if (priceId) {
+		const parts = [
+			formatIdLabel(dataString(data, 'planName'), dataString(data, 'planId')),
+			[dataString(data, 'assetSymbol') ?? dataString(data, 'assetName'), dataString(data, 'chainName')].filter(Boolean).join(' / '),
+			dataString(data, 'amountBaseUnits') ? `${dataString(data, 'amountBaseUnits')} base units` : null,
+			formatDuration(data),
+		].filter((part): part is string => part != null && part !== '');
+		return `${parts.join(' - ')} (${priceId})`;
+	}
+
+	const deploymentId = dataString(data, 'deploymentId');
+	if (deploymentId) {
+		const label = [dataString(data, 'assetSymbol') ?? dataString(data, 'assetName'), dataString(data, 'chainName')].filter(Boolean).join(' / ');
+		return formatIdLabel(label || null, deploymentId) ?? deploymentId;
+	}
+
+	const assetId = dataString(data, 'assetId');
+	if (assetId) {
+		return formatIdLabel(dataString(data, 'assetSymbol') ?? dataString(data, 'assetName') ?? dataString(data, 'symbol') ?? dataString(data, 'name'), assetId) ?? assetId;
+	}
+
+	const chainId = dataNumber(data, 'chainId');
+	if (chainId != null) {
+		return formatIdLabel(dataString(data, 'chainName') ?? dataString(data, 'name'), chainId) ?? String(chainId);
+	}
+
+	const planId = dataString(data, 'planId');
+	if (planId) {
+		return formatIdLabel(dataString(data, 'planName') ?? dataString(data, 'name'), planId) ?? planId;
+	}
+
+	return stringifyData(data).replace(/\s+/g, ' ');
 }
 
 function fileUrl(log: AuditLog): string | null {
@@ -158,7 +227,7 @@ function openDataDialog(log: AuditLog): void {
                 </td>
                 <td>
                   <button class="btn btn-secondary" type="button" :disabled="log.data == null" @click="openDataDialog(log)">
-                    表示
+                    詳細
                   </button>
                 </td>
               </tr>
@@ -184,6 +253,9 @@ function openDataDialog(log: AuditLog): void {
       <AlertDialog.Root v-model="dataDialog">
         <AlertDialog.Content :class="$style.dataDialog">
           <AlertDialog.Title :class="$style.dataDialogTitle">監査ログデータ</AlertDialog.Title>
+          <div v-if="selectedLog?.data" :class="$style.dataDialogSummary">
+            {{ auditDataSummary(selectedLog.data) }}
+          </div>
           <pre :class="$style.dataPre">{{ stringifyData(selectedLog?.data ?? null) }}</pre>
           <div :class="$style.dataDialogActions">
             <AlertDialog.Cancel class="btn btn-primary" type="button">閉じる</AlertDialog.Cancel>
@@ -219,6 +291,15 @@ function openDataDialog(log: AuditLog): void {
 .dataDialogTitle {
   margin: 0 0 12px;
   font-size: 1.1rem;
+}
+
+.dataDialogSummary {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg-secondary);
+  font-size: 0.875rem;
 }
 
 .dataPre {

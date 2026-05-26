@@ -1,10 +1,6 @@
 import { env } from 'cloudflare:workers';
 import app from '../../src/worker/index';
-import migration0000 from '../../migrations/0000_smooth_maximus.sql?raw';
-import migration0001 from '../../migrations/0001_clean_vulture.sql?raw';
-import migration0002 from '../../migrations/0002_third_gateway.sql?raw';
-import migration0003 from '../../migrations/0003_cute_wrecker.sql?raw';
-import migration0004 from '../../migrations/0004_white_master_chief.sql?raw';
+import migration0000 from '../../migrations/0000_light_fabian_cortez.sql?raw';
 
 export { env, app };
 
@@ -21,10 +17,6 @@ export function base64UrlToBytes(value: string): Uint8Array<ArrayBuffer> {
 
 const migrations = [
 	migration0000,
-	migration0001,
-	migration0002,
-	migration0003,
-	migration0004,
 ] as const;
 
 const tables = [

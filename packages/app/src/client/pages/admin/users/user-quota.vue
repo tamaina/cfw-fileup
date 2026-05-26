@@ -7,6 +7,7 @@ import { apiPost, type ApiResult } from '@/utils/api';
 import NirA from '@/components/NirA.vue';
 import ByteSizeSettingItem from '@/components/ByteSizeSettingItem.vue';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
+import CurrentPlanCard from '@/components/CurrentPlanCard.vue';
 import EffectiveQuotaDetails from '@/components/EffectiveQuotaDetails.vue';
 import SettingItem from '@/components/SettingItem.vue';
 
@@ -427,15 +428,18 @@ async function recalculateEffectiveQuota(): Promise<void> {
           </template>
         </div>
 
-        <div v-else-if="activeTab === 'effective'" :class="[$style.panel, 'card']">
-          <EffectiveQuotaDetails :quota="effectiveQuota">
-            <template #actions>
-              <Button.Root type="button" class="btn btn-secondary" :loading="recalculating" @click="recalculateEffectiveQuota">
-                <Button.Loading>再計算中...</Button.Loading>
-                <Button.Content>再計算</Button.Content>
-              </Button.Root>
-            </template>
-          </EffectiveQuotaDetails>
+        <div v-else-if="activeTab === 'effective'" :class="$style.tabPanel">
+          <div :class="[$style.panel, 'card']">
+            <EffectiveQuotaDetails :quota="effectiveQuota">
+              <template #actions>
+                <Button.Root type="button" class="btn btn-secondary" :loading="recalculating" @click="recalculateEffectiveQuota">
+                  <Button.Loading>再計算中...</Button.Loading>
+                  <Button.Content>再計算</Button.Content>
+                </Button.Root>
+              </template>
+            </EffectiveQuotaDetails>
+          </div>
+          <CurrentPlanCard :plan="userPlan" />
         </div>
       </div>
     </template>

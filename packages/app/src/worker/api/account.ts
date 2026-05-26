@@ -3,7 +3,7 @@ import { describeResponse, describeRoute, validator } from 'hono-openapi';
 import { and, count, desc, eq, inArray, lt, sql } from 'drizzle-orm';
 import { createPublicClient, http, getAddress, type Hex } from 'viem';
 import { createSiweMessage, generateSiweNonce, verifySiweMessage } from 'viem/siwe';
-import { misskeyAccounts, users, usedUsernames, tokens, moderationEvents, userWallets, walletLinkChallenges } from '../scheme/index';
+import { misskeyAccounts, paymentChains, plans, users, usedUsernames, tokens, moderationEvents, userPlanAssignments, userWallets, walletLinkChallenges } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { authMiddleware } from '../middleware/auth';
 import { hashPassword, verifyPassword } from '../utils/crypto';
@@ -131,6 +131,46 @@ app.post(
 			.orderBy(desc(userWallets.id));
 		return c.json(wallets, 200);
 	}, getResponseDefWithAuth('/api/account/wallets/list')),
+);
+
+app.post(
+	'/wallets/link/chains',
+	describeRoute(omitResAndReq(apiDef['/api/account/wallets/link/chains'])),
+	validator('json', apiDef['/api/account/wallets/link/chains'].req),
+	describeResponse(async (c: JsonCtx<'/api/account/wallets/link/chains', Env>) => {
+		const chains = await getDb(c.env)
+			.select({
+				chainId: paymentChains.chainId,
+				name: paymentChains.name,
+				nativeCurrencyName: paymentChains.nativeCurrencyName,
+				nativeCurrencySymbol: paymentChains.nativeCurrencySymbol,
+				nativeCurrencyDecimals: paymentChains.nativeCurrencyDecimals,
+				blockExplorerUrl: paymentChains.blockExplorerUrl,
+			})
+			.from(paymentChains)
+			.where(eq(paymentChains.isEnabled, true))
+			.orderBy(desc(paymentChains.chainId));
+		return c.json(chains.filter(chain => getPaymentChainRpcUrl(c.env, chain.chainId) !== null), 200);
+	}, getResponseDefWithAuth('/api/account/wallets/link/chains')),
+);
+
+app.post(
+	'/wallets/unlink',
+	describeRoute(omitResAndReq(apiDef['/api/account/wallets/unlink'])),
+	validator('json', apiDef['/api/account/wallets/unlink'].req),
+	describeResponse(async (c: JsonCtx<'/api/account/wallets/unlink', Env>) => {
+		const db = getDb(c.env);
+		const user = c.get('user');
+		const body = c.req.valid('json');
+		const wallet = await db
+			.select({ id: userWallets.id })
+			.from(userWallets)
+			.where(and(eq(userWallets.id, body.walletId), eq(userWallets.userId, user.id)))
+			.get();
+		if (!wallet) throw apiError(404, 'WALLET_NOT_FOUND');
+		await db.delete(userWallets).where(eq(userWallets.id, body.walletId));
+		return c.json({ ok: true }, 200);
+	}, getResponseDefWithAuth('/api/account/wallets/unlink')),
 );
 
 app.post(
@@ -268,6 +308,29 @@ app.post(
 		const quota = await getEffectiveQuotaForUser(c.env, user.id);
 		return c.json(quota, 200);
 	}, getResponseDefWithAuth('/api/account/effective-quota')),
+);
+
+app.post(
+	'/current-plan',
+	describeRoute(omitResAndReq(apiDef['/api/account/current-plan'])),
+	validator('json', apiDef['/api/account/current-plan'].req),
+	describeResponse(async (c: JsonCtx<'/api/account/current-plan', Env>) => {
+		const user = c.get('user');
+		const assignment = await getDb(c.env)
+			.select({
+				userId: userPlanAssignments.userId,
+				planId: userPlanAssignments.planId,
+				planName: plans.name,
+				expiresAt: userPlanAssignments.expiresAt,
+				createdAt: userPlanAssignments.createdAt,
+				updatedAt: userPlanAssignments.updatedAt,
+			})
+			.from(userPlanAssignments)
+			.innerJoin(plans, eq(userPlanAssignments.planId, plans.id))
+			.where(eq(userPlanAssignments.userId, user.id))
+			.get();
+		return c.json(assignment ?? null, 200);
+	}, getResponseDefWithAuth('/api/account/current-plan')),
 );
 
 app.post(

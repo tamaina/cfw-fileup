@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { appSettings } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { shortGetCache } from '../middleware/short-get-cache';
+import { canAcceptCryptoPayments } from '../utils/crypto-payments';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -16,6 +17,7 @@ type MetaResponse = {
 	googleAuthEnabled: boolean;
 	googleRequired: boolean;
 	indieAuthEnabled: boolean;
+	cryptoPaymentsEnabled: boolean;
 };
 
 function createMetaResponse(data: MetaResponse): Response {
@@ -58,6 +60,7 @@ app.get('/meta', async (c) => {
 			.from(appSettings)
 			.where(eq(appSettings.key, 'terms_updated_at'))
 			.get();
+		const cryptoPaymentsEnabled = await canAcceptCryptoPayments(c.env);
 
 		return createMetaResponse({
 			registrationEnabled: mode !== 'closed',
@@ -69,6 +72,7 @@ app.get('/meta', async (c) => {
 			googleAuthEnabled,
 			googleRequired,
 			indieAuthEnabled: true,
+			cryptoPaymentsEnabled,
 		});
 	} catch {
 		return createMetaResponse({
@@ -81,6 +85,7 @@ app.get('/meta', async (c) => {
 			googleAuthEnabled: false,
 			googleRequired: false,
 			indieAuthEnabled: true,
+			cryptoPaymentsEnabled: false,
 		});
 	}
 });
