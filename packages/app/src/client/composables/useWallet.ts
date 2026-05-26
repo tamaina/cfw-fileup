@@ -1,8 +1,8 @@
 import { computed, ref } from 'vue';
 import {
 	ChainNotConfiguredError,
-	useAccount,
 	useChainId,
+	useConnection,
 	useConnect,
 	useConnectors,
 	useSendTransaction,
@@ -69,13 +69,13 @@ function sleep(ms: number): Promise<void> {
 }
 
 export function useWallet() {
-	const { address, chainId: accountChainId } = useAccount();
+	const { address, chainId: accountChainId } = useConnection();
 	const currentChainId = useChainId();
 	const connectors = useConnectors();
-	const { connectAsync } = useConnect();
-	const { signMessageAsync } = useSignMessage();
-	const { switchChainAsync } = useSwitchChain();
-	const { sendTransactionAsync } = useSendTransaction();
+	const { mutateAsync: connectMutationAsync } = useConnect();
+	const { mutateAsync: signMessageMutationAsync } = useSignMessage();
+	const { mutateAsync: switchChainMutationAsync } = useSwitchChain();
+	const { mutateAsync: sendTransactionMutationAsync } = useSendTransaction();
 
 	const receiptHash = ref<Hex>();
 	const receiptChainId = ref<number>();
@@ -105,7 +105,7 @@ export function useWallet() {
 		const connector = connectors.value[0];
 		if (!connector) throw new Error('Ethereum wallet が見つかりません');
 
-		const result = await connectAsync({ connector });
+		const result = await connectMutationAsync({ connector });
 		const connectedAddress = result.accounts[0];
 		if (!connectedAddress) throw new Error('ウォレット接続に失敗しました');
 
@@ -117,7 +117,7 @@ export function useWallet() {
 
 	async function switchWalletChain(chainId: number): Promise<void> {
 		if (accountChainId.value === chainId) return;
-		await switchChainAsync({ chainId } as Parameters<typeof switchChainAsync>[0]);
+		await switchChainMutationAsync({ chainId } as Parameters<typeof switchChainMutationAsync>[0]);
 	}
 
 	async function switchOrAddWalletChain(chain: WalletChainConfig): Promise<void> {
@@ -162,7 +162,7 @@ export function useWallet() {
 
 	async function signWalletMessage(message: string): Promise<Hex> {
 		try {
-			return await signMessageAsync({ message });
+			return await signMessageMutationAsync({ message });
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : String(error);
 			if (!errorMessage.includes('ConnectorChainMismatchError')) throw error;
@@ -205,12 +205,12 @@ export function useWallet() {
 		value?: bigint;
 	}): Promise<Hex> {
 		try {
-			return await sendTransactionAsync({
+			return await sendTransactionMutationAsync({
 				chainId: params.chainId,
 				data: params.data,
 				to: params.to,
 				value: params.value ?? 0n,
-			} as Parameters<typeof sendTransactionAsync>[0]);
+			} as Parameters<typeof sendTransactionMutationAsync>[0]);
 		} catch (error) {
 			if (!isChainNotConfiguredError(error)) throw error;
 		}
