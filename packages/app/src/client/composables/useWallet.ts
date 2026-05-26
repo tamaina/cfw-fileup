@@ -10,7 +10,7 @@ import {
 	useSwitchChain,
 	useWaitForTransactionReceipt,
 } from '@wagmi/vue';
-import { toHex, type Address, type Hex, type TransactionReceipt } from 'viem';
+import { getAddress, toHex, type Address, type Hex, type TransactionReceipt } from 'viem';
 
 type ConnectedWallet = {
 	address: Address;
@@ -182,7 +182,7 @@ export function useWallet() {
 		const provider = await connector?.getProvider?.() as WalletProvider | undefined;
 		if (!provider) throw new Error('Ethereum wallet が見つかりません');
 		const options: Record<string, unknown> = {
-			address: token.address,
+			address: getAddress(token.address),
 			symbol: token.symbol.slice(0, 11),
 			decimals: token.decimals,
 		};
