@@ -36,6 +36,27 @@ const showGenerateConfirm = ref(false);
 const shouldWarnBackupCodes = computed(() =>
 	passkeys.value.length > 0 && backupCodeStatus.value?.count === 0,
 );
+const copied = ref(false);
+
+function copyBackupCodes(): void {
+	const text = backupCodes.value.map(formatBackupCode).join('\n');
+	navigator.clipboard.writeText(text);
+	copied.value = true;
+	setTimeout(() => { copied.value = false; }, 2000);
+}
+
+function downloadBackupCodes(): void {
+	const date = new Date().toLocaleDateString('ja-JP');
+	const header = `# cfw-fileup バックアップコード\n# 生成日: ${date}\n#\n# 各コードは一度しか使用できません。\n# 安全な場所に保管してください。\n\n`;
+	const body = backupCodes.value.map(formatBackupCode).join('\n');
+	const blob = new Blob([header + body], { type: 'text/plain' });
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = 'cfw-fileup-backup-codes.txt';
+	a.click();
+	URL.revokeObjectURL(url);
+}
 
 async function loadPasskeys(): Promise<void> {
 	loading.value = true;
@@ -214,6 +235,14 @@ onMounted(async () => {
             >
               {{ formatBackupCode(code) }}
             </div>
+          </div>
+          <div :class="$style.actions">
+            <button type="button" class="btn btn-secondary" @click="copyBackupCodes">
+              {{ copied ? 'コピーしました！' : 'すべてコピー' }}
+            </button>
+            <button type="button" class="btn btn-primary" @click="downloadBackupCodes">
+              テキストファイルとして保存
+            </button>
           </div>
         </div>
       </div>
@@ -417,5 +446,12 @@ onMounted(async () => {
 
 .backupNeedsBtn {
   margin-bottom: 12px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
 }
 </style>
