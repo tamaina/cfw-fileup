@@ -122,8 +122,8 @@ function toggleTheme(): void {
         <div :class="$style.navUser">
           <template v-if="authStore.user">
             <Popover.Root v-model="appNavOpen">
-              <Popover.Activator :class="['btn', 'btn-ghost', $style.navUsername]" aria-haspopup="true">
-                <User :size="16" :stroke-width="2" />{{ authStore.user.username }}
+              <Popover.Activator :class="['btn', 'btn-ghost', $style.navUsername]" aria-haspopup="true" aria-label="ユーザーメニュー">
+                <User :size="16" :stroke-width="2" /><span :class="$style.navUsernameText">{{ authStore.user.username }}</span>
               </Popover.Activator>
               <Popover.Content :class="$style.navUserMenu">
                 <div :class="$style.navUserMenuInner">
@@ -279,6 +279,12 @@ function toggleTheme(): void {
 .navUsername {
   font-weight: 500;
   color: var(--color-text);
+}
+
+.navUsernameText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .navUserMenu {
@@ -527,7 +533,9 @@ function toggleTheme(): void {
   }
 
   .navUsername {
-    display: none;
+    max-width: min(44vw, 180px);
+    padding-inline: 10px;
+    justify-content: center;
   }
 
   .statusStrip {
