@@ -10,6 +10,7 @@ import InfiniteTableRow from '@/components/InfiniteTableRow.vue';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import SensitiveActionAuth from '@/components/SensitiveActionAuth.vue';
 import type { ApiReq } from '../../../shared/api';
+import { useBackupCodeActions } from '@/composables/useBackupCodeActions';
 
 interface PasskeyItem {
 	id: string;
@@ -54,27 +55,11 @@ const showGenerateConfirm = ref(false);
 const shouldWarnBackupCodes = computed(() =>
 	passkeys.value.length > 0 && backupCodeStatus.value?.count === 0,
 );
-const copied = ref(false);
-
-function copyBackupCodes(): void {
-	const text = backupCodes.value.map(formatBackupCode).join('\n');
-	navigator.clipboard.writeText(text);
-	copied.value = true;
-	setTimeout(() => { copied.value = false; }, 2000);
-}
-
-function downloadBackupCodes(): void {
-	const date = new Date().toLocaleDateString('ja-JP');
-	const header = `# cfw-fileup バックアップコード\n# 生成日: ${date}\n#\n# 各コードは一度しか使用できません。\n# 安全な場所に保管してください。\n\n`;
-	const body = backupCodes.value.map(formatBackupCode).join('\n');
-	const blob = new Blob([header + body], { type: 'text/plain' });
-	const url = URL.createObjectURL(blob);
-	const a = document.createElement('a');
-	a.href = url;
-	a.download = 'cfw-fileup-backup-codes.txt';
-	a.click();
-	URL.revokeObjectURL(url);
-}
+const { copied, copyBackupCodes, downloadBackupCodes } = useBackupCodeActions(
+	backupCodes,
+	formatBackupCode,
+	(message) => { backupCodeError.value = message; },
+);
 
 const tokens = ref<TokenItem[]>([]);
 const tokensLoading = ref(true);
@@ -391,12 +376,12 @@ onMounted(async () => {
               </div>
             </div>
             <div :class="$style.actions">
-              <button type="button" class="btn btn-secondary" @click="copyBackupCodes">
-                {{ copied ? 'コピーしました！' : 'すべてコピー' }}
-              </button>
-              <button type="button" class="btn btn-primary" @click="downloadBackupCodes">
-                テキストファイルとして保存
-              </button>
+              <Button.Root class="btn btn-secondary" @click="copyBackupCodes">
+                <Button.Content>{{ copied ? 'コピーしました！' : 'すべてコピー' }}</Button.Content>
+              </Button.Root>
+              <Button.Root class="btn btn-primary" @click="downloadBackupCodes">
+                <Button.Content>テキストファイルとして保存</Button.Content>
+              </Button.Root>
             </div>
           </div>
         </div>
