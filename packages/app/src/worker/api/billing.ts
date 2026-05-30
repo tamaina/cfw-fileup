@@ -230,7 +230,7 @@ async function toPaymentQuoteCurrentPlan(env: Env, offer: {
 	amountBaseUnits: string;
 	durationDays: number;
 	durationUnit: PaymentDurationUnit;
-	}, assignment: {
+}, assignment: {
 	id: string;
 	planId: string;
 	startsAt: number;

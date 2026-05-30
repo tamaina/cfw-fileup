@@ -15,15 +15,15 @@ import { genEaidx, parseEaidx } from '../../shared/eaid-x';
 import { idPage, pageParams } from '../utils/pagination';
 import { getPaymentChainRpcUrl, normalizeEthAddress } from '../utils/payment-rpc';
 import { getEffectiveQuotaForUser } from '../utils/rate-limit';
-import { createGoogleAuthUrl } from './google-auth';
-import { createIndieAuthUrl } from './indieauth';
 import { createEmailVerification, getEmailSendPreflightFailure, sendEmailLines, verifyAccountEmail, type EmailSendPreflightFailure } from '../utils/email';
 import { isTurnstileConfigured, verifyTurnstile } from '../utils/turnstile';
 import { getContextWaitUntil, runBackgroundTask, type WaitUntil } from '../utils/background-task';
 import { getAppName } from '../utils/app-name';
-import type { JsonCtx } from '../../shared/api';
 import { getRequestIp } from '../utils/request-ip';
 import { assertRateLimit, rateLimitKey } from '../utils/rate-limit-binding';
+import { createIndieAuthUrl } from './indieauth';
+import { createGoogleAuthUrl } from './google-auth';
+import type { JsonCtx } from '../../shared/api';
 
 const app = new Hono<{ Bindings: Env }>();
 const RECENT_AUTH_MS = 5 * 60 * 1000;

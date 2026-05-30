@@ -770,7 +770,6 @@ describe('Quota management', () => {
 		expect(duplicateUpdateRes.status).toBe(400);
 		expect(await duplicateUpdateRes.json()).toEqual(expect.objectContaining({ error: 'PLAN_SORT_ORDER_ALREADY_EXISTS' }));
 	});
-
 });
 
 describe('Crypto payment administration', () => {
