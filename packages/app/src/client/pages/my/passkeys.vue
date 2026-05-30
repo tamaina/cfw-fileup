@@ -8,6 +8,7 @@ import type { PublicKeyCredentialCreationOptionsJSON } from '@simplewebauthn/bro
 import { apiPost } from '@/utils/api';
 import type { ApiReq } from '../../../shared/api';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
+import { useBackupCodeActions } from '@/composables/useBackupCodeActions';
 
 interface PasskeyItem {
 	id: string;
@@ -35,6 +36,11 @@ const backupCodeError = ref('');
 const showGenerateConfirm = ref(false);
 const shouldWarnBackupCodes = computed(() =>
 	passkeys.value.length > 0 && backupCodeStatus.value?.count === 0,
+);
+const { copied, copyBackupCodes, downloadBackupCodes } = useBackupCodeActions(
+	backupCodes,
+	formatBackupCode,
+	(message) => { backupCodeError.value = message; },
 );
 
 async function loadPasskeys(): Promise<void> {
@@ -214,6 +220,14 @@ onMounted(async () => {
             >
               {{ formatBackupCode(code) }}
             </div>
+          </div>
+          <div :class="$style.actions">
+            <Button.Root class="btn btn-secondary" @click="copyBackupCodes">
+              <Button.Content>{{ copied ? 'コピーしました！' : 'すべてコピー' }}</Button.Content>
+            </Button.Root>
+            <Button.Root class="btn btn-primary" @click="downloadBackupCodes">
+              <Button.Content>テキストファイルとして保存</Button.Content>
+            </Button.Root>
           </div>
         </div>
       </div>
@@ -417,5 +431,12 @@ onMounted(async () => {
 
 .backupNeedsBtn {
   margin-bottom: 12px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
 }
 </style>

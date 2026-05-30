@@ -12,10 +12,10 @@ import { apiDef, type JsonCtx } from '../../shared/api';
 import { omitResAndReq } from '../utils/omit';
 import { recordModerationEvent } from '../utils/moderation';
 import { getInitialEffectiveQuotaForUser } from '../utils/rate-limit';
-import { sendLoginNotification } from './login-email';
 import { runContextBackgroundTask } from '../utils/background-task';
 import { getRequestIp } from '../utils/request-ip';
 import { assertRateLimit, rateLimitKey } from '../utils/rate-limit-binding';
+import { sendLoginNotification } from './login-email';
 
 const app = new Hono<{ Bindings: Env }>();
 

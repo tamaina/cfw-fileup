@@ -10,6 +10,7 @@ import InfiniteTableRow from '@/components/InfiniteTableRow.vue';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import SensitiveActionAuth from '@/components/SensitiveActionAuth.vue';
 import type { ApiReq } from '../../../shared/api';
+import { useBackupCodeActions } from '@/composables/useBackupCodeActions';
 
 interface PasskeyItem {
 	id: string;
@@ -53,6 +54,11 @@ const backupCodeError = ref('');
 const showGenerateConfirm = ref(false);
 const shouldWarnBackupCodes = computed(() =>
 	passkeys.value.length > 0 && backupCodeStatus.value?.count === 0,
+);
+const { copied, copyBackupCodes, downloadBackupCodes } = useBackupCodeActions(
+	backupCodes,
+	formatBackupCode,
+	(message) => { backupCodeError.value = message; },
 );
 
 const tokens = ref<TokenItem[]>([]);
@@ -369,6 +375,14 @@ onMounted(async () => {
                 {{ formatBackupCode(code) }}
               </div>
             </div>
+            <div :class="$style.actions">
+              <Button.Root class="btn btn-secondary" @click="copyBackupCodes">
+                <Button.Content>{{ copied ? 'コピーしました！' : 'すべてコピー' }}</Button.Content>
+              </Button.Root>
+              <Button.Root class="btn btn-primary" @click="downloadBackupCodes">
+                <Button.Content>テキストファイルとして保存</Button.Content>
+              </Button.Root>
+            </div>
           </div>
         </div>
 
@@ -593,6 +607,13 @@ onMounted(async () => {
 
 .backupNeedsBtn {
   margin-bottom: 12px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
 }
 
 .passkeyName {

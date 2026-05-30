@@ -210,5 +210,4 @@ describe('google_required setting', () => {
 		expect(typeof data.googleAuthEnabled).toBe('boolean');
 		expect(typeof data.googleRequired).toBe('boolean');
 	});
-
 });
