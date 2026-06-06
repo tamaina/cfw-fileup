@@ -768,7 +768,7 @@ watch(walletConnectors, connectors => {
 
 .walletNotice,
 .emptyLinked {
-  margin-top: 12px;
+  margin: 12px 0;
   color: var(--color-text-muted);
   font-size: 0.875rem;
 }
