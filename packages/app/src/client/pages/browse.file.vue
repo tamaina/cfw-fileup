@@ -16,10 +16,10 @@ import { registerDownloadedOpfsFile } from '@/store/download-cleanup';
 import MarkdownPreview from '@/components/MarkdownPreview.vue';
 import RawTextPreview from '@/components/RawTextPreview.vue';
 import JsonPreview from '@/components/JsonPreview.vue';
-import AdSlot from '@/components/AdSlot.vue';
+import PreviewInterstitialAd from '@/components/PreviewInterstitialAd.vue';
 import { parseExifDisplayItems, type ExifDisplayItem } from '@/utils/exif';
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
 	bucketName: string;
 	filePath: string;
 	fileId: string;
@@ -39,7 +39,9 @@ const props = defineProps<{
 	reportPath?: string;
 	hideManagement?: boolean;
 	showAds?: boolean;
-}>();
+}>(), {
+	showAds: true,
+});
 
 const emit = defineEmits<{
 	(e: 'update:isModerationForcedPrivate', value: boolean): void;
@@ -106,6 +108,7 @@ const downloadError = ref('');
 const visibleDownloadError = computed(() => props.downloadErrorOverride || downloadError.value);
 const downloadProgress = ref<DownloadTransformProgress | null>(null);
 const exifItems = ref<ExifDisplayItem[]>([]);
+const previewAdCompleted = ref(false);
 let downloadTransformWorker: Worker | null = null;
 let downloadTransformRequestId = 0;
 const downloadTransformRequests = new Map<string, {
@@ -120,6 +123,7 @@ const parentPath = computed(() => {
 		? `/v/${props.bucketName}/`
 		: `/v/${props.bucketName}/${parts.join('/')}/`;
 });
+const canShowPreview = computed(() => props.showAds === false || previewAdCompleted.value);
 
 const canSubmitReport = computed(() =>
 	!reportLoading.value &&
@@ -288,7 +292,7 @@ function decompressedFilename(path: string): string {
 
 async function loadExif(): Promise<void> {
 	exifItems.value = [];
-	if (!isImage.value || !previewUrl.value) return;
+	if (!canShowPreview.value || !isImage.value || !previewUrl.value) return;
 	const requestUrl = previewUrl.value;
 	try {
 		const res = await fetch(requestUrl, {
@@ -303,6 +307,10 @@ async function loadExif(): Promise<void> {
 		if (requestUrl !== previewUrl.value) return;
 		exifItems.value = parseExifDisplayItems(bytes);
 	} catch { /* no EXIF preview */ }
+}
+
+function completePreviewAd(): void {
+	previewAdCompleted.value = true;
 }
 
 async function startDecompressedDownload(): Promise<void> {
@@ -344,6 +352,13 @@ onBeforeUnmount(() => {
 watch([isImage, previewUrl], () => {
 	void loadExif();
 }, { immediate: true });
+watch(() => `${props.fileId}:${props.filePath}:${previewUrl.value}`, () => {
+	previewAdCompleted.value = false;
+	exifItems.value = [];
+});
+watch(canShowPreview, () => {
+	void loadExif();
+});
 </script>
 
 <template>
@@ -395,9 +410,13 @@ watch([isImage, previewUrl], () => {
       </Button.Root>
     </div>
 
-    <AdSlot v-if="showAds !== false" :owner-can-disable-file-ads="ownerCanDisableFileAds" />
+    <PreviewInterstitialAd
+      v-if="fileId && showAds !== false && !previewAdCompleted"
+      :owner-can-disable-file-ads="ownerCanDisableFileAds"
+      @complete="completePreviewAd"
+    />
 
-    <div v-if="isImage" :class="[$style.imagePreview, exifItems.length > 0 ? $style.imagePreviewWithExif : null]">
+    <div v-if="canShowPreview && isImage" :class="[$style.imagePreview, exifItems.length > 0 ? $style.imagePreviewWithExif : null]">
       <img :src="previewUrl" :alt="filePath" class="file-preview-image">
       <aside v-if="exifItems.length > 0" :class="$style.exifPanel" aria-label="EXIF情報">
         <h3 :class="$style.exifTitle" :title="displayFilename">{{ displayFilename }}</h3>
@@ -409,9 +428,9 @@ watch([isImage, previewUrl], () => {
         </dl>
       </aside>
     </div>
-    <MarkdownPreview v-else-if="isMarkdown" :url="previewUrl" :filename="filePath" :class="$style.markdownPreview" />
-    <JsonPreview v-else-if="isJson" :url="previewUrl" :filename="filePath" :class="$style.jsonPreview" />
-    <RawTextPreview v-else-if="isTextLike" :url="previewUrl" :filename="filePath" :class="$style.rawPreview" />
+    <MarkdownPreview v-else-if="canShowPreview && isMarkdown" :url="previewUrl" :filename="filePath" :class="$style.markdownPreview" />
+    <JsonPreview v-else-if="canShowPreview && isJson" :url="previewUrl" :filename="filePath" :class="$style.jsonPreview" />
+    <RawTextPreview v-else-if="canShowPreview && isTextLike" :url="previewUrl" :filename="filePath" :class="$style.rawPreview" />
 
     <div v-if="visibleDownloadError" class="alert alert-error mt-3">{{ visibleDownloadError }}</div>
     <div v-if="deleteError" class="alert alert-error mt-3">{{ deleteError }}</div>

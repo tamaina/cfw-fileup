@@ -751,27 +751,27 @@ onUnmounted(revokeInnerObjectUrl);
         </template>
       </nav>
       <span
-        v-if="!isDirectory && !metaLoading && !metaError"
+        v-if="!isDirectory && !metaError"
         :class="fileVisibility === 'public' ? 'badge badge-success' : fileVisibility === 'passphrase' ? 'badge badge-warning' : 'badge badge-muted'"
       >
         {{ fileVisibility === 'public' ? '公開' : fileVisibility === 'passphrase' ? '合言葉' : '非公開' }}
       </span>
       <span
-        v-if="authStore.user && !isDirectory && !metaLoading && !metaError"
+        v-if="authStore.user && !isDirectory && !metaError"
         :class="fileIsListed ? 'badge badge-info' : 'badge badge-muted'"
       >
         {{ fileIsListed ? '表示' : '非表示' }}
       </span>
-      <span v-if="fileIsModerationForcedPrivate && !isDirectory && !metaLoading && !metaError" class="badge badge-danger">
+      <span v-if="fileIsModerationForcedPrivate && !isDirectory && !metaError" class="badge badge-danger">
         強制非公開
       </span>
       <span
-        v-if="!isDirectory && !metaLoading && !metaError && (isEntryFile ? innerMeta?.size != null : fileSize != null)"
+        v-if="!isDirectory && !metaError && (isEntryFile ? innerMeta?.size != null : fileSize != null)"
         :class="'badge badge-muted'"
       >
         {{ formatSize((isEntryFile ? innerMeta?.size : fileSize) ?? 0) }}
       </span>
-      <span v-if="!isDirectory && !metaLoading && !metaError && fileDownloadCount != null" class="badge badge-info">
+      <span v-if="!isDirectory && !metaError && fileDownloadCount != null" class="badge badge-info">
         DL {{ fileDownloadCount.toLocaleString() }}
       </span>
       <span v-if="passphraseTokenExpiresAt" class="badge badge-info" :title="`${passphraseTokenExpiryStr} まで有効`">
@@ -823,7 +823,8 @@ onUnmounted(revokeInnerObjectUrl);
           :has-executable-content="innerHasExecutableContent"
           :report-path="`${baseFilePath}/${archiveEntryMount.slice(1)}/${entryPath ?? ''}`"
           :hideManagement="true"
-          :showAds="false"
+          :showAds="true"
+          :ownerCanDisableFileAds="ownerCanDisableFileAds"
           @download="downloadInnerEntry"
         />
       </template>
@@ -845,9 +846,10 @@ onUnmounted(revokeInnerObjectUrl);
             :token="autoToken ?? undefined"
             :fileId="fileId ?? ''"
             :bucketId="fileBucketId"
-            :isOwner="fileIsOwner"
+	            :isOwner="fileIsOwner"
 	            :isModerationForcedPrivate="fileIsModerationForcedPrivate"
 	            :ownerCanDisableFileAds="ownerCanDisableFileAds"
+	            :showAds="true"
 	            @update:isModerationForcedPrivate="fileIsModerationForcedPrivateChanged"
           />
         </template>
@@ -916,6 +918,7 @@ onUnmounted(revokeInnerObjectUrl);
           :isOwner="fileIsOwner"
 	          :isModerationForcedPrivate="fileIsModerationForcedPrivate"
 	          :ownerCanDisableFileAds="ownerCanDisableFileAds"
+	          :showAds="true"
 	          @update:isModerationForcedPrivate="fileIsModerationForcedPrivateChanged"
         />
       </template>
