@@ -574,7 +574,7 @@ watch([isImage, previewUrl], () => {
   border-radius: var(--radius-lg);
   background: var(--color-surface);
   box-shadow: var(--shadow-sm);
-  padding: 16px;
+  padding: 16px 16px 8px;
 }
 
 .exifTitle {
