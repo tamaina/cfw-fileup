@@ -229,6 +229,10 @@ function hasConnectedLinkedWallet(): boolean {
 
 function reconcileWalletSetupMode(): void {
 	if (loading.value || selectingAnotherWallet.value) return;
+	if (connectedWalletConnections.value.length === 0) {
+		walletSetupMode.value = true;
+		return;
+	}
 	if (hasConnectedLinkedWallet()) walletSetupMode.value = false;
 }
 
