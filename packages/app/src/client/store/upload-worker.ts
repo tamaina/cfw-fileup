@@ -9,6 +9,7 @@ import type {
 const jobs = ref<UploadJobSnapshot[]>([]);
 let port: MessagePort | null = null;
 let fallbackNoticeShown = false;
+const enqueueResolvers: Array<(jobId: string) => void> = [];
 
 export const uploadWorkerJobs = readonly(jobs);
 export const activeUploadJobs = computed(() => jobs.value.filter(job => job.status === 'queued' || job.status === 'running'));
@@ -29,15 +30,19 @@ export function connectUploadWorker(): void {
 	port.onmessage = (event: MessageEvent<UploadWorkerServerMessage>) => {
 		const message = event.data;
 		if (message.type === 'snapshot') jobs.value = message.jobs;
+		if (message.type === 'enqueued') enqueueResolvers.shift()?.(message.jobId);
 	};
 	port.start();
 	post({ type: 'subscribe' });
 }
 
-export function enqueueUploadJob(job: UploadJobRequest): void {
+export function enqueueUploadJob(job: UploadJobRequest): Promise<string> {
 	connectUploadWorker();
 	if (!port) throw new Error('SharedWorker is not available');
-	post({ type: 'enqueue', job });
+	return new Promise(resolve => {
+		enqueueResolvers.push(resolve);
+		post({ type: 'enqueue', job });
+	});
 }
 
 function post(message: UploadWorkerClientMessage): void {

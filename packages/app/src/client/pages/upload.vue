@@ -14,13 +14,14 @@ import FileVisibilitySettings from '@/components/FileVisibilitySettings.vue';
 import { MAX_FILE_PATH_LENGTH } from '../../shared/const';
 import { isValidFilePath } from '../../shared/name-validation';
 import { UploadTree, type UploadDirectory, type UploadEntry } from '@/utils/upload-tree';
-import { enqueueUploadJob } from '@/store/upload-worker';
+import { enqueueUploadJob, uploadWorkerJobs } from '@/store/upload-worker';
 import { buildUploadConflictDirectoryPlan, findUploadConflictsInDirectory, getEffectiveUploadEntries, isPathUnderMissingDirectory } from '@/utils/upload-paths';
 import { takeShareTargetPayload } from '../../shared/share-target-store';
 import { readBlobTextPreview } from '@/utils/text-preview';
 import { formatBytes } from '@/utils/byte-size';
 import type { ZipExtractWorkerMessage } from '@/workers/zip-extract.worker';
 import type { UploadWorkerFileEntry } from '@/workers/upload-worker-types';
+import { navigateTo } from '@/navigate';
 
 type ArchiveMode = 'individual' | 'gz' | 'tar' | 'targz';
 
@@ -76,6 +77,7 @@ const dragPreviewY = ref(0);
 let previousBodyCursor = '';
 const uploadError = ref('');
 const uploadDone = ref(false);
+const redirectUploadJobId = ref<string | null>(null);
 const quotaWarningOpen = ref(false);
 const quotaWarningConfirmed = ref(false);
 const zipConfirmOpen = ref(false);
@@ -226,6 +228,21 @@ const previewKind = computed(() => {
 	return 'meta';
 });
 
+function browserUploadLink(bucketName: string, path: string): string {
+	return `/v/${bucketName}/${path}`;
+}
+
+watch(uploadWorkerJobs, jobs => {
+	const jobId = redirectUploadJobId.value;
+	if (!jobId) return;
+	const job = jobs.find(current => current.id === jobId);
+	if (!job || job.status !== 'done' || !job.completedPath) return;
+	redirectUploadJobId.value = null;
+	if (window.location.pathname === '/uploader') {
+		navigateTo(browserUploadLink(job.bucketName, job.completedPath));
+	}
+});
+
 function getEffectiveSelectedFileEntries() {
 	const tree = selectedTree.value;
 	if (!tree) return [];
@@ -281,6 +298,7 @@ async function setSelectedTree(tree: UploadTree, entryToSelect: UploadEntry | nu
 	selectionError.value = '';
 	uploadError.value = '';
 	uploadDone.value = false;
+	redirectUploadJobId.value = null;
 	selectedTree.value = tree;
 	selectEntry(entryToSelect);
 	if (archiveMode.value === 'gz' && tree.hasDirectories) archiveMode.value = 'individual';
@@ -485,6 +503,7 @@ function clearSelectedTree(): void {
 	zipWarnings.value = [];
 	uploadError.value = '';
 	uploadDone.value = false;
+	redirectUploadJobId.value = null;
 }
 
 async function removeSelectedEntry(path: string): Promise<void> {
@@ -1276,7 +1295,7 @@ async function executeUpload(): Promise<void> {
 		}
 	}
 
-	enqueueUploadJob({
+	const jobId = await enqueueUploadJob({
 		bucketId: bucket.value.id,
 		bucketName: selectedBucketName.value,
 		prefix: uploadPrefix.value,
@@ -1298,6 +1317,7 @@ async function executeUpload(): Promise<void> {
 		totalBytes: tree.totalSize,
 		authToken: authStore.token,
 	});
+	redirectUploadJobId.value = jobId;
 	uploadDone.value = true;
 }
 
