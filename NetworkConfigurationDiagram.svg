@@ -1,0 +1,928 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="299.06546mm"
+   height="286.37662mm"
+   viewBox="0 0 299.06546 286.37662"
+   version="1.1"
+   id="svg1"
+   inkscape:version="1.4.2 (ebf0e940, 2025-05-08)"
+   sodipodi:docname="NetworkConfigurationDiagram.svg"
+   inkscape:export-filename="描画.png"
+   inkscape:export-xdpi="150"
+   inkscape:export-ydpi="150"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:document-units="mm"
+     inkscape:zoom="0.45970461"
+     inkscape:cx="667.82015"
+     inkscape:cy="627.57692"
+     inkscape:window-width="1904"
+     inkscape:window-height="1186"
+     inkscape:window-x="147"
+     inkscape:window-y="177"
+     inkscape:window-maximized="0"
+     inkscape:current-layer="layer1" />
+  <defs
+     id="defs1">
+    <marker
+       style="overflow:visible"
+       id="DartArrow"
+       refX="4"
+       refY="0"
+       orient="auto-start-reverse"
+       inkscape:stockid="Dart arrow"
+       markerWidth="1"
+       markerHeight="1"
+       viewBox="0 0 1 1"
+       inkscape:isstock="true"
+       inkscape:collect="always"
+       preserveAspectRatio="xMidYMid">
+      <path
+         style="fill:context-stroke;fill-rule:evenodd;stroke:none"
+         d="M 0,0 5,-5 -12.5,0 5,5 Z"
+         transform="scale(-0.5)"
+         id="path6" />
+    </marker>
+  </defs>
+  <g
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     id="layer1"
+     transform="translate(78.62429,-16.542309)">
+    <rect
+       style="fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       id="rect80"
+       width="297.81546"
+       height="285.12662"
+       x="-77.99929"
+       y="17.167309" />
+    <rect
+       style="fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:butt;stroke-linejoin:round;stroke-dasharray:1.25,1.25;stroke-opacity:1;paint-order:markers fill stroke;stroke-dashoffset:0"
+       id="rect38"
+       width="58.465565"
+       height="29.28941"
+       x="57.508373"
+       y="225.08688" />
+    <path
+       id="rect24"
+       style="fill:#ffffff;stroke:#000000;stroke-width:1.25;stroke-linecap:butt;stroke-linejoin:round;paint-order:markers fill stroke;stroke-dasharray:1.25,1.25;stroke-dashoffset:0"
+       d="m 6.9602978,107.46163 v 6.29212 H -44.290322 v 26.02012 h -15.746326 v 11.33367 h 20.35793 v -6.2916 H 6.9602978 v 6.2916 H 27.318226 v -11.33367 h -5.861657 v -20.97805 h 5.861657 v -11.33419 z" />
+    <path
+       sodipodi:type="star"
+       style="fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:1.84836;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       id="path2"
+       inkscape:flatsided="true"
+       sodipodi:sides="3"
+       sodipodi:cx="83.595642"
+       sodipodi:cy="101.55104"
+       sodipodi:r1="24.655289"
+       sodipodi:r2="12.327644"
+       sodipodi:arg1="2.6179939"
+       sodipodi:arg2="3.6651914"
+       inkscape:rounded="0"
+       inkscape:randomized="0"
+       d="M 62.243535,113.87868 83.595643,76.895752 104.94775,113.87869 Z"
+       inkscape:transform-center-y="-4.1524272"
+       transform="matrix(0.67888379,0,0,0.67367744,-77.244609,156.31087)" />
+    <ellipse
+       style="fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       id="path1"
+       cx="-20.492876"
+       cy="206.00272"
+       rx="12.068382"
+       ry="12.068501" />
+    <path
+       sodipodi:type="star"
+       style="fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:1.84836;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       id="path3"
+       inkscape:flatsided="true"
+       sodipodi:sides="3"
+       sodipodi:cx="83.595642"
+       sodipodi:cy="101.55104"
+       sodipodi:r1="24.655289"
+       sodipodi:r2="12.327644"
+       sodipodi:arg1="2.6179939"
+       sodipodi:arg2="3.6651914"
+       inkscape:rounded="0"
+       inkscape:randomized="0"
+       d="M 62.243535,113.87868 83.595643,76.895752 104.94775,113.87869 Z"
+       inkscape:transform-center-y="-4.1524272"
+       transform="matrix(0.67888379,0,0,0.67367744,120.89832,173.9751)" />
+    <ellipse
+       style="fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       id="ellipse3"
+       cx="177.65004"
+       cy="223.66692"
+       rx="12.068382"
+       ry="12.068501" />
+    <text
+       xml:space="preserve"
+       style="font-weight:800;font-size:6.35px;font-family:'GenEi Univer Sans';-inkscape-font-specification:'GenEi Univer Sans Ultra-Bold';text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:start;fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="41.33593"
+       y="227.18983"
+       id="text4"><tspan
+         sodipodi:role="line"
+         id="tspan4"
+         style="stroke-width:3"
+         x="41.33593"
+         y="227.18983" /></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="-42.485062"
+       y="240.72063"
+       id="text5"><tspan
+         sodipodi:role="line"
+         id="tspan5"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="-42.485062"
+         y="240.72063">アップロード</tspan><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="-42.485062"
+         y="249.54007"
+         id="tspan53">利用者</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="167.10905"
+       y="260.24789"
+       id="text6"><tspan
+         sodipodi:role="line"
+         id="tspan6"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="167.10905"
+         y="260.24789">届出者</tspan><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="167.10905"
+         y="269.06735"
+         id="tspan13">管理者</tspan></text>
+    <rect
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       id="rect7"
+       width="138.73761"
+       height="86.029053"
+       x="61.381962"
+       y="52.639431" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="64.397514"
+       y="61.623569"
+       id="text8"><tspan
+         sodipodi:role="line"
+         id="tspan8"
+         style="font-size:7.05556px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3"
+         x="64.397514"
+         y="61.623569">Cloudflare, Inc. 提供 クラウド基盤</tspan><tspan
+         sodipodi:role="line"
+         style="font-size:7.05556px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3"
+         x="64.397514"
+         y="70.443016"
+         id="tspan14" /></text>
+    <rect
+       style="fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       id="rect8"
+       width="66.726555"
+       height="40.489899"
+       x="63.399216"
+       y="96.278954" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="84.510513"
+       y="119.24735"
+       id="text9"><tspan
+         sodipodi:role="line"
+         id="tspan9"
+         style="font-size:7.05556px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3"
+         x="84.510513"
+         y="119.24735">Workers</tspan></text>
+    <rect
+       style="fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       id="rect9"
+       width="51.769478"
+       height="12.959946"
+       x="90.836487"
+       y="65.363541" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:center;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:middle;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="116.70005"
+       y="74.432907"
+       id="text10"><tspan
+         sodipodi:role="line"
+         id="tspan10"
+         style="font-size:7.05556px;text-align:center;text-anchor:middle;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3"
+         x="116.70005"
+         y="74.432907">D1データベース</tspan></text>
+    <rect
+       style="fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       id="rect10"
+       width="51.769478"
+       height="12.959946"
+       x="145.70427"
+       y="65.363541" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:center;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:middle;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="171.54323"
+       y="74.542267"
+       id="text11"><tspan
+         sodipodi:role="line"
+         id="tspan11"
+         style="font-size:7.05556px;text-align:center;text-anchor:middle;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3"
+         x="171.54323"
+         y="74.542267">R2ストレージ</tspan></text>
+    <rect
+       style="fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:butt;stroke-linejoin:round;stroke-dasharray:1.25,1.25;stroke-opacity:1;paint-order:markers fill stroke;stroke-dashoffset:0"
+       id="rect13"
+       width="65.746849"
+       height="31.061924"
+       x="-42.214188"
+       y="116.26204" />
+    <rect
+       style="fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:butt;stroke-linejoin:round;stroke-dasharray:1.25,1.25;stroke-opacity:1;paint-order:markers fill stroke;stroke-dashoffset:0"
+       id="rect15"
+       width="58.465565"
+       height="29.28941"
+       x="55.230755"
+       y="222.97023" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:3,6;stroke-opacity:1;paint-order:markers fill stroke;stroke-dashoffset:0"
+       x="-40.547504"
+       y="129.57756"
+       id="text15"><tspan
+         sodipodi:role="line"
+         id="tspan15"
+         style="font-size:7.05556px;text-align:start;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3;stroke-dasharray:3,6;stroke-dashoffset:0"
+         x="-40.547504"
+         y="129.57756">EthereumVM互換</tspan><tspan
+         sodipodi:role="line"
+         style="font-size:7.05556px;text-align:start;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3;stroke-dasharray:3,6;stroke-dashoffset:0"
+         x="-40.547504"
+         y="138.397"
+         id="tspan16">ブロックチェーン</tspan></text>
+    <rect
+       style="fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:butt;stroke-linejoin:round;stroke-dasharray:1.25,1.25;stroke-opacity:1;paint-order:markers fill stroke;stroke-dashoffset:0"
+       id="rect16"
+       width="20.358049"
+       height="11.333808"
+       x="9.0362062"
+       y="142.28206" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="13.891809"
+       y="150.67593"
+       id="text17"><tspan
+         sodipodi:role="line"
+         id="tspan17"
+         style="font-size:7.05556px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3"
+         x="13.891809"
+         y="150.67593">RPC</tspan></text>
+    <rect
+       style="fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:butt;stroke-linejoin:round;stroke-dasharray:1.25,1.25;stroke-opacity:1;paint-order:markers fill stroke;stroke-dashoffset:0"
+       id="rect17"
+       width="20.358049"
+       height="11.333808"
+       x="9.0362062"
+       y="109.97013" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="13.891809"
+       y="118.36401"
+       id="text18"><tspan
+         sodipodi:role="line"
+         id="tspan18"
+         style="font-size:7.05556px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3"
+         x="13.891809"
+         y="118.36401">RPC</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="47.669617"
+       y="187.83975"
+       id="text20"><tspan
+         sodipodi:role="line"
+         id="tspan20"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="47.669617"
+         y="187.83975">インターネット</tspan></text>
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;marker-end:url(#DartArrow);paint-order:markers fill stroke"
+       d="M 63.399214,108.25225 33.05133,114.12716"
+       id="path20"
+       sodipodi:nodetypes="cc" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:4.93889px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="21.714376"
+       y="105.69405"
+       id="text21"><tspan
+         sodipodi:role="line"
+         id="tspan21"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:4.93889px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="21.714376"
+         y="105.69405">決済情報の確認</tspan></text>
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;marker-end:url(#DartArrow);paint-order:markers fill stroke"
+       d="M -10.140606,187.72133 7.6759347,157.45782"
+       id="path21"
+       sodipodi:nodetypes="cc" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="-8.317667"
+       y="156.63979"
+       id="text22"><tspan
+         sodipodi:role="line"
+         id="tspan22"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="-8.317667"
+         y="156.63979">決済</tspan></text>
+    <rect
+       style="fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:butt;stroke-linejoin:round;stroke-dasharray:1.25,1.25;stroke-opacity:1;paint-order:markers fill stroke;stroke-dashoffset:0"
+       id="rect23"
+       width="20.358049"
+       height="11.333808"
+       x="-57.960644"
+       y="142.28206" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="-53.105042"
+       y="150.67593"
+       id="text23"><tspan
+         sodipodi:role="line"
+         id="tspan23"
+         style="font-size:7.05556px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3"
+         x="-53.105042"
+         y="150.67593">RPC</tspan></text>
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;marker-start:url(#DartArrow);marker-end:url(#DartArrow);paint-order:markers fill stroke"
+       d="m 161.62471,273.22778 c -18.7816,6.12599 -68.806823,13.5414 -100.398966,13.07674 -96.729007,-1.42268 -134.482803,6.66691 -115.311284,-129.18605"
+       id="path23"
+       sodipodi:nodetypes="csc" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="64.953049"
+       y="277.44623"
+       id="text24"><tspan
+         sodipodi:role="line"
+         id="tspan24"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="64.953049"
+         y="277.44623">インターネット</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="-51.731255"
+       y="185.56465"
+       id="text27"><tspan
+         sodipodi:role="line"
+         id="tspan27"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="-51.731255"
+         y="185.56465">ウォレット所有</tspan><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="-51.731255"
+         y="191.91228"
+         id="tspan28">決済実行電文署名</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="162.12527"
+       y="283.05911"
+       id="text30"><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="162.12527"
+         y="283.05911"
+         id="tspan30">ウォレット所有</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="-43.08662"
+       y="162.51346"
+       id="text32"><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="-43.08662"
+         y="162.51346"
+         id="tspan32">&lt;管理者ウォレット</tspan><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="-43.08662"
+         y="168.86108"
+         id="tspan33">    に対する送金&gt;</tspan></text>
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;marker-end:url(#DartArrow);paint-order:markers fill stroke"
+       d="M -8.6195752,189.30458 C 36.034381,158.69121 38.060854,155.8779 41.56176,129.69191 c 1.136044,-8.49736 13.936192,-11.90698 18.836805,-14.29029"
+       id="path33"
+       sodipodi:nodetypes="csc" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="-115.91342"
+       y="152.79491"
+       id="text35"
+       transform="rotate(-36.785597)"><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="-115.91342"
+         y="152.79491"
+         id="tspan35">決済トランザクションID</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:3.00001001,6.00002003;stroke-opacity:1;paint-order:markers fill stroke;stroke-dashoffset:0"
+       x="58.301552"
+       y="230.92476"
+       id="text36"><tspan
+         sodipodi:role="line"
+         id="tspan36"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-dasharray:3.00001001,6.00002003;stroke-dashoffset:0"
+         x="58.301552"
+         y="230.92476">外部IDサービス</tspan><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-dasharray:3.00001001,6.00002003;stroke-dashoffset:0"
+         x="58.301552"
+         y="239.7442"
+         id="tspan37">Misskey,</tspan><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-dasharray:3.00001001,6.00002003;stroke-dashoffset:0"
+         x="58.301552"
+         y="248.56366"
+         id="tspan38">Google等</tspan></text>
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;marker-end:url(#DartArrow);paint-order:markers fill stroke"
+       d="m -3.3401712,246.68203 55.3872842,1.32775"
+       id="path38"
+       sodipodi:nodetypes="cc" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:4.93889px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="4.7416916"
+       y="238.29703"
+       id="text39"><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:4.93889px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="4.7416916"
+         y="238.29703"
+         id="tspan47">アカウント所有</tspan><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:4.93889px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="4.7416916"
+         y="244.47064"
+         id="tspan45">連携承諾</tspan></text>
+    <path
+       sodipodi:type="star"
+       style="fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:1.84836;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       id="path39"
+       inkscape:flatsided="true"
+       sodipodi:sides="3"
+       sodipodi:cx="83.595642"
+       sodipodi:cy="101.55104"
+       sodipodi:r1="24.655289"
+       sodipodi:r2="12.327644"
+       sodipodi:arg1="2.6179939"
+       sodipodi:arg2="3.6651914"
+       inkscape:rounded="0"
+       inkscape:randomized="0"
+       d="M 62.243535,113.87868 83.595643,76.895752 104.94775,113.87869 Z"
+       inkscape:transform-center-y="-4.1524272"
+       transform="matrix(0.67888379,0,0,0.67367744,-33.031746,-16.355575)" />
+    <ellipse
+       style="fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       id="ellipse39"
+       cx="23.71998"
+       cy="33.336273"
+       rx="12.068382"
+       ry="12.068501" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="-54.747807"
+       y="37.082596"
+       id="text40"><tspan
+         sodipodi:role="line"
+         id="tspan40"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="-54.747807"
+         y="37.082596">ダウンロード利用者</tspan></text>
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;marker-end:url(#DartArrow);paint-order:markers fill stroke"
+       d="M 62.995309,97.148086 42.400206,61.097677"
+       id="path40"
+       sodipodi:nodetypes="cc" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="-28.14786"
+       y="93.068489"
+       id="text42"><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="-28.14786"
+         y="93.068489"
+         id="tspan43">メタデータ,保存データ</tspan><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="-28.14786"
+         y="99.416115"
+         id="tspan101">(ActivityPub対応形式)</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:4.93889px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:end;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:end;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="97.626884"
+       y="210.21111"
+       id="text44"><tspan
+         sodipodi:role="line"
+         id="tspan44"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:4.93889px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:end;text-anchor:end;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="97.626884"
+         y="210.21111">連携承諾</tspan><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:4.93889px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:end;text-anchor:end;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="97.626884"
+         y="216.38472"
+         id="tspan46">利用者情報</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:4.93889px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="0.72461063"
+       y="253.63724"
+       id="text50"><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:4.93889px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="0.72461063"
+         y="253.63724"
+         id="tspan51">外部IDサインイン</tspan><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:4.93889px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="0.72461063"
+         y="259.81085"
+         id="tspan52">外部IDサインアップ</tspan></text>
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;marker-start:url(#DartArrow);marker-end:url(#DartArrow);paint-order:markers fill stroke"
+       d="M -3.9886793,215.70715 C 30.998323,202.26822 57.578476,177.73611 72.077744,137.26279"
+       id="path53"
+       sodipodi:nodetypes="cc" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="28.891476"
+       y="203.13068"
+       id="text55"><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="28.891476"
+         y="203.13068"
+         id="tspan54">アカウント情報</tspan><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="28.891476"
+         y="209.4783"
+         id="tspan82">メタデータ</tspan><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="28.891476"
+         y="215.82593"
+         id="tspan55">保存データ</tspan></text>
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;marker-start:url(#DartArrow);marker-end:url(#DartArrow);paint-order:markers fill stroke"
+       d="M 74.850781,94.375985 88.784632,74.267197"
+       id="path55"
+       sodipodi:nodetypes="cc" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;marker-start:url(#DartArrow);marker-end:url(#DartArrow);paint-order:markers fill stroke"
+       d="M 132.82064,101.36902 146.75449,81.260235"
+       id="path56"
+       sodipodi:nodetypes="cc" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="85.796928"
+       y="86.360893"
+       id="text57"><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="85.796928"
+         y="86.360893"
+         id="tspan57">メタデータ</tspan><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="85.796928"
+         y="92.708519"
+         id="tspan58">管理用データ</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="142.35211"
+       y="95.595459"
+       id="text60"><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="142.35211"
+         y="95.595459"
+         id="tspan60">保存データ</tspan></text>
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;marker-end:url(#DartArrow);paint-order:markers fill stroke"
+       d="m 130.94909,126.69992 c 12.32575,6.54016 15.71695,69.65368 12.66147,98.8036 -4.40912,42.06387 -26.06973,37.30054 -54.048313,39.30729 -11.598026,0.83187 -50.672905,2.64289 -50.672905,2.64289"
+       id="path61"
+       sodipodi:nodetypes="cssc" />
+    <rect
+       style="fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       id="rect11"
+       width="51.769478"
+       height="12.959946"
+       x="135.38788"
+       y="123.67274" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:center;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:middle;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="161.22678"
+       y="132.85159"
+       id="text12"><tspan
+         sodipodi:role="line"
+         id="tspan12"
+         style="font-size:7.05556px;text-align:center;text-anchor:middle;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3"
+         x="161.22678"
+         y="132.85159">Email Routing</tspan></text>
+    <rect
+       style="fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:butt;stroke-linejoin:round;stroke-dasharray:1.25,1.25;stroke-opacity:1;paint-order:markers fill stroke;stroke-dashoffset:0"
+       id="rect61"
+       width="51.769478"
+       height="12.959946"
+       x="-16.314619"
+       y="263.71921" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.88733px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:center;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:middle;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:3, 6;stroke-dashoffset:0;stroke-opacity:1;paint-order:markers fill stroke"
+       x="11.67813"
+       y="227.75087"
+       id="text61"
+       transform="scale(0.83442407,1.1984314)"><tspan
+         sodipodi:role="line"
+         id="tspan61"
+         style="font-size:5.88733px;text-align:center;text-anchor:middle;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3;stroke-dasharray:3, 6;stroke-dashoffset:0"
+         x="11.678131"
+         y="227.75087">利用者メールサーバー</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:4.93889px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:end;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:end;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="142.75476"
+       y="209.26627"
+       id="text63"><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:4.93889px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:end;text-anchor:end;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="142.75476"
+         y="209.26627"
+         id="tspan63">イベント発生時</tspan><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:4.93889px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:end;text-anchor:end;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="142.75476"
+         y="215.43988"
+         id="tspan64">メール</tspan></text>
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;marker-start:url(#DartArrow);paint-order:markers fill stroke"
+       d="m -16.256383,246.48991 9.8273197,15.36863"
+       id="path64"
+       sodipodi:nodetypes="cc" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:4.93889px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:end;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:end;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="-12.806546"
+       y="260.19397"
+       id="text66"><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:4.93889px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:end;text-anchor:end;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="-12.806547"
+         y="260.19397"
+         id="tspan66">メール</tspan></text>
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;marker-end:url(#DartArrow);paint-order:markers fill stroke"
+       d="m 99.290237,222.87114 1.124793,-83.24751"
+       id="path67"
+       sodipodi:nodetypes="cc" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;marker-start:url(#DartArrow);marker-end:url(#DartArrow);paint-order:markers fill stroke"
+       d="M 162.09014,221.13495 116.58898,139.20181"
+       id="path68"
+       sodipodi:nodetypes="cc" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="155.27913"
+       y="207.45822"
+       id="text69"><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="155.27913"
+         y="207.45822"
+         id="tspan69">管理用等データ</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:end;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:end;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="198.22282"
+       y="172.81404"
+       id="text70"><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:end;text-anchor:end;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="198.22282"
+         y="172.81404"
+         id="tspan70">実行コード送信</tspan><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:end;text-anchor:end;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="198.22282"
+         y="179.16167"
+         id="tspan73">クラウド管理</tspan><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:end;text-anchor:end;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="198.22282"
+         y="185.50929"
+         id="tspan72">(Wrangler,</tspan><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:end;text-anchor:end;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="198.22282"
+         y="191.85692"
+         id="tspan71">経由)</tspan></text>
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;marker-start:url(#DartArrow);marker-end:url(#DartArrow);paint-order:markers fill stroke"
+       d="m 192.21411,217.83352 c 15.15316,-20.80166 6.58499,-49.81455 1.98711,-77.45312"
+       id="path72"
+       sodipodi:nodetypes="cc" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:4.59799px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:end;letter-spacing:-0.669396px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:end;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="205.31943"
+       y="173.86038"
+       id="text77"
+       transform="scale(0.90545518,1.1044169)"><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:4.59799px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:end;letter-spacing:-0.669396px;text-anchor:end;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="204.65002"
+         y="173.86038"
+         id="tspan77">ダッシュボード</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="-76.70517"
+       y="25.702724"
+       id="text80"><tspan
+         sodipodi:role="line"
+         id="tspan80"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="-76.70517"
+         y="25.702724">インターネット</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="165.68849"
+       y="298.09125"
+       id="text81"><tspan
+         sodipodi:role="line"
+         id="tspan81"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="165.68849"
+         y="298.09125">インターネット</tspan></text>
+    <rect
+       style="fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:butt;stroke-linejoin:round;stroke-dasharray:1.25, 1.25;stroke-dashoffset:0;stroke-opacity:1;paint-order:markers fill stroke"
+       id="rect83"
+       width="20.358049"
+       height="11.333808"
+       x="55.611259"
+       y="29.695681" />
+    <rect
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:butt;stroke-linejoin:round;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1;paint-order:markers fill stroke"
+       id="rect84"
+       width="169.22714"
+       height="28.298664"
+       x="50.589035"
+       y="17.167309" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="53.266666"
+       y="25.945074"
+       id="text84"><tspan
+         sodipodi:role="line"
+         id="tspan84"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="53.266666"
+         y="25.945074">凡例 </tspan></text>
+    <rect
+       style="fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:butt;stroke-linejoin:round;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1;paint-order:markers fill stroke"
+       id="rect85"
+       width="20.358049"
+       height="11.333808"
+       x="136.32419"
+       y="29.695681" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="78.513809"
+       y="34.021965"
+       id="text86"><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="78.513809"
+         y="34.021965"
+         id="tspan86">届出者が管理しない</tspan><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="78.513809"
+         y="40.369591"
+         id="tspan87">外部サービス</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="158.77286"
+       y="34.161613"
+       id="text89"><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="158.77286"
+         y="34.161613"
+         id="tspan89">届出者が借受・所有する</tspan><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="158.77286"
+         y="40.509239"
+         id="tspan90">設備・クラウド基盤等</tspan></text>
+    <rect
+       style="fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:butt;stroke-linejoin:round;stroke-dasharray:1.25, 1.25;stroke-dashoffset:0;stroke-opacity:1;paint-order:markers fill stroke"
+       id="rect90"
+       width="67.830681"
+       height="29.28941"
+       x="-68.323151"
+       y="52.401058" />
+    <rect
+       style="fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:butt;stroke-linejoin:round;stroke-dasharray:1.25, 1.25;stroke-dashoffset:0;stroke-opacity:1;paint-order:markers fill stroke"
+       id="rect91"
+       width="67.830681"
+       height="29.28941"
+       x="-70.965599"
+       y="50.284405" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:3.00001, 6.00002;stroke-dashoffset:0;stroke-opacity:1;paint-order:markers fill stroke"
+       x="-67.894798"
+       y="58.238934"
+       id="text93"><tspan
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-dasharray:3.00001, 6.00002;stroke-dashoffset:0"
+         x="-67.894798"
+         y="58.238934"
+         id="tspan96"
+         sodipodi:role="line">ActivityPub </tspan><tspan
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-dasharray:3.00001, 6.00002;stroke-dashoffset:0"
+         x="-67.894798"
+         y="67.05838"
+         sodipodi:role="line"
+         id="tspan98">対応SNS  Misskey,</tspan><tspan
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:7.05556px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-dasharray:3.00001, 6.00002;stroke-dashoffset:0"
+         x="-67.894798"
+         y="75.877831"
+         sodipodi:role="line"
+         id="tspan100">Mastodon等</tspan></text>
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;marker-end:url(#DartArrow);paint-order:markers fill stroke"
+       d="M 62.580772,100.46438 1.1538094,77.471875"
+       id="path96"
+       sodipodi:nodetypes="cc" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;text-align:start;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;direction:ltr;text-orientation:upright;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:markers fill stroke"
+       x="17.155327"
+       y="71.506172"
+       id="text104"><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="17.155327"
+         y="71.506172"
+         id="tspan103">メタデータ</tspan><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:5.0781px;font-family:nukamiso2004OTF;-inkscape-font-specification:nukamiso2004OTF;fill:#000000;fill-opacity:1;stroke:none;stroke-width:3.00001"
+         x="17.155327"
+         y="77.853798"
+         id="tspan104">保存データ</tspan></text>
+  </g>
+</svg>
