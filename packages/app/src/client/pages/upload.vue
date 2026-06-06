@@ -50,6 +50,7 @@ const selectedTree = ref<UploadTree | null>(null);
 const selectedEntry = ref<UploadEntry | null>(null);
 const uploadPrefix = ref('');
 const archiveMode = ref<ArchiveMode>('individual');
+const archiveModeTouched = ref(false);
 const compressImagesOnUpload = ref(false);
 const imageCompressionDialogOpen = ref(false);
 const imageCompressionMimeType = ref<'image/webp' | 'image/jpeg'>('image/webp');
@@ -123,6 +124,10 @@ async function detectWebpEncodingSupport(): Promise<boolean> {
 
 function shouldCompressImagePath(entry: UploadWorkerFileEntry): boolean {
 	return compressImagesOnUpload.value && archiveMode.value === 'individual' && entry.file.type.startsWith('image/');
+}
+
+function isCompressedImageEntry(entry: UploadEntry): boolean {
+	return entry.type.startsWith('image/') && entry.type !== 'image/bmp';
 }
 
 function compressedImageUploadPath(path: string): string {
@@ -201,6 +206,12 @@ const draggingItemName = computed(() => {
 	return item.type === 'file' ? item.entry.name : item.directory.name;
 });
 const selectedUploadBytes = computed(() => selectedTree.value?.totalSize ?? 0);
+const compressedImageEntries = computed(() => selectedTree.value?.entries.filter(isCompressedImageEntry) ?? []);
+const shouldRecommendTarForCompressedImages = computed(() => compressedImageEntries.value.length >= 3);
+const tarRecommendationMessage = computed(() => {
+	const count = compressedImageEntries.value.length;
+	return `画像が${count}枚あります。再圧縮しても容量が減りにくいため、tarにまとめるのがおすすめです。`;
+});
 const quotaRemainingBytes = computed(() => {
 	if (!bucket.value || maxBucketSizeBytes.value === null) return null;
 	return Math.max(0, maxBucketSizeBytes.value - bucket.value.usedBytes);
@@ -303,6 +314,7 @@ async function setSelectedTree(tree: UploadTree, entryToSelect: UploadEntry | nu
 	selectedTree.value = tree;
 	selectEntry(entryToSelect);
 	if (archiveMode.value === 'gz' && tree.hasDirectories) archiveMode.value = 'individual';
+	if (!archiveModeTouched.value && shouldRecommendTarForCompressedImages.value) archiveMode.value = 'tar';
 }
 
 async function addSelectedTree(tree: UploadTree): Promise<void> {
@@ -500,11 +512,18 @@ function getZipExtractWorker(): Worker {
 function clearSelectedTree(): void {
 	selectedTree.value = null;
 	selectEntry(null);
+	archiveMode.value = 'individual';
+	archiveModeTouched.value = false;
 	selectionError.value = '';
 	zipWarnings.value = [];
 	uploadError.value = '';
 	uploadDone.value = false;
 	redirectUploadJobId.value = null;
+}
+
+function updateArchiveMode(mode: ArchiveMode): void {
+	archiveModeTouched.value = true;
+	archiveMode.value = mode;
 }
 
 async function removeSelectedEntry(path: string): Promise<void> {
@@ -1538,25 +1557,46 @@ onMounted(async () => {
 
           <p class="form-label" :class="$style.archiveModeLabel">アップロード形式</p>
           <div :class="$style.archiveModeList">
-            <label :class="['checkbox-label', $style.archiveModeOption]">
-              <input v-model="archiveMode" type="radio" value="individual" :class="$style.radioInput">
-              <span :class="$style.archiveModeText">個別ファイルとしてアップロード</span>
+            <label :class="[$style.archiveModeOption, archiveMode === 'individual' ? $style.archiveModeOptionSelected : null]">
+              <input :checked="archiveMode === 'individual'" type="radio" value="individual" :class="$style.radioInput" @change="updateArchiveMode('individual')">
+              <File :class="$style.archiveModeIcon" :size="20" :stroke-width="2" aria-hidden="true" />
+              <span :class="$style.archiveModeBody">
+                <span :class="$style.archiveModeText">個別ファイルとしてアップロード</span>
+                <span :class="$style.archiveModeDescription">各ファイルごとにアップロード数を消費</span>
+              </span>
             </label>
-            <label :class="['checkbox-label', $style.archiveModeOption]">
-              <input v-model="archiveMode" type="radio" value="gz" :class="$style.radioInput">
-              <span :class="$style.archiveModeText">gzip 圧縮してアップロード</span>
-              <span class="badge badge-muted">.gz</span>
+            <label :class="[$style.archiveModeOption, archiveMode === 'gz' ? $style.archiveModeOptionSelected : null]">
+              <input :checked="archiveMode === 'gz'" type="radio" value="gz" :class="$style.radioInput" @change="updateArchiveMode('gz')">
+              <FileArchive :class="$style.archiveModeIcon" :size="20" :stroke-width="2" aria-hidden="true" />
+              <span :class="$style.archiveModeBody">
+                <span :class="$style.archiveModeText">gzip 圧縮してアップロード</span>
+                <span :class="$style.archiveModeDescription">各ファイルを .gz として保存</span>
+              </span>
+              <span class="badge badge-muted" :class="$style.archiveModeBadge">.gz</span>
             </label>
-            <label :class="['checkbox-label', $style.archiveModeOption]">
-              <input v-model="archiveMode" type="radio" value="tar" :class="$style.radioInput">
-              <span :class="$style.archiveModeText">tar にまとめてアップロード</span>
-              <span class="badge badge-muted">無圧縮</span>
+            <label :class="[$style.archiveModeOption, archiveMode === 'tar' ? $style.archiveModeOptionSelected : null]">
+              <input :checked="archiveMode === 'tar'" type="radio" value="tar" :class="$style.radioInput" @change="updateArchiveMode('tar')">
+              <FileArchive :class="$style.archiveModeIcon" :size="20" :stroke-width="2" aria-hidden="true" />
+              <span :class="$style.archiveModeBody">
+                <span :class="$style.archiveModeText">tar にまとめてアップロード</span>
+                <span :class="$style.archiveModeDescription">無圧縮のアーカイブとして保存</span>
+              </span>
+              <span :class="['badge', shouldRecommendTarForCompressedImages ? 'badge-info' : 'badge-muted', $style.archiveModeBadge]">
+                {{ shouldRecommendTarForCompressedImages ? 'おすすめ' : '無圧縮' }}
+              </span>
             </label>
-            <label :class="['checkbox-label', $style.archiveModeOption]">
-              <input v-model="archiveMode" type="radio" value="targz" :class="$style.radioInput">
-              <span :class="$style.archiveModeText">tar.gz にまとめてアップロード</span>
-              <span class="badge badge-info">BGZF・ランダムアクセス対応</span>
+            <label :class="[$style.archiveModeOption, archiveMode === 'targz' ? $style.archiveModeOptionSelected : null]">
+              <input :checked="archiveMode === 'targz'" type="radio" value="targz" :class="$style.radioInput" @change="updateArchiveMode('targz')">
+              <FileArchive :class="$style.archiveModeIcon" :size="20" :stroke-width="2" aria-hidden="true" />
+              <span :class="$style.archiveModeBody">
+                <span :class="$style.archiveModeText">tar.gz にまとめてアップロード</span>
+                <span :class="$style.archiveModeDescription">BGZF圧縮 グリッドビューでのプレビュー非対応</span>
+              </span>
+              <span class="badge badge-info" :class="$style.archiveModeBadge">ランダムアクセス対応</span>
             </label>
+          </div>
+          <div v-if="shouldRecommendTarForCompressedImages" class="alert alert-info mt-3" :class="$style.tarRecommendation">
+            {{ tarRecommendationMessage }}
           </div>
           <div v-if="archiveMode === 'tar' || archiveMode === 'targz'" :class="[$style.libraryNameGroup, 'form-group']">
             <label class="form-label" for="upload-library-name">ライブラリ名</label>
@@ -2154,24 +2194,67 @@ onMounted(async () => {
 }
 
 .archiveModeList {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .archiveModeOption {
   display: grid;
-  grid-template-columns: 16px minmax(0, max-content) auto;
-  justify-content: start;
-  align-items: center;
-  column-gap: 8px;
-  row-gap: 4px;
-  width: fit-content;
-  max-width: 100%;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  min-height: 78px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.archiveModeOption:hover {
+  border-color: var(--color-border-focus);
+  background: var(--color-surface);
+}
+
+.archiveModeOptionSelected {
+  border-color: var(--color-primary);
+  background: var(--color-primary-surface, color-mix(in srgb, var(--color-primary) 10%, transparent));
+  box-shadow: inset 0 0 0 1px var(--color-primary);
+}
+
+.archiveModeIcon {
+  margin-top: 2px;
+  color: var(--color-text-muted);
+}
+
+.archiveModeOptionSelected .archiveModeIcon {
+  color: var(--color-primary);
+}
+
+.archiveModeBody {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
 }
 
 .archiveModeText {
   min-width: 0;
+  color: var(--color-text);
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.archiveModeDescription {
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.archiveModeBadge {
+  justify-self: end;
+  white-space: nowrap;
 }
 
 .libraryNameGroup {
@@ -2180,7 +2263,18 @@ onMounted(async () => {
 }
 
 .radioInput {
-  accent-color: var(--color-primary);
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.archiveModeOption:has(.radioInput:focus-visible) {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
 }
 
 .doneLink {
@@ -2198,13 +2292,18 @@ onMounted(async () => {
   }
 
   .archiveModeOption {
-    grid-template-columns: 16px minmax(0, 1fr);
-    width: 100%;
+    grid-template-columns: auto minmax(0, 1fr);
   }
 
-  .archiveModeOption :global(.badge) {
+  .archiveModeBadge {
     grid-column: 2;
     justify-self: start;
+  }
+}
+
+@media (max-width: 860px) {
+  .archiveModeList {
+    grid-template-columns: 1fr;
   }
 }
 </style>
