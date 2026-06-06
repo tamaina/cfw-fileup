@@ -253,19 +253,19 @@ onMounted(loadTokens);
 
     <!-- 発行フォーム -->
     <div v-if="fileVisibility === 'public'" :class="[$style.sectionCard, 'card', 'mb-3']">
-      <div :class="[$style.sectionHeading, 'text-muted', 'mb-2']">共有URL</div>
+      <div :class="[$style.sectionHeading, 'card-title', 'mb-2']">共有URL</div>
       <p :class="[$style.shareHint, 'text-muted']">
         「ファイル一覧とActivityPubに表示」がオンの公開ファイルは、ActivityPub対応サービスからこのリンクを照会できます。
       </p>
       <div class="flex items-center gap-2 flex-wrap">
-        <code :class="$style.tokenUrl">{{ viewUrl() }}</code>
+        <pre :class="$style.tokenUrl"><code>{{ viewUrl() }}</code></pre>
         <Button.Root class="btn btn-secondary" @click="copyPublicUrl">
           <Button.Content>{{ publicCopied ? 'コピー済み' : 'コピー' }}</Button.Content>
         </Button.Root>
       </div>
     </div>
     <div v-else :class="[$style.sectionCard, 'card', 'mb-3']">
-      <div :class="[$style.sectionHeading, 'text-muted', 'mb-2']">新しい共有URLを発行</div>
+      <div :class="[$style.sectionHeading, 'card-title', 'mb-2']">新しい共有URLを発行</div>
       <p :class="[$style.shareHint, 'text-muted']">
         ActivityPubでのリンク照会は、公開ファイルで「ファイル一覧とActivityPubに表示」をオンにした場合に有効です。
       </p>
@@ -309,7 +309,7 @@ onMounted(loadTokens);
         <div :class="[$style.createdTokenBox, 'mt-3']">
           <div :class="['text-muted', $style.createdTokenLabel, 'mb-1']">共有URL（この画面を閉じると再表示できません）</div>
           <div class="flex items-center gap-2 flex-wrap">
-            <code :class="$style.tokenUrl">{{ viewUrl(createdToken.token) }}</code>
+            <pre :class="$style.tokenUrl"><code>{{ viewUrl(createdToken.token) }}</code></pre>
             <Button.Root class="btn btn-secondary" @click="copyUrl">
               <Button.Content>{{ copied ? 'コピー済み' : 'コピー' }}</Button.Content>
             </Button.Root>
@@ -323,7 +323,7 @@ onMounted(loadTokens);
 
     <!-- トークン一覧 -->
     <div v-if="fileVisibility !== 'public'" :class="[$style.sectionCard, 'card']">
-      <div :class="[$style.sectionHeading, 'text-muted', 'mb-2']">発行済み共有URL</div>
+      <div :class="[$style.sectionHeading, 'card-title', 'mb-2']">発行済み共有URL</div>
       <div v-if="loading" :class="['text-muted', $style.smallText]">読み込み中...</div>
       <div v-else-if="listError" :class="$style.listError">{{ listError }}</div>
       <div v-else-if="tokens.length === 0" :class="['text-muted', $style.smallText]">共有URLはありません</div>
@@ -462,6 +462,8 @@ onMounted(loadTokens);
 
 .tokenUrl {
   font-size: 0.8rem;
+  margin: 0;
+  white-space: pre-wrap;
   word-break: break-all;
   flex: 1;
 }
