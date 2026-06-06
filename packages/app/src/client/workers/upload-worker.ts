@@ -27,7 +27,7 @@ const ports = new Set<MessagePort>();
 const jobs: UploadJobSnapshot[] = [];
 const queue: Array<{ id: string; request: UploadJobRequest }> = [];
 let running = false;
-const NON_RESUME_UPLOAD_LIMIT_BYTES = 32 * 1024 * 1024;
+const DEFAULT_NON_RESUME_UPLOAD_LIMIT_BYTES = 32 * 1024 * 1024;
 
 self.onconnect = (event) => {
 	const port = event.ports[0];
@@ -132,6 +132,7 @@ async function openUpload(path: string, request: UploadJobRequest): Promise<Open
 	const result = await apiPost<{ fileId: string; partSize: number }>('/api/files/create/open', {
 		bucketId: request.bucketId,
 		path,
+		partSize: request.partSize,
 	}, request.authToken);
 	return { fileId: result.fileId, partSize: result.partSize };
 }
@@ -219,7 +220,8 @@ async function nonResumeUpload(fileId: string, blob: Blob, path: string, request
 async function uploadBlob(blob: Blob, path: string, request: UploadJobRequest, onProgress: (uploaded: number) => void): Promise<void> {
 	const { fileId, partSize } = await openUpload(path, request);
 	try {
-		if (blob.size < NON_RESUME_UPLOAD_LIMIT_BYTES) {
+		const nonResumeUploadLimitBytes = request.nonResumeUploadLimitBytes ?? DEFAULT_NON_RESUME_UPLOAD_LIMIT_BYTES;
+		if (blob.size < nonResumeUploadLimitBytes) {
 			await nonResumeUpload(fileId, blob, path, request, onProgress);
 		} else {
 			await tusUpload(fileId, blob, path, partSize, request, onProgress);

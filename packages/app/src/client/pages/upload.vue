@@ -22,6 +22,7 @@ import { formatBytes } from '@/utils/byte-size';
 import type { ZipExtractWorkerMessage } from '@/workers/zip-extract.worker';
 import type { UploadWorkerFileEntry } from '@/workers/upload-worker-types';
 import { navigateTo } from '@/navigate';
+import { browserUploadAutoOpen, browserUploadNonResumeLimitBytes, browserUploadPartSizeBytes } from '@/store/browser-upload-settings';
 
 type ArchiveMode = 'individual' | 'gz' | 'tar' | 'targz';
 
@@ -238,7 +239,7 @@ watch(uploadWorkerJobs, jobs => {
 	const job = jobs.find(current => current.id === jobId);
 	if (!job || job.status !== 'done' || !job.completedPath) return;
 	redirectUploadJobId.value = null;
-	if (window.location.pathname === '/uploader') {
+	if (browserUploadAutoOpen.value && window.location.pathname === '/uploader') {
 		navigateTo(browserUploadLink(job.bucketName, job.completedPath));
 	}
 });
@@ -1313,6 +1314,8 @@ async function executeUpload(): Promise<void> {
 			maxHeight: imageCompressionMaxHeight.value,
 			mimeType: imageCompressionMimeType.value,
 		},
+		partSize: browserUploadPartSizeBytes.value,
+		nonResumeUploadLimitBytes: browserUploadNonResumeLimitBytes.value,
 		files,
 		totalBytes: tree.totalSize,
 		authToken: authStore.token,

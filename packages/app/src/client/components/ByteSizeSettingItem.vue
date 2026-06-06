@@ -18,9 +18,14 @@ const emit = defineEmits<{
 
 const amount = ref<number | null>(null);
 const unit = ref<ByteSizeUnit>(pickByteSizeUnit(props.modelValue));
+const draftValue = computed(() => {
+	if (amount.value == null) return null;
+	const value = amount.value * byteSizeUnitMultiplier(unit.value);
+	return Number.isFinite(value) ? value : null;
+});
 
 const validationError = computed(() => {
-	const result = v.safeParse(props.schema, props.modelValue);
+	const result = v.safeParse(props.schema, draftValue.value);
 	return result.success ? null : result.issues[0]?.message ?? '入力値が正しくありません';
 });
 
@@ -36,13 +41,8 @@ watch(() => props.modelValue, (value) => {
 }, { immediate: true });
 
 function updateValue(): void {
-	if (amount.value == null) {
-		emit('update:modelValue', null);
-		return;
-	}
-	const nextValue = amount.value * byteSizeUnitMultiplier(unit.value);
-	if (!Number.isFinite(nextValue)) return;
-	emit('update:modelValue', nextValue);
+	if (validationError.value != null) return;
+	emit('update:modelValue', draftValue.value);
 }
 
 function onAmountInput(e: Event): void {
@@ -58,7 +58,7 @@ function onUnitChange(e: Event): void {
 
 function onSave(): void {
 	if (validationError.value != null) return;
-	emit('save', props.modelValue);
+	emit('save', draftValue.value);
 }
 </script>
 
@@ -67,6 +67,9 @@ function onSave(): void {
     <div :class="$style.settingRowInfo">
       <label :class="$style.label">{{ title }}</label>
       <div :class="$style.description">{{ preview }}</div>
+      <div v-if="$slots.default" :class="$style.description">
+        <slot />
+      </div>
     </div>
     <div :class="$style.settingRowControl">
       <div :class="$style.controlRow">

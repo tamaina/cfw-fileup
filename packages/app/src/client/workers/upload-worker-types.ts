@@ -28,6 +28,8 @@ export interface UploadJobRequest {
 	isDownloadCountEnabled?: boolean;
 	isDownloadCountVisible?: boolean;
 	imageCompression?: UploadImageCompressionOptions;
+	partSize: number;
+	nonResumeUploadLimitBytes: number;
 	files: UploadWorkerFileEntry[];
 	totalBytes: number;
 	authToken: string | null;

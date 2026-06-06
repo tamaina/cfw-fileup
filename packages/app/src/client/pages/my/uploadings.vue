@@ -1,14 +1,26 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { computed, ref, onMounted } from 'vue';
+import * as v from 'valibot';
 import type { FileVisibility } from '../../../shared/file-visibility';
 import { Button } from '@vuetify/v0';
 import NirA from '@/components/NirA.vue';
 import InfiniteTableRow from '@/components/InfiniteTableRow.vue';
+import SettingItem from '@/components/SettingItem.vue';
+import ByteSizeSettingItem from '@/components/ByteSizeSettingItem.vue';
 import { authStore } from '@/store/auth';
 import { apiPost } from '@/utils/api';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import { connectUploadWorker, uploadWorkerJobs } from '@/store/upload-worker';
 import { formatBytes } from '@/utils/byte-size';
+import {
+	browserUploadAutoOpen,
+	browserUploadNonResumeLimitBytes,
+	browserUploadPartSizeBytes,
+	MIN_BROWSER_UPLOAD_SETTING_BYTES,
+	setBrowserUploadAutoOpen,
+	setBrowserUploadNonResumeLimitBytes,
+	setBrowserUploadPartSizeBytes,
+} from '@/store/browser-upload-settings';
 
 interface UploadEntry {
 	id: string;
@@ -28,12 +40,30 @@ const loading = ref(true);
 const loadingMore = ref(false);
 const error = ref('');
 const deleteErrors = ref<Record<string, string>>({});
-const activeTab = ref<'server' | 'browser'>('server');
+const activeTab = ref<'server' | 'browser' | 'settings'>('server');
 
 const deleteDialog = ref(false);
 const deleteTarget = ref<UploadEntry | null>(null);
 const nextCursor = ref<string | null>(null);
 const hasMore = ref(false);
+const booleanSettingSchema = v.picklist(['true', 'false']);
+const uploadSizeSettingSchema = v.pipe(
+	v.number('数値を入力してください'),
+	v.integer('整数を入力してください'),
+	v.minValue(MIN_BROWSER_UPLOAD_SETTING_BYTES, '32MiB以上の値を入力してください'),
+);
+const autoOpenSetting = computed<'true' | 'false'>({
+	get: () => browserUploadAutoOpen.value ? 'true' : 'false',
+	set: value => setBrowserUploadAutoOpen(value === 'true'),
+});
+const partSizeSetting = computed<number | null>({
+	get: () => browserUploadPartSizeBytes.value,
+	set: value => setBrowserUploadPartSizeBytes(value ?? MIN_BROWSER_UPLOAD_SETTING_BYTES),
+});
+const nonResumeLimitSetting = computed<number | null>({
+	get: () => browserUploadNonResumeLimitBytes.value,
+	set: value => setBrowserUploadNonResumeLimitBytes(value ?? MIN_BROWSER_UPLOAD_SETTING_BYTES),
+});
 
 function fileLabel(e: UploadEntry): string {
 	if (e.isTargz) return 'tar.gz';
@@ -104,7 +134,8 @@ async function executeDelete(): Promise<void> {
 }
 
 onMounted(() => {
-	activeTab.value = new URLSearchParams(location.search).get('tab') === 'browser' ? 'browser' : 'server';
+	const tab = new URLSearchParams(location.search).get('tab');
+	activeTab.value = tab === 'browser' || tab === 'settings' ? tab : 'server';
 	connectUploadWorker();
 	void load();
 });
@@ -121,6 +152,7 @@ onMounted(() => {
       <div class="tab-bar mb-4">
         <button type="button" class="tab-btn" :class="{ 'tab-btn-active': activeTab === 'browser' }" @click="activeTab = 'browser'">このブラウザ</button>
         <button type="button" class="tab-btn" :class="{ 'tab-btn-active': activeTab === 'server' }" @click="activeTab = 'server'">サーバー</button>
+        <button type="button" class="tab-btn" :class="{ 'tab-btn-active': activeTab === 'settings' }" @click="activeTab = 'settings'">設定</button>
       </div>
 
       <div v-if="activeTab === 'browser'">
@@ -181,6 +213,34 @@ onMounted(() => {
             </table>
           </div>
         </div>
+      </div>
+
+      <div v-else-if="activeTab === 'settings'" :class="$style.settingsGrid">
+        <SettingItem
+          v-model="autoOpenSetting"
+          :schema="booleanSettingSchema"
+          title="完了後に開く"
+          :show-save-button="false"
+          :option-labels="{ true: '有効', false: '無効' }"
+        >
+          アップロード画面を開いたままの場合、完了したファイルへ移動します。
+        </SettingItem>
+        <ByteSizeSettingItem
+          v-model="partSizeSetting"
+          :schema="uploadSizeSettingSchema"
+          title="チャンクサイズ"
+          :show-save-button="false"
+        >
+          分割アップロードの1チャンクごとのサイズです。32MiB以上を指定できます。
+        </ByteSizeSettingItem>
+        <ByteSizeSettingItem
+          v-model="nonResumeLimitSetting"
+          :schema="uploadSizeSettingSchema"
+          title="非分割アップロード上限"
+          :show-save-button="false"
+        >
+          このサイズ未満のファイルは分割アップロードにしません。32MiB以上を指定できます。
+        </ByteSizeSettingItem>
       </div>
 
       <div v-else-if="loading" class="page-loading">
@@ -271,5 +331,10 @@ onMounted(() => {
 
 .deleteError {
   font-size: 0.8rem;
+}
+
+.settingsGrid {
+  display: grid;
+  gap: 12px;
 }
 </style>
