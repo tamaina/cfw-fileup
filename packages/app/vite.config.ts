@@ -35,6 +35,14 @@ export default defineConfig({
 			// .wrangler/state はMiniflareが頻繁に書き換えるため、HMRのトリガー対象から除外
 			ignored: ['**/.wrangler/**'],
 		},
+		warmup: {
+			clientFiles: [
+				'./src/client/workers/archive-download.worker.ts',
+				'./src/client/workers/download-transform.worker.ts',
+				'./src/client/workers/upload-worker.ts',
+				'./src/client/workers/zip-extract.worker.ts',
+			],
+		},
 	},
 	optimizeDeps: {
 		include: [
