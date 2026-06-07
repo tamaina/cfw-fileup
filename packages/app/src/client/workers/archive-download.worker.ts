@@ -47,6 +47,8 @@ export type ArchiveDownloadProgress = {
 	processedFiles: number;
 	totalFiles: number;
 	currentFile: string;
+	completedBytes?: number;
+	totalBytes?: number;
 };
 
 export type ArchiveDownloadWorkerMessage =
@@ -167,17 +169,34 @@ async function fetchFile(fileId: string, headers: Record<string, string>): Promi
 	return res;
 }
 
-async function pipeToWritable(stream: ReadableStream<Uint8Array<ArrayBuffer>>, writable: FileSystemWritableFileStream): Promise<void> {
+async function pipeToWritable(
+	stream: ReadableStream<Uint8Array<ArrayBuffer>>,
+	writable: FileSystemWritableFileStream,
+	onChunk?: (bytes: number) => void,
+): Promise<void> {
 	const reader = stream.getReader();
 	try {
 		while (true) {
 			const { done, value } = await reader.read();
 			if (done) break;
 			await writable.write(value);
+			onChunk?.(value.byteLength);
 		}
 	} finally {
 		reader.releaseLock();
 	}
+}
+
+function withByteProgress(
+	stream: ReadableStream<Uint8Array<ArrayBuffer>>,
+	onChunk: (bytes: number) => void,
+): ReadableStream<Uint8Array<ArrayBuffer>> {
+	return stream.pipeThrough(new TransformStream<Uint8Array<ArrayBuffer>, Uint8Array<ArrayBuffer>>({
+		transform(chunk, controller) {
+			onChunk(chunk.byteLength);
+			controller.enqueue(chunk);
+		},
+	}));
 }
 
 async function writeTar(
@@ -187,23 +206,31 @@ async function writeTar(
 ): Promise<void> {
 	const writable = await fileHandle.createWritable();
 	let processedFiles = 0;
+	let completedBytes = 0;
+	const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
 	try {
 		for (const file of files) {
 			const name = archiveEntryName(file.path, request.basePath);
-			progress(request.id, { phase: 'reading', processedFiles, totalFiles: files.length, currentFile: name });
+			progress(request.id, { phase: 'reading', processedFiles, totalFiles: files.length, currentFile: name, completedBytes, totalBytes });
 			const res = await fetchFile(file.fileId, request.authHeaders);
 			const size = Number(res.headers.get('Content-Length')) || file.size;
-			progress(request.id, { phase: 'writing', processedFiles, totalFiles: files.length, currentFile: name });
+			const progressSize = file.size || size;
+			progress(request.id, { phase: 'writing', processedFiles, totalFiles: files.length, currentFile: name, completedBytes, totalBytes });
 			await writable.write(createTarHeader(name, size, Date.now()));
-			await pipeToWritable(res.body!, writable);
+			let fileBytes = 0;
+			await pipeToWritable(res.body!, writable, (bytes) => {
+				fileBytes += bytes;
+				progress(request.id, { phase: 'writing', processedFiles, totalFiles: files.length, currentFile: name, completedBytes: completedBytes + Math.min(fileBytes, progressSize), totalBytes });
+			});
 			const padding = (512 - (size % 512)) % 512;
 			if (padding > 0) await writable.write(new Uint8Array(padding));
+			completedBytes += progressSize;
 			processedFiles++;
-			progress(request.id, { phase: 'writing', processedFiles, totalFiles: files.length, currentFile: name });
+			progress(request.id, { phase: 'writing', processedFiles, totalFiles: files.length, currentFile: name, completedBytes, totalBytes });
 		}
 		await writable.write(new Uint8Array(1024));
 		await writable.close();
-		progress(request.id, { phase: 'done', processedFiles, totalFiles: files.length, currentFile: '' });
+		progress(request.id, { phase: 'done', processedFiles, totalFiles: files.length, currentFile: '', completedBytes: totalBytes, totalBytes });
 	} catch (err) {
 		await writable.abort().catch(() => {});
 		throw err;
@@ -218,18 +245,27 @@ async function writeZip(
 	const writable = await fileHandle.createWritable();
 	const zipWriter = new ZipWriter(writable, { bufferedWrite: false });
 	let processedFiles = 0;
+	let completedBytes = 0;
+	const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
 	try {
 		for (const file of files) {
 			const name = archiveEntryName(file.path, request.basePath);
-			progress(request.id, { phase: 'reading', processedFiles, totalFiles: files.length, currentFile: name });
+			progress(request.id, { phase: 'reading', processedFiles, totalFiles: files.length, currentFile: name, completedBytes, totalBytes });
 			const res = await fetchFile(file.fileId, request.authHeaders);
-			progress(request.id, { phase: 'writing', processedFiles, totalFiles: files.length, currentFile: name });
-			await zipWriter.add(name, res.body!);
+			const size = Number(res.headers.get('Content-Length')) || file.size;
+			const progressSize = file.size || size;
+			progress(request.id, { phase: 'writing', processedFiles, totalFiles: files.length, currentFile: name, completedBytes, totalBytes });
+			let fileBytes = 0;
+			await zipWriter.add(name, withByteProgress(res.body!, (bytes) => {
+				fileBytes += bytes;
+				progress(request.id, { phase: 'writing', processedFiles, totalFiles: files.length, currentFile: name, completedBytes: completedBytes + Math.min(fileBytes, progressSize), totalBytes });
+			}));
+			completedBytes += progressSize;
 			processedFiles++;
-			progress(request.id, { phase: 'writing', processedFiles, totalFiles: files.length, currentFile: name });
+			progress(request.id, { phase: 'writing', processedFiles, totalFiles: files.length, currentFile: name, completedBytes, totalBytes });
 		}
 		await zipWriter.close();
-		progress(request.id, { phase: 'done', processedFiles, totalFiles: files.length, currentFile: '' });
+		progress(request.id, { phase: 'done', processedFiles, totalFiles: files.length, currentFile: '', completedBytes: totalBytes, totalBytes });
 	} catch (err) {
 		await zipWriter.close().catch(() => {});
 		await writable.abort().catch(() => {});

@@ -7,6 +7,8 @@ export interface DownloadStatusProgress {
 	readonly processedFiles: number;
 	readonly totalFiles: number;
 	readonly currentFile: string;
+	readonly completedBytes?: number;
+	readonly totalBytes?: number;
 }
 
 export interface DownloadStatus {
@@ -26,9 +28,7 @@ export const downloadStatusHistory = readonly(downloadStatuses);
 export const downloadStatusPercent = computed(() => {
 	const progress = currentDownloadStatus.value?.progress;
 	if (!progress) return 0;
-	if (progress.phase === 'done') return 100;
-	if (progress.totalFiles <= 0) return 0;
-	return Math.min(100, Math.round(progress.processedFiles / progress.totalFiles * 100));
+	return getDownloadProgressPercent(progress);
 });
 
 export function startDownloadStatus(id: string, filename: string): void {
@@ -53,9 +53,15 @@ export function updateDownloadStatus(id: string, progress: DownloadStatusProgres
 export function completeDownloadStatus(id: string): void {
 	const current = currentDownloadStatus.value;
 	if (!current || current.id !== id) return;
+	const totalBytes = current.progress.totalBytes ?? 0;
 	setDownloadStatus({
 		...current,
-		progress: { ...current.progress, phase: 'done', processedFiles: current.progress.totalFiles || current.progress.processedFiles },
+		progress: {
+			...current.progress,
+			phase: 'done',
+			processedFiles: current.progress.totalFiles || current.progress.processedFiles,
+			...(totalBytes > 0 ? { completedBytes: totalBytes } : {}),
+		},
 		updatedAt: Date.now(),
 	});
 }
@@ -72,12 +78,20 @@ export function failDownloadStatus(id: string, error: string): void {
 }
 
 export function getDownloadStatusPercent(status: DownloadStatus): number {
-	if (status.progress.phase === 'done') return 100;
-	if (status.progress.totalFiles <= 0) return 0;
-	return Math.min(100, Math.round(status.progress.processedFiles / status.progress.totalFiles * 100));
+	return getDownloadProgressPercent(status.progress);
 }
 
 function setDownloadStatus(status: DownloadStatus): void {
 	currentDownloadStatus.value = status;
 	downloadStatuses.value = downloadStatuses.value.map(item => item.id === status.id ? status : item);
+}
+
+function getDownloadProgressPercent(progress: DownloadStatusProgress): number {
+	if (progress.phase === 'done') return 100;
+	const totalBytes = progress.totalBytes ?? 0;
+	if (totalBytes > 0) {
+		return Math.min(100, Math.round((progress.completedBytes ?? 0) / totalBytes * 100));
+	}
+	if (progress.totalFiles <= 0) return 0;
+	return Math.min(100, Math.round(progress.processedFiles / progress.totalFiles * 100));
 }

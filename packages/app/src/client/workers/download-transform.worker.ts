@@ -17,6 +17,8 @@ export type DownloadTransformProgress = {
 	processedFiles: number;
 	totalFiles: number;
 	currentFile: string;
+	completedBytes?: number;
+	totalBytes?: number;
 };
 
 export type DownloadTransformWorkerMessage =
@@ -59,15 +61,35 @@ async function writeDownload(fileHandle: FileSystemFileHandle, request: Extract<
 		progress(request.id, { phase: 'reading', processedFiles: 0, totalFiles: 1, currentFile: request.filename });
 		const res = await fetch(request.url, { headers: request.authHeaders });
 		if (!res.ok || !res.body) throw new Error(`Failed to fetch file: HTTP ${res.status}`);
-		const stream = await transformStream(res.body, request.transform);
-		progress(request.id, { phase: 'writing', processedFiles: 0, totalFiles: 1, currentFile: request.filename });
+		const totalBytes = Number(res.headers.get('Content-Length')) || 0;
+		let completedBytes = 0;
+		const progressBody = totalBytes > 0
+			? withByteProgress(res.body, (bytes) => {
+				completedBytes += bytes;
+				progress(request.id, { phase: 'reading', processedFiles: 0, totalFiles: 1, currentFile: request.filename, completedBytes, totalBytes });
+			})
+			: res.body;
+		const stream = await transformStream(progressBody, request.transform);
+		progress(request.id, { phase: 'writing', processedFiles: 0, totalFiles: 1, currentFile: request.filename, completedBytes, totalBytes });
 		await pipeToWritable(stream, writable);
 		await writable.close();
-		progress(request.id, { phase: 'done', processedFiles: 1, totalFiles: 1, currentFile: '' });
+		progress(request.id, { phase: 'done', processedFiles: 1, totalFiles: 1, currentFile: '', completedBytes: totalBytes, totalBytes });
 	} catch (err) {
 		await writable.abort().catch(() => {});
 		throw err;
 	}
+}
+
+function withByteProgress(
+	stream: ReadableStream<Uint8Array<ArrayBuffer>>,
+	onChunk: (bytes: number) => void,
+): ReadableStream<Uint8Array<ArrayBuffer>> {
+	return stream.pipeThrough(new TransformStream<Uint8Array<ArrayBuffer>, Uint8Array<ArrayBuffer>>({
+		transform(chunk, controller) {
+			onChunk(chunk.byteLength);
+			controller.enqueue(chunk);
+		},
+	}));
 }
 
 async function transformStream(stream: ReadableStream<Uint8Array<ArrayBuffer>>, transform: Extract<DownloadTransformWorkerRequest, { mode: 'download' }>['transform']): Promise<ReadableStream<Uint8Array<ArrayBuffer>>> {
