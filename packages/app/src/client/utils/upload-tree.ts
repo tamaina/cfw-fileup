@@ -1,7 +1,9 @@
 import type { FileEntry } from 'bgzf';
 import { getInvalidPathSegment } from '../../shared/name-validation';
+import type { MediaImageConversionSettings, MediaImageOutputMime, MediaVideoConversionSettings, MediaVideoOutputMime } from './media-conversion';
 
-export interface UploadEntry extends FileEntry {
+export interface UploadTreeEntryBase {
+	readonly path: string;
 	readonly name: string;
 	readonly parentPath: string;
 	readonly size: number;
@@ -9,15 +11,49 @@ export interface UploadEntry extends FileEntry {
 	readonly lastModified: number;
 }
 
-export interface UploadDirectory {
-	readonly name: string;
-	readonly path: string;
-	readonly directories: readonly UploadDirectory[];
-	readonly files: readonly UploadEntry[];
+export interface SelectedUploadEntry extends UploadTreeEntryBase {
+	readonly file: File;
 }
 
-export interface UploadTreeInit {
-	readonly entries: Iterable<FileEntry | UploadEntry>;
+export type UploadEntry = SelectedUploadEntry;
+
+export type UploadConversionPlan =
+	| {
+		readonly kind: 'image';
+		readonly outputPath: string;
+		readonly outputType: MediaImageOutputMime;
+		readonly settings: MediaImageConversionSettings;
+	}
+	| {
+		readonly kind: 'video';
+		readonly outputPath: string;
+		readonly outputType: MediaVideoOutputMime;
+		readonly settings: MediaVideoConversionSettings;
+	};
+
+export interface PlannedUploadEntry extends UploadTreeEntryBase {
+	readonly originalIndex: number;
+	readonly originalPath: string;
+	readonly sourceEntry: SelectedUploadEntry;
+	readonly conversionPlan?: UploadConversionPlan;
+}
+
+export interface ResolvedUploadEntry extends UploadTreeEntryBase {
+	readonly originalIndex: number;
+	readonly source:
+		| { readonly kind: 'file'; readonly file: File }
+		| { readonly kind: 'opfs'; readonly opfsName: string };
+}
+
+export interface UploadDirectory<TEntry extends UploadTreeEntryBase = SelectedUploadEntry> {
+	readonly name: string;
+	readonly path: string;
+	readonly directories: readonly UploadDirectory<TEntry>[];
+	readonly files: readonly TEntry[];
+}
+
+export interface UploadTreeInit<TEntry extends FileEntry | UploadTreeEntryBase = FileEntry | SelectedUploadEntry> {
+	readonly entries: Iterable<TEntry>;
 	readonly rootName?: string;
 }
 
@@ -26,8 +62,8 @@ export interface UploadTreeOptions {
 }
 
 type UploadTreeInput =
-	| UploadTree
-	| UploadTreeInit
+	| UploadTree<SelectedUploadEntry>
+	| UploadTreeInit<FileEntry | SelectedUploadEntry>
 	| File
 	| readonly File[]
 	| FileList
@@ -54,14 +90,14 @@ interface LegacyFileSystemDirectoryReader {
 	readEntries(successCallback: (entries: LegacyFileSystemEntry[]) => void, errorCallback?: (error: DOMException) => void): void;
 }
 
-export class UploadTree {
-	readonly entries: readonly UploadEntry[];
-	readonly root: UploadDirectory;
+export class UploadTree<TEntry extends UploadTreeEntryBase = SelectedUploadEntry> {
+	readonly entries: readonly TEntry[];
+	readonly root: UploadDirectory<TEntry>;
 	readonly rootName: string;
 	readonly totalSize: number;
 	readonly hasDirectories: boolean;
 
-	private constructor(entries: readonly UploadEntry[], rootName: string) {
+	private constructor(entries: readonly TEntry[], rootName: string) {
 		this.entries = Object.freeze([...entries]);
 		this.rootName = rootName;
 		this.root = UploadTree.buildDirectoryTree(this.entries);
@@ -69,14 +105,14 @@ export class UploadTree {
 		this.hasDirectories = this.entries.some(entry => entry.path.includes('/'));
 	}
 
-	static async from(input: UploadTreeInput, options: UploadTreeOptions = {}): Promise<UploadTree> {
-    if (input instanceof UploadTree) {
-			return new UploadTree(input.entries, options.rootName ?? input.rootName);
+	static async from(input: UploadTreeInput, options: UploadTreeOptions = {}): Promise<UploadTree<SelectedUploadEntry>> {
+		if (input instanceof UploadTree) {
+			return UploadTree.fromEntries(input.entries, { rootName: options.rootName ?? input.rootName });
 		}
 		if (UploadTree.isDirectoryHandle(input)) {
 			const entries: FileEntry[] = [];
 			for await (const entry of UploadTree.walkDirectoryHandle(input)) entries.push(entry);
-			return UploadTree.fromEntries(entries, options.rootName ?? input.name);
+			return UploadTree.fromEntries(entries, { rootName: options.rootName ?? input.name });
 		}
 		if (UploadTree.isDataTransfer(input)) {
 			return UploadTree.from(input.items, options);
@@ -94,21 +130,46 @@ export class UploadTree {
 			return UploadTree.fromFiles(input, options);
 		}
 		if (UploadTree.isUploadTreeInit(input)) {
-			return UploadTree.fromEntries(input.entries, input.rootName ?? options.rootName);
+			return UploadTree.fromEntries(input.entries, { rootName: input.rootName ?? options.rootName });
 		}
 		throw new TypeError('Unsupported upload input');
 	}
 
-	private static fromFiles(files: readonly File[], options: UploadTreeOptions): UploadTree {
+	static fromFiles(files: readonly File[], options: UploadTreeOptions = {}): UploadTree<SelectedUploadEntry> {
 		const entries = files.map((file) => {
 			const path = file.webkitRelativePath || file.name;
 			return { path, file };
 		});
 		const rootName = options.rootName ?? UploadTree.inferRootName(entries.map(entry => entry.path));
-		return UploadTree.fromEntries(entries, rootName);
+		return UploadTree.fromEntries(entries, { rootName });
 	}
 
-	private static async fromDataTransferItems(items: DataTransferItemList, options: UploadTreeOptions): Promise<UploadTree> {
+	static fromEntries<TInput extends FileEntry | UploadTreeEntryBase>(
+		entries: Iterable<TInput>,
+		options: UploadTreeOptions = {},
+	): UploadTree<NormalizeUploadTreeEntry<TInput>> {
+		const normalized = Array.from(entries, entry => UploadTree.normalizeEntry(entry) as NormalizeUploadTreeEntry<TInput>);
+		const seen = new Set<string>();
+		for (const entry of normalized) {
+			if (seen.has(entry.path)) throw new Error(`Duplicate upload path: ${entry.path}`);
+			seen.add(entry.path);
+		}
+		normalized.sort((a, b) => a.path.localeCompare(b.path));
+		return new UploadTree(normalized, options.rootName ?? '');
+	}
+
+	mapEntries<TNext extends UploadTreeEntryBase>(
+		mapper: (entry: TEntry, index: number) => TNext,
+		options: UploadTreeOptions = {},
+	): UploadTree<TNext> {
+		return UploadTree.fromEntries(this.entries.map(mapper), { rootName: options.rootName ?? this.rootName }) as UploadTree<TNext>;
+	}
+
+	toFileEntries(this: UploadTree<SelectedUploadEntry>): FileEntry[] {
+		return this.entries.map(entry => ({ path: entry.path, file: entry.file }));
+	}
+
+	private static async fromDataTransferItems(items: DataTransferItemList, options: UploadTreeOptions): Promise<UploadTree<SelectedUploadEntry>> {
 		const entriesPromises: Promise<FileEntry[]>[] = [];
 		const fallbackFiles: File[] = [];
 
@@ -123,45 +184,31 @@ export class UploadTree {
 			if (file) fallbackFiles.push(file);
 		}
 
-    const entries = await Promise.all(entriesPromises).then((arr) => arr.flat());
+		const entries = await Promise.all(entriesPromises).then((arr) => arr.flat());
 
 		if (entries.length === 0 && fallbackFiles.length > 0) {
 			return UploadTree.fromFiles(fallbackFiles, options);
 		}
 
 		const rootName = options.rootName ?? UploadTree.inferRootName(entries.map(entry => entry.path));
-		return UploadTree.fromEntries(entries, rootName);
+		return UploadTree.fromEntries(entries, { rootName });
 	}
 
-	private static fromEntries(entries: Iterable<FileEntry | UploadEntry>, rootName = ''): UploadTree {
-		const normalized = Array.from(entries, UploadTree.normalizeEntry);
-		const seen = new Set<string>();
-		for (const entry of normalized) {
-			if (seen.has(entry.path)) throw new Error(`Duplicate upload path: ${entry.path}`);
-			seen.add(entry.path);
-		}
-		normalized.sort((a, b) => a.path.localeCompare(b.path));
-		return new UploadTree(normalized, rootName);
-	}
-
-	toFileEntries(): FileEntry[] {
-		return this.entries.map(entry => ({ path: entry.path, file: entry.file }));
-	}
-
-	private static normalizeEntry(entry: FileEntry | UploadEntry): UploadEntry {
+	private static normalizeEntry<TInput extends FileEntry | UploadTreeEntryBase>(entry: TInput): NormalizeUploadTreeEntry<TInput> {
 		const path = UploadTree.normalizePath(entry.path);
 		const slash = path.lastIndexOf('/');
 		const name = slash === -1 ? path : path.slice(slash + 1);
 		const parentPath = slash === -1 ? '' : path.slice(0, slash + 1);
+		const file = UploadTree.hasFile(entry) ? entry.file : undefined;
 		return Object.freeze({
+			...entry,
 			path,
-			file: entry.file,
 			name,
 			parentPath,
-			size: entry.file.size,
-			type: entry.file.type,
-			lastModified: entry.file.lastModified,
-		});
+			size: UploadTree.hasUploadTreeMetadata(entry) ? entry.size : file?.size ?? 0,
+			type: UploadTree.hasUploadTreeMetadata(entry) ? entry.type : file?.type ?? '',
+			lastModified: UploadTree.hasUploadTreeMetadata(entry) ? entry.lastModified : file?.lastModified ?? Date.now(),
+		}) as unknown as NormalizeUploadTreeEntry<TInput>;
 	}
 
 	private static normalizePath(path: string): string {
@@ -175,8 +222,8 @@ export class UploadTree {
 		return segments.join('/');
 	}
 
-	private static buildDirectoryTree(entries: readonly UploadEntry[]): UploadDirectory {
-		const root: MutableDirectory = { name: '', path: '', directories: new Map(), files: [] };
+	private static buildDirectoryTree<TEntry extends UploadTreeEntryBase>(entries: readonly TEntry[]): UploadDirectory<TEntry> {
+		const root: MutableDirectory<TEntry> = { name: '', path: '', directories: new Map(), files: [] };
 		for (const entry of entries) {
 			let current = root;
 			const parts = entry.parentPath === '' ? [] : entry.parentPath.replace(/\/$/, '').split('/');
@@ -195,7 +242,7 @@ export class UploadTree {
 		return UploadTree.freezeDirectory(root);
 	}
 
-	private static freezeDirectory(dir: MutableDirectory): UploadDirectory {
+	private static freezeDirectory<TEntry extends UploadTreeEntryBase>(dir: MutableDirectory<TEntry>): UploadDirectory<TEntry> {
 		return Object.freeze({
 			name: dir.name,
 			path: dir.path,
@@ -264,14 +311,27 @@ export class UploadTree {
 		return typeof FileList !== 'undefined' && input instanceof FileList;
 	}
 
-	private static isUploadTreeInit(input: unknown): input is UploadTreeInit {
+	private static isUploadTreeInit(input: unknown): input is UploadTreeInit<FileEntry | SelectedUploadEntry> {
 		return typeof input === 'object' && input !== null && 'entries' in input;
+	}
+
+	private static hasFile(entry: FileEntry | UploadTreeEntryBase): entry is FileEntry {
+		return 'file' in entry && entry.file instanceof File;
+	}
+
+	private static hasUploadTreeMetadata(entry: FileEntry | UploadTreeEntryBase): entry is UploadTreeEntryBase {
+		return 'size' in entry && 'type' in entry && 'lastModified' in entry;
 	}
 }
 
-interface MutableDirectory {
+type NormalizeUploadTreeEntry<TInput extends FileEntry | UploadTreeEntryBase> =
+	TInput extends UploadTreeEntryBase
+		? TInput
+		: SelectedUploadEntry;
+
+interface MutableDirectory<TEntry extends UploadTreeEntryBase> {
 	name: string;
 	path: string;
-	directories: Map<string, MutableDirectory>;
-	files: UploadEntry[];
+	directories: Map<string, MutableDirectory<TEntry>>;
+	files: TEntry[];
 }

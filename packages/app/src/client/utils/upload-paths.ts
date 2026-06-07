@@ -1,12 +1,11 @@
-import type { FileEntry } from 'bgzf';
 import { isValidFilePath } from '../../shared/name-validation';
 
-export interface UploadPathEntry extends FileEntry {
+export interface UploadPathEntry {
 	readonly path: string;
 }
 
-export interface UploadPathTransformResult {
-	readonly entries: FileEntry[];
+export interface UploadPathTransformResult<TEntry extends UploadPathEntry> {
+	readonly entries: TEntry[];
 	readonly trimmedRootName: string | null;
 }
 
@@ -26,14 +25,14 @@ export interface UploadConflictDirectoryEntry {
 	readonly name: string;
 }
 
-export function getEffectiveUploadEntries(entries: readonly UploadPathEntry[], shouldTrimSingleRoot: boolean): UploadPathTransformResult {
+export function getEffectiveUploadEntries<TEntry extends UploadPathEntry>(entries: readonly TEntry[], shouldTrimSingleRoot: boolean): UploadPathTransformResult<TEntry> {
 	const rootName = shouldTrimSingleRoot ? getSingleRootDirectoryName(entries) : null;
-	if (!rootName) return { entries: entries.map(({ path, file }) => ({ path, file })), trimmedRootName: null };
+	if (!rootName) return { entries: [...entries], trimmedRootName: null };
 
-	const transformed = entries.map(({ path, file }) => ({
-		path: path.slice(rootName.length + 1),
-		file,
-	}));
+	const transformed = entries.map(entry => ({
+		...entry,
+		path: entry.path.slice(rootName.length + 1),
+	})) as TEntry[];
 	validateUploadEntryPaths(transformed);
 	return { entries: transformed, trimmedRootName: rootName };
 }

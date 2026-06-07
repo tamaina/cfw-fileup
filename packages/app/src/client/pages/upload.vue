@@ -3,26 +3,30 @@ import { ref, computed, onMounted, onUnmounted, watch, type Component } from 'vu
 import type { FileVisibility } from '../../shared/file-visibility';
 import { Button, Dialog, Popover } from '@vuetify/v0';
 import { EllipsisVertical, File, FileArchive, FileAudio, FileCode, FileImage, FileText, FileVideo, Folder, FolderOpen, GripVertical, Pencil } from '@lucide/vue';
-import { authHeaders, authStore } from '../store/auth';
+import { authStore } from '../store/auth';
 import { apiPost } from '../utils/api';
 import NirA from '@/components/NirA.vue';
-import { TarArchiver, BgzfTarArchiver, type TarIndex, type TarGzIndex, type ArchiveProgress } from 'bgzf';
 import { takePendingUpload } from '@/store/pending-upload';
 import UploadDestinationDialog from '@/components/UploadDestinationDialog.vue';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
-import FileVisibilitySettings from '@/components/FileVisibilitySettings.vue';
+import FileVisibilitySettingsDialog from '@/components/FileVisibilitySettingsDialog.vue';
+import FileVisibilitySettingsSummary from '@/components/FileVisibilitySettingsSummary.vue';
+import MediaConversionSettingsDialog from '@/components/MediaConversionSettingsDialog.vue';
+import MediaConversionSettingsSummary from '@/components/MediaConversionSettingsSummary.vue';
 import { MAX_FILE_PATH_LENGTH } from '../../shared/const';
 import { isValidFilePath } from '../../shared/name-validation';
-import { UploadTree, type UploadDirectory, type UploadEntry } from '@/utils/upload-tree';
-import { enqueueUploadJob, uploadWorkerJobs } from '@/store/upload-worker';
+import { UploadTree, type PlannedUploadEntry, type SelectedUploadEntry, type UploadDirectory, type UploadEntry, type UploadConversionPlan } from '@/utils/upload-tree';
+import { enqueueStreamingUploadJob, failUploadEntries, finishUploadEntries, pushUploadEntry, uploadWorkerJobs } from '@/store/upload-worker';
 import { buildUploadConflictDirectoryPlan, findUploadConflictsInDirectory, getEffectiveUploadEntries, isPathUnderMissingDirectory } from '@/utils/upload-paths';
 import { takeShareTargetPayload } from '../../shared/share-target-store';
 import { readBlobTextPreview } from '@/utils/text-preview';
 import { formatBytes } from '@/utils/byte-size';
 import type { ZipExtractWorkerMessage } from '@/workers/zip-extract.worker';
-import type { UploadWorkerFileEntry } from '@/workers/upload-worker-types';
+import type { MediaConversionWorkerMessage, MediaConversionWorkerRequest } from '@/workers/media-conversion.worker';
+import type { UploadResolvedEntry, UploadWorkerFileEntry } from '@/workers/upload-worker-types';
 import { navigateTo } from '@/navigate';
 import { browserUploadAutoOpen, browserUploadNonResumeLimitBytes, browserUploadPartSizeBytes } from '@/store/browser-upload-settings';
+import { cloneMediaConversionSettings, defaultMediaConversionSettings, normalizeMediaImageConversionSettingsForBrowserSupport, replacePathExtension, type MediaImageAvifVariant } from '@/utils/media-conversion';
 
 type ArchiveMode = 'individual' | 'gz' | 'tar' | 'targz';
 
@@ -32,13 +36,6 @@ interface Bucket {
 	usedBytes: number;
 }
 
-/** デフォルトのチャンクサイズ: 32MiB
- * R2のマルチパートアップロードはパートごとにClass A操作となるため、
- * コストを抑えるためにデフォルトを大きく設定する。
- * サーバーからpartSizeが返された場合はそちらを優先する。
- */
-const DEFAULT_CHUNK_SIZE = 32 * 1024 * 1024;
-
 const buckets = ref<Bucket[]>([]);
 const selectedBucketName = ref('');
 const destinationDialogOpen = ref(false);
@@ -46,22 +43,21 @@ const bucket = computed(() => buckets.value.find(b => b.name === selectedBucketN
 const maxBucketSizeBytes = ref<number | null>(null);
 const loadError = ref('');
 
-const selectedTree = ref<UploadTree | null>(null);
+const selectedTree = ref<UploadTree<SelectedUploadEntry> | null>(null);
 const selectedEntry = ref<UploadEntry | null>(null);
 const uploadPrefix = ref('');
 const archiveMode = ref<ArchiveMode>('individual');
 const archiveModeTouched = ref(false);
-const compressImagesOnUpload = ref(false);
-const imageCompressionDialogOpen = ref(false);
-const imageCompressionMimeType = ref<'image/webp' | 'image/jpeg'>('image/webp');
+const mediaConversionDialogOpen = ref(false);
 const canEncodeWebp = ref(true);
-const imageCompressionQuality = ref(0.7);
-const imageCompressionMaxWidth = ref(1920);
-const imageCompressionMaxHeight = ref(1920);
+const canEncodeAvif = ref(true);
+const avifVariants = ref<MediaImageAvifVariant[]>([{ chromaSubsampling: '444', bitDepth: 8 }]);
+const mediaConversionSettings = ref(defaultMediaConversionSettings());
 const libraryName = ref('');
 const visibility = ref<FileVisibility>('public');
 const isListed = ref(true);
 const passphrase = ref('');
+const visibilityDialogOpen = ref(false);
 const isDownloadCountEnabled = ref(false);
 const isDownloadCountVisible = ref(false);
 const canUseDownloadCount = ref(false);
@@ -79,6 +75,7 @@ const dragPreviewY = ref(0);
 let previousBodyCursor = '';
 const uploadError = ref('');
 const uploadDone = ref(false);
+const mediaConversionStatus = ref('');
 const redirectUploadJobId = ref<string | null>(null);
 const quotaWarningOpen = ref(false);
 const quotaWarningConfirmed = ref(false);
@@ -109,44 +106,143 @@ interface ZipExtractDoneResult {
 	needsPassword: boolean;
 }
 
-async function detectWebpEncodingSupport(): Promise<boolean> {
-	if (typeof OffscreenCanvas !== 'undefined') {
-		const canvas = new OffscreenCanvas(1, 1);
-		const blob = await canvas.convertToBlob({ type: 'image/webp' }).catch(() => null);
-		if (blob?.type === 'image/webp') return true;
-	}
-	const canvas = document.createElement('canvas');
-	canvas.width = 1;
-	canvas.height = 1;
-	const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/webp'));
-	return blob?.type === 'image/webp';
+function shouldCompressImagePath(entry: Pick<SelectedUploadEntry, 'file'>): boolean {
+	return mediaConversionSettings.value.image.enabled && isImageFile(entry.file);
 }
 
-function shouldCompressImagePath(entry: UploadWorkerFileEntry): boolean {
-	return compressImagesOnUpload.value && archiveMode.value === 'individual' && entry.file.type.startsWith('image/');
+function shouldConvertVideoPath(entry: Pick<SelectedUploadEntry, 'file'>): boolean {
+	return mediaConversionSettings.value.video.enabled && isVideoFile(entry.file);
+}
+
+function shouldConvertMediaEntry(entry: PlannedUploadEntry): boolean {
+	return entry.conversionPlan != null;
+}
+
+function createConversionPlan(entry: SelectedUploadEntry): UploadConversionPlan | undefined {
+	const settings = cloneMediaConversionSettings(mediaConversionSettings.value);
+	if (shouldCompressImagePath(entry)) {
+		const outputType = settings.image.outputMime;
+		return {
+			kind: 'image',
+			outputPath: replacePathExtension(entry.path, outputType),
+			outputType,
+			settings: settings.image,
+		};
+	}
+	if (shouldConvertVideoPath(entry)) {
+		const outputType = settings.video.outputMime;
+		return {
+			kind: 'video',
+			outputPath: replacePathExtension(entry.path, outputType),
+			outputType,
+			settings: settings.video,
+		};
+	}
+	return undefined;
+}
+
+function planUploadEntry(entry: SelectedUploadEntry, index: number): PlannedUploadEntry {
+	const conversionPlan = createConversionPlan(entry);
+	const path = conversionPlan?.outputPath ?? entry.path;
+	return {
+		path,
+		name: basename(path),
+		parentPath: parentPath(path),
+		size: entry.size,
+		type: conversionPlan?.outputType ?? entry.type,
+		lastModified: entry.lastModified,
+		originalIndex: index,
+		originalPath: entry.path,
+		sourceEntry: entry,
+		conversionPlan,
+	};
+}
+
+function conversionOutputExtension(entry: SelectedUploadEntry): string | null {
+	const planned = plannedEntryByOriginalPath.value.get(entry.path);
+	if (!planned || planned.path === entry.path) return null;
+	const from = fileExtension(entry.path);
+	const to = fileExtension(planned.path);
+	if (!from || !to || from === to) return null;
+	return `→ ${to.toLowerCase()}`;
+}
+
+function basename(path: string): string {
+	const slash = path.lastIndexOf('/');
+	return slash === -1 ? path : path.slice(slash + 1);
+}
+
+function parentPath(path: string): string {
+	const slash = path.lastIndexOf('/');
+	return slash === -1 ? '' : path.slice(0, slash + 1);
+}
+
+function fileExtension(path: string): string {
+	const filename = basename(path);
+	const dot = filename.lastIndexOf('.');
+	return dot === -1 ? '' : filename.slice(dot + 1);
+}
+
+function isImageFile(file: File): boolean {
+	return file.type.startsWith('image/') || /\.(?:avif|bmp|gif|jpe?g|png|webp)$/i.test(file.name);
+}
+
+function isVideoFile(file: File): boolean {
+	return file.type.startsWith('video/') || /\.(?:avi|m4v|mkv|mov|mp4|mpeg|mpg|ogv|webm)$/i.test(file.name);
+}
+
+function selectedEntryToResolved(entry: PlannedUploadEntry): UploadResolvedEntry {
+	return {
+		originalIndex: entry.originalIndex,
+		path: entry.path,
+		name: entry.name,
+		parentPath: entry.parentPath,
+		size: entry.sourceEntry.file.size,
+		originalSize: entry.sourceEntry.file.size,
+		type: entry.sourceEntry.file.type,
+		lastModified: entry.sourceEntry.file.lastModified,
+		source: { kind: 'file', file: entry.sourceEntry.file },
+	};
+}
+
+function plannedEntryToWorkerEntry(entry: PlannedUploadEntry): UploadWorkerFileEntry & { index: number; conversionKind: 'image' | 'video'; originalPath: string } {
+	return {
+		index: entry.originalIndex,
+		conversionKind: entry.conversionPlan?.kind ?? 'image',
+		originalPath: entry.originalPath,
+		path: entry.path,
+		file: entry.sourceEntry.file,
+	};
+}
+
+function shouldConvertWorkerEntry(entry: UploadWorkerFileEntry & { index: number }, plannedEntries: readonly PlannedUploadEntry[]): boolean {
+	return plannedEntries.some(plannedEntry => plannedEntry.originalIndex === entry.index && plannedEntry.conversionPlan != null);
 }
 
 function isCompressedImageEntry(entry: UploadEntry): boolean {
 	return entry.type.startsWith('image/') && entry.type !== 'image/bmp';
 }
 
-function compressedImageUploadPath(path: string): string {
-	const extension = imageCompressionMimeType.value === 'image/webp' ? '.webp' : '.jpg';
-	const dot = path.lastIndexOf('.');
-	const slash = path.lastIndexOf('/');
-	if (dot > slash) return `${path.slice(0, dot)}${extension}`;
-	return `${path}${extension}`;
-}
-
-function getUploadPaths(entries: readonly UploadWorkerFileEntry[] | null = selectedTree.value?.entries ?? null): string[] {
+function getUploadPaths(entries: readonly PlannedUploadEntry[] | null = plannedTree.value?.entries ?? null): string[] {
 	if (!entries) return [];
 	if (archiveMode.value === 'tar') return [`${uploadPrefix.value}${archiveUploadBaseName.value}.tar`];
 	if (archiveMode.value === 'targz') return [`${uploadPrefix.value}${archiveUploadBaseName.value}.tar.gz`];
 	return entries.map(entry =>
 		archiveMode.value === 'gz'
 			? `${uploadPrefix.value}${entry.path}.gz`
-			: `${uploadPrefix.value}${shouldCompressImagePath(entry) ? compressedImageUploadPath(entry.path) : entry.path}`,
+			: `${uploadPrefix.value}${entry.path}`,
 	);
+}
+
+function getFallbackUploadPaths(entries: readonly PlannedUploadEntry[]): string[] {
+	if (archiveMode.value === 'tar' || archiveMode.value === 'targz') return [];
+	return entries
+		.filter(entry => entry.conversionPlan != null)
+		.map(entry =>
+			archiveMode.value === 'gz'
+				? `${uploadPrefix.value}${entry.originalPath}.gz`
+				: `${uploadPrefix.value}${entry.originalPath}`,
+		);
 }
 
 function validateUploadPaths(paths: string[]): boolean {
@@ -177,6 +273,84 @@ function validateUploadPaths(paths: string[]): boolean {
 	return true;
 }
 
+function validateArchiveMemberPaths(entries: readonly PlannedUploadEntry[]): boolean {
+	if (archiveMode.value !== 'tar' && archiveMode.value !== 'targz') return true;
+	const seen = new Set<string>();
+	const memberPaths = entries.flatMap(entry =>
+		entry.conversionPlan == null || entry.originalPath === entry.path
+			? [entry.path]
+			: [entry.path, entry.originalPath],
+	);
+	const duplicatePath = memberPaths.find(path => {
+		if (seen.has(path)) return true;
+		seen.add(path);
+		return false;
+	});
+	if (duplicatePath) {
+		uploadError.value = `変換後にアーカイブ内で同じパスになるファイルがあります: ${duplicatePath}`;
+		return false;
+	}
+	return true;
+}
+
+function mediaWorkerRequest(plannedEntries: readonly PlannedUploadEntry[]): MediaConversionWorkerRequest {
+	const id = crypto.randomUUID();
+	return {
+		id,
+		files: plannedEntries
+			.map(plannedEntryToWorkerEntry)
+			.filter(entry => shouldConvertWorkerEntry(entry, plannedEntries)),
+		imageCompression: cloneMediaConversionSettings(mediaConversionSettings.value).image,
+		videoConversion: cloneMediaConversionSettings(mediaConversionSettings.value).video,
+	};
+}
+
+async function runMediaConversionPipeline(jobId: string, plannedEntries: readonly PlannedUploadEntry[]): Promise<void> {
+	const request = mediaWorkerRequest(plannedEntries);
+	if (request.files.length === 0) {
+		finishUploadEntries(jobId);
+		return;
+	}
+	mediaConversionStatus.value = 'メディアを変換中...';
+	await new Promise<void>((resolve, reject) => {
+		const worker = new Worker(new URL('../workers/media-conversion.worker.ts', import.meta.url), { type: 'module' });
+		worker.onmessage = (event: MessageEvent<MediaConversionWorkerMessage>) => {
+			const message = event.data;
+			if (message.id !== request.id) return;
+			if (message.type === 'progress') {
+				const current = message.progress.fileIndex + 1;
+				const total = message.progress.totalFiles;
+				const videoProgress = message.progress.videoProgress != null ? ` ${Math.round(message.progress.videoProgress * 100)}%` : '';
+				mediaConversionStatus.value = `${message.progress.phase === 'writing' ? '変換結果を書き込み中' : 'メディアを変換中'} ${current}/${total}: ${message.progress.fileName}${videoProgress}`;
+				return;
+			}
+			if (message.type === 'converted-entry') {
+				pushUploadEntry(jobId, message.entry);
+				return;
+			}
+			if (message.type === 'fallback-entry') {
+				pushUploadEntry(jobId, message.entry);
+				mediaConversionStatus.value = `変換できなかったため元ファイルでアップロードします: ${message.entry.path}`;
+				console.warn('Media conversion failed; falling back to original file', message.error);
+				return;
+			}
+			worker.terminate();
+			mediaConversionStatus.value = '';
+			if (message.type === 'done') {
+				resolve();
+				return;
+			}
+			reject(new Error(message.error));
+		};
+		worker.onerror = (event) => {
+			worker.terminate();
+			reject(new Error(event.message));
+		};
+		worker.postMessage(request);
+	});
+	finishUploadEntries(jobId);
+}
+
 const hasSelection = computed(() => selectedTree.value != null && selectedTree.value.entries.length > 0);
 const archiveBaseName = computed(() => {
 	if (!selectedTree.value) return 'archive';
@@ -184,6 +358,12 @@ const archiveBaseName = computed(() => {
 	return selectedTree.value.entries[0]?.name.replace(/\.[^.]*$/, '') || 'archive';
 });
 const archiveUploadBaseName = computed(() => libraryName.value.trim() || archiveBaseName.value);
+const plannedTree = computed(() => selectedTree.value?.mapEntries(planUploadEntry) ?? null);
+const plannedEntryByOriginalPath = computed(() => {
+	const map = new Map<string, PlannedUploadEntry>();
+	for (const entry of plannedTree.value?.entries ?? []) map.set(entry.sourceEntry.path, entry);
+	return map;
+});
 const flatDisplayEntries = computed(() => selectedTree.value ? flattenDirectory(selectedTree.value.root) : []);
 const directoryDropEntries = computed<DirectoryDropEntry[]>(() => {
 	const directories = flatDisplayEntries.value.filter((entry): entry is FlatDisplayDirectory => entry.type === 'dir');
@@ -255,11 +435,19 @@ watch(uploadWorkerJobs, jobs => {
 	}
 });
 
-function getEffectiveSelectedFileEntries() {
-	const tree = selectedTree.value;
+function getEffectivePlannedEntries(): PlannedUploadEntry[] {
+	const tree = plannedTree.value;
 	if (!tree) return [];
 	const shouldTrimSingleRoot = libraryName.value.trim() === '' && (archiveMode.value === 'tar' || archiveMode.value === 'targz');
-	return getEffectiveUploadEntries(tree.entries, shouldTrimSingleRoot).entries;
+	const result = getEffectiveUploadEntries(tree.entries, shouldTrimSingleRoot);
+	if (!result.trimmedRootName) return result.entries;
+	const rootPrefix = `${result.trimmedRootName}/`;
+	return result.entries.map(entry => ({
+		...entry,
+		originalPath: entry.originalPath.startsWith(rootPrefix)
+			? entry.originalPath.slice(rootPrefix.length)
+			: entry.originalPath,
+	}));
 }
 
 async function loadBucket(): Promise<void> {
@@ -306,7 +494,7 @@ async function handleDrop(event: DragEvent): Promise<void> {
 	}
 }
 
-async function setSelectedTree(tree: UploadTree, entryToSelect: UploadEntry | null = tree.entries[0] ?? null): Promise<void> {
+async function setSelectedTree(tree: UploadTree<SelectedUploadEntry>, entryToSelect: UploadEntry | null = tree.entries[0] ?? null): Promise<void> {
 	selectionError.value = '';
 	uploadError.value = '';
 	uploadDone.value = false;
@@ -317,7 +505,7 @@ async function setSelectedTree(tree: UploadTree, entryToSelect: UploadEntry | nu
 	if (!archiveModeTouched.value && shouldRecommendTarForCompressedImages.value) archiveMode.value = 'tar';
 }
 
-async function addSelectedTree(tree: UploadTree): Promise<void> {
+async function addSelectedTree(tree: UploadTree<SelectedUploadEntry>): Promise<void> {
 	if (!selectedTree.value) {
 		await setSelectedTree(tree);
 		return;
@@ -334,7 +522,7 @@ async function addSelectedTree(tree: UploadTree): Promise<void> {
 	await setSelectedTree(mergedTree, tree.entries[0] ?? selectedEntry.value);
 }
 
-async function addSelectedTreeWithZipPrompts(tree: UploadTree): Promise<void> {
+async function addSelectedTreeWithZipPrompts(tree: UploadTree<SelectedUploadEntry>): Promise<void> {
 	const expanded = await expandZipEntriesInTree(tree);
 	await addSelectedTree(await UploadTree.from({
 		entries: expanded.entries,
@@ -372,7 +560,7 @@ async function consumeShareTargetPayload(): Promise<void> {
 	}
 }
 
-async function expandZipEntriesInTree(tree: UploadTree): Promise<{ entries: { path: string; file: File }[]; warnings: string[] }> {
+async function expandZipEntriesInTree(tree: UploadTree<SelectedUploadEntry>): Promise<{ entries: { path: string; file: File }[]; warnings: string[] }> {
 	const entries: { path: string; file: File }[] = [];
 	const warnings: string[] = [];
 	for (const entry of tree.entries) {
@@ -640,7 +828,7 @@ type DraggingUploadItem =
 	| { type: 'file'; entry: UploadEntry }
 	| { type: 'dir'; directory: FlatDisplayDirectory };
 
-function flattenDirectory(dir: UploadDirectory, depth = -1): FlatDisplayEntry[] {
+function flattenDirectory(dir: UploadDirectory<SelectedUploadEntry>, depth = -1): FlatDisplayEntry[] {
 	const result: FlatDisplayEntry[] = [];
 	for (const child of dir.directories) {
 		result.push({ type: 'dir', key: `dir:${child.path}`, name: child.name, path: child.path, depth: depth + 1 });
@@ -846,396 +1034,10 @@ onUnmounted(() => {
 	zipExtractWorker = null;
 });
 
-// ---- OPFS helpers ----
-
-async function streamToOpfs(stream: ReadableStream<Uint8Array<ArrayBuffer>>, name: string): Promise<FileSystemFileHandle> {
-	const root = await navigator.storage.getDirectory();
-	const handle = await root.getFileHandle(name, { create: true });
-	const writable = await handle.createWritable();
-	await stream.pipeTo(writable);
-	return handle;
-}
-
-async function deleteFromOpfs(name: string): Promise<void> {
-	const root = await navigator.storage.getDirectory();
-	await root.removeEntry(name).catch(() => {});
-}
-
-// ---- TUS upload (Blob.slice — only CHUNK_SIZE bytes in memory at a time) ----
-
-async function getResumeOffset(fileId: string): Promise<number> {
-	const res = await fetch(`/upload/${fileId}/resume`, {
-		headers: { 'Tus-Resumable': '1.0.0', ...authHeaders() },
-	}).catch(() => null);
-	if (!res?.ok) return -1;
-	return parseInt(res.headers.get('Upload-Offset') ?? '-1', 10);
-}
-
-async function getUploadPartCount(fileId: string): Promise<number> {
-	const result = await apiPost('/api/files/create/status', { fileId }).catch(() => null);
-	if (!result?.ok) return -1;
-	return result.data.partCount;
-}
-
-async function tusUpload(fileId: string, blob: Blob, filename: string, partSize: number, onProgress?: (uploaded: number) => void): Promise<boolean> {
-	const total = blob.size;
-	let offset = Math.max(0, await getResumeOffset(fileId));
-	onProgress?.(offset);
-
-	while (offset < total) {
-		const chunk = blob.slice(offset, offset + partSize);
-		const chunkIndex = offset / partSize; // 0始まりのチャンク番号
-		let success = false;
-
-		for (let attempt = 0; attempt < 3; attempt++) {
-			try {
-				const res = await fetch(`/upload/${fileId}/resume`, {
-					method: 'PATCH',
-					headers: {
-						'Content-Type': 'application/offset+octet-stream',
-						'Upload-Offset': String(offset),
-						'Content-Length': String(chunk.size),
-						'Tus-Resumable': '1.0.0',
-						...authHeaders(),
-					},
-					body: chunk,
-				});
-				if (res.ok) { success = true; break; }
-				if (res.status >= 400 && res.status < 500) {
-					const err = (await res.json().catch(() => ({}))) as { message?: string };
-					uploadError.value = `アップロード失敗 (${filename}): ${err.message ?? res.status}`;
-					return false;
-				}
-			} catch {
-				// ネットワークエラー — コミット済みパーツ数で受信確認
-				if (attempt < 2) {
-					await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
-					const partCount = await getUploadPartCount(fileId);
-					if (partCount > chunkIndex) {
-						offset = partCount * partSize;
-						onProgress?.(offset);
-						success = true;
-						break;
-					}
-				}
-			}
-			if (attempt < 2) await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
-		}
-
-		if (!success) {
-			uploadError.value = `アップロード失敗 (${filename}): ネットワークエラー（リトライ上限）`;
-			return false;
-		}
-
-		offset += chunk.size;
-		onProgress?.(offset);
-	}
-	return true;
-}
-
-// ---- Core upload primitives ----
-
 async function deleteExistingFile(path: string): Promise<boolean> {
 	if (!bucket.value) return false;
 	const result = await apiPost('/api/files/delete', { bucketId: bucket.value.id, path });
 	return result.ok;
-}
-
-interface OpenUploadResult {
-	fileId: string;
-	partSize: number;
-}
-
-async function openUpload(path: string): Promise<OpenUploadResult | null> {
-	if (!bucket.value) return null;
-	// サーバーのデフォルト (32MiB) を使用するためpartSizeは省略可能
-	const result = await apiPost('/api/files/create/open', { bucketId: bucket.value.id, path });
-	if (!result.ok) { uploadError.value = result.data.message; return null; }
-	return { fileId: result.data.fileId, partSize: result.data.partSize };
-}
-
-async function closeUpload(fileId: string): Promise<boolean> {
-	const result = await apiPost('/api/files/create/close', {
-		fileId,
-		visibility: visibility.value,
-		isListed: isListed.value,
-		passphrase: passphrase.value || undefined,
-		isDownloadCountEnabled: isDownloadCountEnabled.value,
-		isDownloadCountVisible: isDownloadCountEnabled.value ? isDownloadCountVisible.value : false,
-	});
-	if (!result.ok) {
-		uploadError.value = result.data.message;
-		return false;
-	}
-	return true;
-}
-
-/** Upload a Blob (File or OPFS File) via TUS. */
-async function uploadBlob(blob: Blob, path: string, onProgress?: (uploaded: number) => void): Promise<boolean> {
-	const result = await openUpload(path);
-	if (!result) return false;
-	const { fileId, partSize } = result;
-	if (!(await tusUpload(fileId, blob, path, partSize, onProgress)) || !(await closeUpload(fileId))) {
-		await deleteExistingFile(path);
-		return false;
-	}
-	return true;
-}
-
-/** Write stream to OPFS, upload as blob, delete temp file. */
-async function uploadStream(stream: ReadableStream<Uint8Array<ArrayBuffer>>, path: string, onProgress?: (uploaded: number) => void): Promise<boolean> {
-	const tmpName = `__up_${Date.now()}`;
-	const handle = await streamToOpfs(stream, tmpName);
-	const file = await handle.getFile();
-	const ok = await uploadBlob(file, path, onProgress);
-	await deleteFromOpfs(tmpName);
-	return ok;
-}
-
-class TusChunkQueue {
-	private fileId: string;
-	private path: string;
-	private partSize: number;
-	private onUploadedBytes?: (total: number) => void;
-	private queueChain: Promise<boolean> = Promise.resolve(true);
-	private hasError = false;
-	private pendingUploads: Promise<boolean>[] = [];
-
-	constructor(fileId: string, path: string, partSize: number, onUploadedBytes?: (total: number) => void) {
-		this.fileId = fileId;
-		this.path = path;
-		this.partSize = partSize;
-		this.onUploadedBytes = onUploadedBytes;
-	}
-
-	async appendChunk(chunk: Uint8Array<ArrayBuffer>, offset: number, partNum: number, isFinal: boolean): Promise<boolean> {
-		const tmpName = `__chunk_${Date.now()}_${partNum}`;
-		try {
-			const root = await navigator.storage.getDirectory();
-			const handle = await root.getFileHandle(tmpName, { create: true });
-			const writable = await handle.createWritable();
-			await writable.write(chunk);
-			await writable.close();
-
-			this.queueUpload({ handle, tmpName, offset, partNum, length: chunk.length, isFinal });
-			return true;
-		} catch (err) {
-			console.error('OPFS チャンク保存失敗', err);
-			return false;
-		}
-	}
-
-	private queueUpload(info: {
-		handle: FileSystemFileHandle;
-		tmpName: string;
-		offset: number;
-		partNum: number;
-		length: number;
-		isFinal: boolean;
-	}) {
-		const { handle, tmpName, offset, partNum, length, isFinal } = info;
-		const promise = this.queueChain.then((prevOk) => {
-			if (!prevOk || this.hasError) return false;
-			return this.sendChunk(handle, tmpName, offset, partNum, isFinal);
-		}).then((ok) => {
-			if (!ok) {
-				this.hasError = true;
-				return false;
-			}
-			this.onUploadedBytes?.(offset + length);
-			return true;
-		}).catch(() => {
-			this.hasError = true;
-			return false;
-		});
-
-		this.queueChain = promise.catch(() => false);
-		this.pendingUploads.push(promise);
-	}
-
-	private async sendChunk(
-		handle: FileSystemFileHandle,
-		tmpName: string,
-		offset: number,
-		_partNum: number,
-		isFinal: boolean,
-	): Promise<boolean> {
-		for (let attempt = 0; attempt < 3; attempt++) {
-			const file = await handle.getFile();
-			const extraHeaders: Record<string, string> = {
-				'Content-Length': String(file.size),
-			};
-			if (isFinal) extraHeaders['Upload-Final'] = '1';
-
-			try {
-				const res = await fetch(`/upload/${this.fileId}/resume`, {
-					method: 'PATCH',
-					headers: {
-						'Content-Type': 'application/offset+octet-stream',
-						'Upload-Offset': String(offset),
-						'Tus-Resumable': '1.0.0',
-						...authHeaders(),
-						...extraHeaders,
-					},
-					body: file,
-				});
-
-				if (res.ok) {
-					const root = await navigator.storage.getDirectory();
-					await root.removeEntry(tmpName).catch(() => {});
-					return true;
-				}
-
-				// 4xx は恒久的エラー
-				if (res.status >= 400 && res.status < 500) {
-					const root = await navigator.storage.getDirectory();
-					await root.removeEntry(tmpName).catch(() => {});
-					const err = (await res.json().catch(() => ({}))) as { message?: string };
-					uploadError.value = `アップロード失敗 (${this.path}): ${err.message ?? res.status}`;
-					return false;
-				}
-				// 5xx はリトライ
-			} catch {
-				// ネットワークエラー — コミット済みパーツ数で受信確認
-				if (attempt < 2) {
-					await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
-					const partCount = await getUploadPartCount(this.fileId);
-					if (partCount > _partNum) {
-						const root = await navigator.storage.getDirectory();
-						await root.removeEntry(tmpName).catch(() => {});
-						return true;
-					}
-				}
-			}
-
-			if (attempt < 2) await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
-		}
-
-		const root = await navigator.storage.getDirectory();
-		await root.removeEntry(tmpName).catch(() => {});
-		uploadError.value = `アップロード失敗 (${this.path}): ネットワークエラー（リトライ上限）`;
-		return false;
-	}
-
-	async waitAll(): Promise<boolean> {
-		const results = await Promise.all(this.pendingUploads);
-		return !this.hasError && results.every((ok) => ok);
-	}
-}
-
-/** Open upload then stream in partSize pieces via OPFS. Returns fileId or null on error. */
-async function uploadChunkedStream(
-	stream: ReadableStream<Uint8Array<ArrayBuffer>>,
-	path: string,
-	onUploadedBytes?: (total: number) => void,
-): Promise<string | null> {
-	const result = await openUpload(path);
-	if (!result) return null;
-	const { fileId, partSize } = result;
-
-	const reader = stream.getReader();
-	const queue = new TusChunkQueue(fileId, path, partSize, onUploadedBytes);
-	let buf = new Uint8Array(0);
-	let offset = 0;
-	let partNum = 0;
-
-	try {
-		while (true) {
-			const { done, value } = await reader.read();
-			if (value) {
-				const next = new Uint8Array(buf.length + value.length);
-				next.set(buf);
-				next.set(value, buf.length);
-				buf = next;
-			}
-
-			if (buf.length >= partSize) {
-				const chunk = buf.slice(0, partSize);
-				buf = buf.slice(partSize);
-				if (!(await queue.appendChunk(chunk, offset, partNum++, false))) {
-					await deleteExistingFile(path);
-					return null;
-				}
-				offset += chunk.length;
-			}
-
-			if (done) {
-				// 残りのバッファを全て送信（partSize超過でも分割して対応）
-				while (buf.length > 0) {
-					const isFinal = buf.length <= partSize;
-					const chunk = isFinal ? buf : buf.slice(0, partSize);
-					buf = buf.slice(chunk.length);
-					if (!(await queue.appendChunk(chunk, offset, partNum++, isFinal))) {
-						await deleteExistingFile(path);
-						return null;
-					}
-					offset += chunk.length;
-				}
-				break;
-			}
-		}
-	} finally {
-		reader.releaseLock();
-	}
-
-	if (!(await queue.waitAll())) {
-		await deleteExistingFile(path);
-		return null;
-	}
-
-	return fileId;
-}
-
-/** Upload tar stream in chunks, then register index. */
-async function uploadTarStream(
-	stream: ReadableStream<Uint8Array<ArrayBuffer>>,
-	index: Promise<TarIndex[]>,
-	archivePath: string,
-	onUploadedBytes?: (total: number) => void,
-): Promise<boolean> {
-	const fileId = await uploadChunkedStream(stream, archivePath, onUploadedBytes);
-	if (!fileId) return false;
-
-	const resolvedIndex = await index;
-
-	const indexResult = await apiPost('/api/files/create/tar-index', { fileId, files: resolvedIndex });
-	if (!indexResult.ok) {
-		uploadError.value = indexResult.data.message;
-		await deleteExistingFile(archivePath);
-		return false;
-	}
-
-	if (!(await closeUpload(fileId))) {
-		await deleteExistingFile(archivePath);
-		return false;
-	}
-	return true;
-}
-
-/** Upload BGZF stream in chunks, then register index. */
-async function uploadBgzfStream(
-	stream: ReadableStream<Uint8Array<ArrayBuffer>>,
-	index: Promise<TarGzIndex[]>,
-	archivePath: string,
-	onUploadedBytes?: (total: number) => void,
-): Promise<boolean> {
-	const fileId = await uploadChunkedStream(stream, archivePath, onUploadedBytes);
-	if (!fileId) return false;
-
-	const resolvedIndex = await index;
-
-	const bgzfIndexResult = await apiPost('/api/files/create/targz-index', { fileId, files: resolvedIndex });
-	if (!bgzfIndexResult.ok) {
-		uploadError.value = bgzfIndexResult.data.message;
-		await deleteExistingFile(archivePath);
-		return false;
-	}
-
-	if (!(await closeUpload(fileId))) {
-		await deleteExistingFile(archivePath);
-		return false;
-	}
-	return true;
 }
 
 // ---- startUpload ----
@@ -1258,21 +1060,26 @@ async function confirmQuotaWarning(): Promise<void> {
 async function executeUpload(): Promise<void> {
 	uploadError.value = '';
 	uploadDone.value = false;
+	mediaConversionStatus.value = '';
 	if (!bucket.value) return;
 	const tree = selectedTree.value;
 	if (!tree || tree.entries.length === 0) return;
 
-	let files;
+	let plannedEntries: PlannedUploadEntry[];
 	try {
-		files = getEffectiveSelectedFileEntries();
+		plannedEntries = getEffectivePlannedEntries();
 	} catch (err) {
 		uploadError.value = err instanceof Error ? err.message : String(err);
 		return;
 	}
 
 	// Pre-upload existence check
-	const paths = getUploadPaths(files);
+	const plannedPaths = getUploadPaths(plannedEntries);
+	const plannedPathSet = new Set(plannedPaths);
+	const fallbackPaths = getFallbackUploadPaths(plannedEntries).filter(path => !plannedPathSet.has(path));
+	const paths = [...plannedPaths, ...fallbackPaths];
 	if (!validateUploadPaths(paths)) return;
+	if (!validateArchiveMemberPaths(plannedEntries)) return;
 	if (paths.length > 0) {
 		const conflicts: string[] = [];
 		const missingDirectories = new Set<string>();
@@ -1315,39 +1122,47 @@ async function executeUpload(): Promise<void> {
 		}
 	}
 
-	const jobId = await enqueueUploadJob({
-		bucketId: bucket.value.id,
-		bucketName: selectedBucketName.value,
-		prefix: uploadPrefix.value,
-		mode: archiveMode.value,
-		archiveBaseName: archiveUploadBaseName.value,
-		visibility: visibility.value,
-		isListed: isListed.value,
-		passphrase: passphrase.value || undefined,
-		isDownloadCountEnabled: isDownloadCountEnabled.value,
-		isDownloadCountVisible: isDownloadCountEnabled.value ? isDownloadCountVisible.value : false,
-		imageCompression: {
-			enabled: compressImagesOnUpload.value && archiveMode.value === 'individual',
-			quality: imageCompressionQuality.value,
-			maxWidth: imageCompressionMaxWidth.value,
-			maxHeight: imageCompressionMaxHeight.value,
-			mimeType: imageCompressionMimeType.value,
-		},
-		partSize: browserUploadPartSizeBytes.value,
-		nonResumeUploadLimitBytes: browserUploadNonResumeLimitBytes.value,
-		files,
-		totalBytes: tree.totalSize,
-		authToken: authStore.token,
-	});
-	redirectUploadJobId.value = jobId;
-	uploadDone.value = true;
+	try {
+		const jobId = await enqueueStreamingUploadJob({
+			bucketId: bucket.value.id,
+			bucketName: selectedBucketName.value,
+			prefix: uploadPrefix.value,
+			mode: archiveMode.value,
+			archiveBaseName: archiveUploadBaseName.value,
+			visibility: visibility.value,
+			isListed: isListed.value,
+			passphrase: passphrase.value || undefined,
+			isDownloadCountEnabled: isDownloadCountEnabled.value,
+			isDownloadCountVisible: isDownloadCountEnabled.value ? isDownloadCountVisible.value : false,
+			partSize: browserUploadPartSizeBytes.value,
+			nonResumeUploadLimitBytes: browserUploadNonResumeLimitBytes.value,
+			totalFiles: plannedEntries.length,
+			totalBytes: plannedEntries.reduce((sum, entry) => sum + entry.size, 0),
+			authToken: authStore.token,
+		});
+		redirectUploadJobId.value = jobId;
+		uploadDone.value = true;
+		for (const entry of plannedEntries) {
+			if (!shouldConvertMediaEntry(entry)) pushUploadEntry(jobId, selectedEntryToResolved(entry));
+		}
+		void runMediaConversionPipeline(jobId, plannedEntries).catch((err) => {
+			const message = err instanceof Error ? err.message : String(err);
+			uploadError.value = message;
+			failUploadEntries(jobId, message);
+			mediaConversionStatus.value = '';
+		});
+	} catch (err) {
+		uploadError.value = err instanceof Error ? err.message : String(err);
+		mediaConversionStatus.value = '';
+	}
 }
 
 onMounted(async () => {
-	canEncodeWebp.value = await detectWebpEncodingSupport();
-	if (!canEncodeWebp.value && imageCompressionMimeType.value === 'image/webp') {
-		imageCompressionMimeType.value = 'image/jpeg';
-	}
+	const browserSupport = await normalizeMediaImageConversionSettingsForBrowserSupport(mediaConversionSettings.value.image);
+	canEncodeWebp.value = browserSupport.support.canEncodeWebp;
+	canEncodeAvif.value = browserSupport.support.canEncodeAvif;
+	avifVariants.value = browserSupport.support.avifVariants;
+	mediaConversionSettings.value = { ...mediaConversionSettings.value, image: browserSupport.settings };
 	await loadBucket();
 	const pending = takePendingUpload();
 	if (pending) {
@@ -1371,19 +1186,61 @@ onMounted(async () => {
       <div :class="$style.uploadStack">
         <!-- アップロード先選択 -->
         <div :class="['card']">
-          <p class="card-title">アップロード先</p>
-          <div :class="$style.destinationRow">
-            <template v-if="selectedBucketName">
-              <span :class="[$style.destinationDisplay, 'font-mono']">{{ selectedBucketName }}/{{ uploadPrefix }}</span>
-              <Button.Root class="btn btn-secondary" @click="destinationDialogOpen = true">
-                <Button.Content>変更</Button.Content>
-              </Button.Root>
-            </template>
-            <template v-else>
-              <Button.Root class="btn btn-primary" @click="destinationDialogOpen = true">
-                <Button.Content>アップロード先を選択</Button.Content>
-              </Button.Root>
-            </template>
+          <div :class="$style.destinationSettingsGrid">
+            <div :class="$style.destinationPanel">
+          	<p class="card-title">アップロード先</p>
+              <div :class="$style.destinationRow">
+                <template v-if="selectedBucketName">
+                  <span :class="[$style.destinationDisplay, 'font-mono']">{{ selectedBucketName }}/{{ uploadPrefix }}</span>
+                  <Button.Root class="btn btn-secondary" @click="destinationDialogOpen = true">
+                    <Button.Content>変更</Button.Content>
+                  </Button.Root>
+                </template>
+                <template v-else>
+                  <Button.Root class="btn btn-primary" @click="destinationDialogOpen = true">
+                    <Button.Content>アップロード先を選択</Button.Content>
+                  </Button.Root>
+                </template>
+              </div>
+            </div>
+            <div :class="$style.destinationOptions">
+              <div :class="$style.destinationOption">
+                <div :class="$style.imageCompressionHeader">
+                  <Button.Root
+                    class="btn btn-secondary"
+                    @click="mediaConversionDialogOpen = true"
+                  >
+                    <Button.Content>メディア縮小設定</Button.Content>
+                  </Button.Root>
+                </div>
+                <MediaConversionSettingsSummary
+                  :settings="mediaConversionSettings"
+                  :class="$style.optionSummary"
+                />
+                <p :class="$style.optionHint">
+                  画像や動画をブラウザ内で縮小してからアップロードします。
+                </p>
+              </div>
+              <div :class="$style.destinationOption">
+                <div :class="$style.imageCompressionHeader">
+                  <Button.Root
+                    class="btn btn-secondary"
+                    @click="visibilityDialogOpen = true"
+                  >
+                    <Button.Content>公開設定</Button.Content>
+                  </Button.Root>
+                </div>
+                <FileVisibilitySettingsSummary
+                  :visibility="visibility"
+                  :is-listed="isListed"
+                  :passphrase="passphrase"
+                  :is-download-count-enabled="isDownloadCountEnabled"
+                  :is-download-count-visible="isDownloadCountVisible"
+                  :show-download-count-settings="true"
+                  :class="$style.optionSummary"
+                />
+              </div>
+            </div>
           </div>
           <UploadDestinationDialog
             v-model:open="destinationDialogOpen"
@@ -1519,7 +1376,10 @@ onMounted(async () => {
                   @click="selectEntry(item.entry)"
                 >
                   <component :is="getFileIcon(item.entry)" :class="$style.fileIcon" :size="16" :stroke-width="2" aria-hidden="true" />
-                  <span :class="$style.fileName">{{ item.entry.name }}</span>
+                  <span :class="$style.fileNameWithConversion">
+                    <span :class="$style.fileName">{{ item.entry.name }}</span>
+                    <span v-if="conversionOutputExtension(item.entry)" :class="$style.conversionBadge">{{ conversionOutputExtension(item.entry) }}</span>
+                  </span>
                   <span :class="$style.fileSize">{{ formatBytes(item.entry.size) }}</span>
                 </button>
                 <template v-else>
@@ -1614,58 +1474,19 @@ onMounted(async () => {
         </div>
       </div>
 
-        <!-- オプション -->
-        <div class="card">
-          <p class="card-title">オプション</p>
-          <div :class="$style.optionSection">
-            <div :class="$style.imageCompressionHeader">
-              <label :class="['checkbox-label', archiveMode !== 'individual' ? $style.optionDisabled : null]">
-                <input
-                  v-model="compressImagesOnUpload"
-                  type="checkbox"
-                  :disabled="archiveMode !== 'individual'"
-                >
-                <span>画像を圧縮してアップロード</span>
-              </label>
-              <Button.Root
-                class="btn btn-secondary"
-                :disabled="archiveMode !== 'individual'"
-                @click="imageCompressionDialogOpen = true"
-              >
-                <Button.Content>圧縮設定</Button.Content>
-              </Button.Root>
-            </div>
-            <p :class="$style.optionHint">
-              個別アップロード時のみ、画像をJPEGへ変換してからアップロードします。EXIFなどのメタデータは引き継がれません。
-            </p>
-            <p :class="$style.optionSummary">
-              {{ imageCompressionMimeType === 'image/webp' ? 'WebP' : 'JPEG' }} / 品質 {{ imageCompressionQuality }} / 最大 {{ imageCompressionMaxWidth }} x {{ imageCompressionMaxHeight }}
-            </p>
-          </div>
-          <FileVisibilitySettings
-            v-model:visibility="visibility"
-            v-model:isListed="isListed"
-            v-model:passphrase="passphrase"
-            v-model:isDownloadCountEnabled="isDownloadCountEnabled"
-            v-model:isDownloadCountVisible="isDownloadCountVisible"
-            :can-use-download-count="canUseDownloadCount"
-            :show-download-count-settings="true"
-            passphrase-autocomplete="off"
-          />
-        </div>
-
         <!-- 開始ボタン -->
         <div>
           <Button.Root
             class="btn btn-primary btn-lg w-full"
             :class="$style.fullButton"
-            :disabled="!selectedTree || selectedTree.entries.length === 0 || uploadDone && !uploadError"
+            :disabled="mediaConversionStatus !== '' || !selectedTree || selectedTree.entries.length === 0 || uploadDone && !uploadError"
             @click="startUpload"
           >
             <Button.Content>アップロード開始</Button.Content>
           </Button.Root>
         </div>
 
+        <div v-if="mediaConversionStatus" class="alert alert-info">{{ mediaConversionStatus }}</div>
         <div v-if="uploadError" class="alert alert-error">{{ uploadError }}</div>
         <div v-if="uploadDone" class="alert alert-success">
           アップロードジョブを開始しました。
@@ -1740,65 +1561,25 @@ onMounted(async () => {
         </Dialog.Content>
       </Dialog.Root>
 
-      <Dialog.Root :model-value="imageCompressionDialogOpen" @update:model-value="imageCompressionDialogOpen = $event">
-        <Dialog.Content :class="$style.dialog">
-          <div :class="$style.dialogInner">
-            <div :class="$style.dialogHeader">
-              <Dialog.Title :class="$style.dialogTitle">画像圧縮設定</Dialog.Title>
-              <Dialog.Close class="btn btn-ghost btn-icon" aria-label="閉じる">✕</Dialog.Close>
-            </div>
-            <p :class="$style.dialogDescription">
-              アップロード前に画像を変換します。WebP非対応ブラウザではJPEGへフォールバックします。EXIFなどのメタデータは引き継がれません。
-            </p>
-            <label class="form-group">
-              <span class="form-label">出力形式</span>
-              <select v-model="imageCompressionMimeType" class="form-input">
-                <option value="image/webp" :disabled="!canEncodeWebp">WebP</option>
-                <option value="image/jpeg">JPEG</option>
-              </select>
-            </label>
-            <p v-if="!canEncodeWebp" :class="$style.dialogDescription">
-              このブラウザではWebP出力を利用できないため、JPEGでアップロードします。
-            </p>
-            <label class="form-group">
-              <span class="form-label">品質</span>
-              <input
-                v-model.number="imageCompressionQuality"
-                class="form-input"
-                type="number"
-                min="0.1"
-                max="1"
-                step="0.05"
-              >
-            </label>
-            <label class="form-group">
-              <span class="form-label">最大幅</span>
-              <input
-                v-model.number="imageCompressionMaxWidth"
-                class="form-input"
-                type="number"
-                min="1"
-                step="1"
-              >
-            </label>
-            <label class="form-group">
-              <span class="form-label">最大高さ</span>
-              <input
-                v-model.number="imageCompressionMaxHeight"
-                class="form-input"
-                type="number"
-                min="1"
-                step="1"
-              >
-            </label>
-            <div :class="$style.dialogActions">
-              <Button.Root class="btn btn-primary" @click="imageCompressionDialogOpen = false">
-                <Button.Content>閉じる</Button.Content>
-              </Button.Root>
-            </div>
-          </div>
-        </Dialog.Content>
-      </Dialog.Root>
+      <MediaConversionSettingsDialog
+        v-model:open="mediaConversionDialogOpen"
+        v-model="mediaConversionSettings"
+        :can-encode-webp="canEncodeWebp"
+        :can-encode-avif="canEncodeAvif"
+        :avif-variants="avifVariants"
+      />
+
+      <FileVisibilitySettingsDialog
+        v-model:open="visibilityDialogOpen"
+        v-model:visibility="visibility"
+        v-model:is-listed="isListed"
+        v-model:passphrase="passphrase"
+        v-model:is-download-count-enabled="isDownloadCountEnabled"
+        v-model:is-download-count-visible="isDownloadCountVisible"
+        :can-use-download-count="canUseDownloadCount"
+        :show-download-count-settings="true"
+        passphrase-autocomplete="off"
+      />
     </template>
   </div>
 </template>
@@ -1866,6 +1647,17 @@ onMounted(async () => {
   gap: 16px;
 }
 
+.destinationSettingsGrid {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.8fr) minmax(320px, 1.2fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.destinationPanel {
+  min-width: 0;
+}
+
 .destinationRow {
   display: flex;
   align-items: center;
@@ -1879,6 +1671,25 @@ onMounted(async () => {
   border-radius: var(--radius);
   padding: 6px 10px;
   word-break: break-all;
+}
+
+.destinationOptions {
+  min-width: 0;
+  display: grid;
+  gap: 14px;
+}
+
+.destinationOption {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.destinationOption:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
 }
 
 .fileLabel {
@@ -1922,6 +1733,27 @@ onMounted(async () => {
   border-bottom: 1px solid var(--color-border);
 }
 
+.optionSection:last-child {
+  padding-bottom: 0;
+  margin-bottom: 0;
+  border-bottom: 0;
+}
+
+.inlineOptionSection {
+  margin-top: 14px;
+}
+
+@media (max-width: 760px) {
+  .destinationSettingsGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .destinationPanel {
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--color-border);
+  }
+}
+
 .optionDisabled {
   opacity: 0.58;
 }
@@ -1942,7 +1774,6 @@ onMounted(async () => {
 
 .optionSummary {
   margin: 0;
-  color: var(--color-text-muted);
   font-size: 0.8125rem;
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
 }
@@ -2178,6 +2009,13 @@ onMounted(async () => {
   flex: 0 0 auto;
 }
 
+.fileNameWithConversion {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
 .fileName {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2187,6 +2025,12 @@ onMounted(async () => {
 .fileSize {
   color: var(--color-text-muted);
   font-size: 0.75rem;
+}
+
+.conversionBadge {
+  color: var(--color-text-muted);
+  font-size: 0.6875rem;
+  white-space: nowrap;
 }
 
 .archiveModeLabel {

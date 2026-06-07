@@ -1,30 +1,45 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue';
-import { Download, Image as ImageIcon, LoaderCircle, Sparkles, Video } from '@lucide/vue';
-import { readAndCompressImage } from '@misskey-dev/browser-image-resizer';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { Download, Image as ImageIcon, LoaderCircle, Settings, Video } from '@lucide/vue';
+import MediaConversionSettingsDialog from '@/components/MediaConversionSettingsDialog.vue';
+import MediaConversionSettingsSummary from '@/components/MediaConversionSettingsSummary.vue';
 import { formatBytes } from '@/utils/byte-size';
+import {
+	cloneMediaConversionSettings,
+	defaultMediaConversionSettings,
+	normalizeMediaImageConversionSettingsForBrowserSupport,
+	replacePathExtension,
+	type MediaImageAvifVariant,
+	type MediaConversionSettings,
+} from '@/utils/media-conversion';
+import type { MediaConversionWorkerMessage, MediaConversionWorkerRequest } from '@/workers/media-conversion.worker';
 
-type CompressionStatus = 'queued' | 'processing' | 'done' | 'skipped' | 'error';
+type MediaStatus = 'queued' | 'processing' | 'done' | 'skipped' | 'error';
+type MediaKind = 'image' | 'video' | 'unsupported';
 
-type CompressionItem = {
+type MediaItem = {
 	id: string;
 	file: File;
+	kind: MediaKind;
 	outputName: string;
-	status: CompressionStatus;
+	status: MediaStatus;
 	error: string;
+	progress: number;
 	outputBlob: Blob | null;
 	outputUrl: string;
+	opfsName: string;
 };
 
-const quality = ref(0.7);
-const maxWidth = ref(1920);
-const maxHeight = ref(1920);
-const outputMimeType = ref<'image/webp' | 'image/jpeg'>('image/webp');
+const settings = ref<MediaConversionSettings>(defaultMediaConversionSettings());
+const settingsDialogOpen = ref(false);
 const canEncodeWebp = ref(true);
-const items = ref<CompressionItem[]>([]);
-const isCompressing = ref(false);
+const canEncodeAvif = ref(true);
+const avifVariants = ref<MediaImageAvifVariant[]>([{ chromaSubsampling: '444', bitDepth: 8 }]);
+const items = ref<MediaItem[]>([]);
+const isConverting = ref(false);
 const selectionError = ref('');
 const isDragOver = ref(false);
+let mediaConversionWorker: Worker | null = null;
 
 const supported = computed(() => (
 	typeof OffscreenCanvas !== 'undefined'
@@ -32,50 +47,42 @@ const supported = computed(() => (
 ));
 const readyItems = computed(() => items.value.filter(item => item.status !== 'skipped'));
 const doneItems = computed(() => items.value.filter(item => item.status === 'done' && item.outputUrl));
-const canCompress = computed(() => supported.value && readyItems.value.length > 0 && !isCompressing.value);
+const canConvert = computed(() => supported.value && readyItems.value.length > 0 && !isConverting.value);
 
-const comingSoonItems = [
-	{ title: 'EXIF持ち越し + GPS削除', description: '位置情報だけを落として、必要なメタデータを残す処理を追加予定です。', icon: ImageIcon },
-	{ title: 'AVIF対応', description: 'VideoEncoderを使ったAVIF出力を追加予定です。', icon: Sparkles },
-	{ title: 'HLS生成', description: 'Mediabunnyで動画をHLSへ変換する機能を追加予定です。', icon: Video },
-	{ title: 'シーンチェンジ検出', description: 'Mediabunnyで動画の切り替わり位置を検出する機能を追加予定です。', icon: Video },
-	{ title: '動画圧縮', description: 'ブラウザ内での動画再エンコードを追加予定です。', icon: Video },
-];
-
-async function detectWebpEncodingSupport(): Promise<boolean> {
-	if (typeof OffscreenCanvas !== 'undefined') {
-		const canvas = new OffscreenCanvas(1, 1);
-		const blob = await canvas.convertToBlob({ type: 'image/webp' }).catch(() => null);
-		if (blob?.type === 'image/webp') return true;
-	}
-	const canvas = document.createElement('canvas');
-	canvas.width = 1;
-	canvas.height = 1;
-	const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/webp'));
-	return blob?.type === 'image/webp';
+function mediaKind(file: File): MediaKind {
+	if (file.type.startsWith('image/')) return 'image';
+	if (file.type.startsWith('video/')) return 'video';
+	return 'unsupported';
 }
 
-function outputName(file: File): string {
-	const base = file.name.replace(/\.[^/.]+$/, '') || 'image';
-	return `${base}${outputMimeType.value === 'image/webp' ? '.webp' : '.jpg'}`;
+function outputName(file: File, kind: MediaKind): string {
+	const name = file.name.replace(/\.[^/.]+$/, '') || 'media';
+	if (kind === 'image') return replacePathExtension(name, settings.value.image.outputMime);
+	if (kind === 'video') return replacePathExtension(name, settings.value.video.outputMime);
+	return file.name;
 }
 
-function createItem(file: File): CompressionItem {
-	const image = file.type.startsWith('image/');
+function createItem(file: File): MediaItem {
+	const kind = mediaKind(file);
 	return {
 		id: `${file.name}-${file.size}-${file.lastModified}-${crypto.randomUUID()}`,
 		file,
-		outputName: outputName(file),
-		status: image ? 'queued' : 'skipped',
-		error: image ? '' : '画像ファイルではありません。',
+		kind,
+		outputName: outputName(file, kind),
+		status: kind === 'unsupported' ? 'skipped' : 'queued',
+		error: kind === 'unsupported' ? '画像または動画ファイルではありません。' : '',
+		progress: 0,
 		outputBlob: null,
 		outputUrl: '',
+		opfsName: '',
 	};
 }
 
-function revokeItem(item: CompressionItem): void {
+function revokeItem(item: MediaItem): void {
 	if (item.outputUrl) URL.revokeObjectURL(item.outputUrl);
 	item.outputUrl = '';
+	if (item.opfsName) void deleteFromOpfs(item.opfsName);
+	item.opfsName = '';
 }
 
 function clearItems(): void {
@@ -103,64 +110,157 @@ function handleDrop(event: DragEvent): void {
 	addFiles(event.dataTransfer.files);
 }
 
-async function compressAll(): Promise<void> {
+function terminateMediaConversionWorker(): void {
+	mediaConversionWorker?.terminate();
+	mediaConversionWorker = null;
+}
+
+function itemConversionKind(kind: MediaKind): 'image' | 'video' {
+	return kind === 'video' ? 'video' : 'image';
+}
+
+function createMediaConversionWorkerRequest(targetItems: readonly MediaItem[]): MediaConversionWorkerRequest {
+	const currentSettings = cloneMediaConversionSettings(settings.value);
+	return {
+		id: crypto.randomUUID(),
+		files: targetItems.map((item, index) => ({
+			index,
+			conversionKind: itemConversionKind(item.kind),
+			originalPath: item.file.name,
+			path: item.file.name,
+			file: item.file,
+		})),
+		imageCompression: { ...currentSettings.image, enabled: true },
+		videoConversion: { ...currentSettings.video, enabled: true },
+	};
+}
+
+function runMediaConversionWorker(targetItems: readonly MediaItem[]): Promise<void> {
+	const request = createMediaConversionWorkerRequest(targetItems);
+	return new Promise<void>((resolve, reject) => {
+		const pendingOutputLoads: Promise<void>[] = [];
+		terminateMediaConversionWorker();
+		const worker = new Worker(new URL('../../workers/media-conversion.worker.ts', import.meta.url), { type: 'module' });
+		mediaConversionWorker = worker;
+		worker.onmessage = (event: MessageEvent<MediaConversionWorkerMessage>) => {
+			const message = event.data;
+			if (message.id !== request.id) return;
+			if (message.type === 'progress') {
+				const item = targetItems[message.progress.fileIndex];
+				if (!item) return;
+				item.status = 'processing';
+				item.progress = message.progress.videoProgress != null ? Math.round(message.progress.videoProgress * 100) : item.progress;
+				return;
+			}
+			if (message.type === 'converted-entry') {
+				const item = targetItems[message.entry.originalIndex];
+				if (!item) return;
+				const outputLoad = loadOpfsFile(message.entry).then((file) => {
+					revokeItem(item);
+					item.outputBlob = file;
+					item.outputName = file.name;
+					item.outputUrl = URL.createObjectURL(file);
+					item.opfsName = message.entry.source.kind === 'opfs' ? message.entry.source.opfsName : '';
+					item.progress = 100;
+					item.status = 'done';
+				}).catch((err) => {
+					item.status = 'error';
+					item.error = err instanceof Error ? err.message : String(err);
+				});
+				pendingOutputLoads.push(outputLoad);
+				return;
+			}
+			if (message.type === 'fallback-entry') {
+				const item = targetItems[message.entry.originalIndex];
+				if (!item) return;
+				item.status = 'error';
+				item.error = message.error;
+				return;
+			}
+			terminateMediaConversionWorker();
+			if (message.type === 'done') {
+				Promise.all(pendingOutputLoads).then(() => resolve(), reject);
+				return;
+			}
+			reject(new Error(message.error));
+		};
+		worker.onerror = (event) => {
+			terminateMediaConversionWorker();
+			reject(new Error(event.message));
+		};
+		worker.postMessage(request);
+	});
+}
+
+async function loadOpfsFile(entry: Extract<MediaConversionWorkerMessage, { type: 'converted-entry' }>['entry']): Promise<File> {
+	if (entry.source.kind !== 'opfs') return entry.source.file;
+	const root = await navigator.storage.getDirectory();
+	const handle = await root.getFileHandle(entry.source.opfsName);
+	const file = await handle.getFile();
+	return new File([file], entry.name, { type: entry.type, lastModified: entry.lastModified });
+}
+
+async function deleteFromOpfs(name: string): Promise<void> {
+	const root = await navigator.storage.getDirectory();
+	await root.removeEntry(name).catch(() => {});
+}
+
+async function convertAll(): Promise<void> {
 	if (!supported.value) {
-		selectionError.value = 'このブラウザでは画像圧縮を利用できません。';
+		selectionError.value = 'このブラウザではメディア縮小を利用できません。';
 		return;
 	}
-	isCompressing.value = true;
+	const targetItems = [...readyItems.value];
+	isConverting.value = true;
 	selectionError.value = '';
 	try {
-		for (const item of readyItems.value) {
+		for (const item of targetItems) {
 			item.status = 'processing';
 			item.error = '';
+			item.progress = 0;
 			revokeItem(item);
 			item.outputBlob = null;
-			try {
-				const blob = await readAndCompressImage(item.file, {
-					quality: quality.value,
-					maxWidth: maxWidth.value,
-					maxHeight: maxHeight.value,
-					mimeType: outputMimeType.value,
-					argorithm: null,
-					processByHalf: true,
-				});
-				item.outputBlob = blob;
-				item.outputName = outputName(item.file);
-				item.outputUrl = URL.createObjectURL(blob);
-				item.status = 'done';
-			} catch (err) {
-				item.status = 'error';
-				item.error = err instanceof Error ? err.message : String(err);
-			}
 		}
+		await runMediaConversionWorker(targetItems);
+	} catch (err) {
+		selectionError.value = err instanceof Error ? err.message : String(err);
 	} finally {
-		isCompressing.value = false;
+		isConverting.value = false;
 	}
 }
 
-function reductionPercent(item: CompressionItem): string {
+function reductionPercent(item: MediaItem): string {
 	if (!item.outputBlob || item.file.size <= 0) return '-';
 	const value = Math.round((1 - item.outputBlob.size / item.file.size) * 100);
 	return `${value}%`;
 }
 
-function statusLabel(status: CompressionStatus): string {
-	if (status === 'queued') return '待機中';
-	if (status === 'processing') return '圧縮中';
-	if (status === 'done') return '完了';
-	if (status === 'skipped') return '対象外';
+function statusLabel(item: MediaItem): string {
+	if (item.status === 'queued') return '待機中';
+	if (item.status === 'processing') return item.kind === 'video' && item.progress > 0 ? `変換中 ${item.progress}%` : '変換中';
+	if (item.status === 'done') return '完了';
+	if (item.status === 'skipped') return '対象外';
 	return 'エラー';
 }
 
-void detectWebpEncodingSupport().then((supported) => {
-	canEncodeWebp.value = supported;
-	if (!supported && outputMimeType.value === 'image/webp') {
-		outputMimeType.value = 'image/jpeg';
-	}
+function kindLabel(kind: MediaKind): string {
+	if (kind === 'image') return '画像';
+	if (kind === 'video') return '動画';
+	return '対象外';
+}
+
+onMounted(async () => {
+	const browserSupport = await normalizeMediaImageConversionSettingsForBrowserSupport(settings.value.image);
+	canEncodeWebp.value = browserSupport.support.canEncodeWebp;
+	canEncodeAvif.value = browserSupport.support.canEncodeAvif;
+	avifVariants.value = browserSupport.support.avifVariants;
+	settings.value = { ...settings.value, image: browserSupport.settings };
 });
 
-onBeforeUnmount(clearItems);
+onBeforeUnmount(() => {
+	terminateMediaConversionWorker();
+	clearItems();
+});
 </script>
 
 <template>
@@ -168,22 +268,20 @@ onBeforeUnmount(clearItems);
     <section :class="$style.header">
       <div>
         <p :class="$style.kicker">Tools</p>
-        <h1>メディア圧縮ツール</h1>
-        <p :class="$style.lead">画像をブラウザ内でJPEGへ圧縮して、ローカルに保存できます。</p>
+        <h1>メディア縮小ツール</h1>
+        <p :class="$style.lead">画像と動画をブラウザ内で縮小して、ローカルに保存できます。</p>
       </div>
     </section>
 
     <section class="card" :class="$style.toolCard">
       <div :class="$style.cardHeader">
         <div>
-          <h2>画像圧縮</h2>
-          <p>EXIFなどのメタデータは出力に引き継がれません。</p>
+          <p>動画変換はブラウザのWebCodecs対応状況に依存します。</p>
         </div>
-        <span class="badge badge-success">利用可能</span>
       </div>
 
       <div v-if="!supported" class="alert alert-warning mb-4">
-        このブラウザでは画像圧縮を利用できません。
+        このブラウザではメディア縮小を利用できません。
       </div>
       <div v-if="selectionError" class="alert alert-error mb-4">{{ selectionError }}</div>
 
@@ -193,43 +291,27 @@ onBeforeUnmount(clearItems);
         @dragleave.prevent="isDragOver = false"
         @drop.prevent="handleDrop"
       >
-        <ImageIcon :size="32" :stroke-width="2" />
-        <span>画像を選択</span>
-        <input type="file" accept="image/*" multiple :class="$style.fileInput" @change="handleFileInputChange">
+        <span :class="$style.dropIcons">
+          <ImageIcon :size="28" :stroke-width="2" />
+          <Video :size="28" :stroke-width="2" />
+        </span>
+        <span>画像または動画を選択</span>
+        <input type="file" accept="image/*,video/*" multiple :class="$style.fileInput" @change="handleFileInputChange">
       </label>
 
-      <div :class="$style.controls">
-        <label class="form-group">
-          <span class="form-label">出力形式</span>
-          <select v-model="outputMimeType" class="form-input">
-            <option value="image/webp" :disabled="!canEncodeWebp">WebP</option>
-            <option value="image/jpeg">JPEG</option>
-          </select>
-        </label>
-        <label class="form-group">
-          <span class="form-label">品質</span>
-          <input v-model.number="quality" class="form-input" type="number" min="0.1" max="1" step="0.05">
-        </label>
-        <label class="form-group">
-          <span class="form-label">最大幅</span>
-          <input v-model.number="maxWidth" class="form-input" type="number" min="1" step="1">
-        </label>
-        <label class="form-group">
-          <span class="form-label">最大高さ</span>
-          <input v-model.number="maxHeight" class="form-input" type="number" min="1" step="1">
-        </label>
-      </div>
-      <div v-if="!canEncodeWebp" class="alert alert-warning">
-        このブラウザではWebP出力を利用できないため、JPEGで保存します。
-      </div>
+      <MediaConversionSettingsSummary :settings="settings" force-enable />
 
       <div :class="$style.actions">
-        <button type="button" class="btn btn-primary" :disabled="!canCompress" @click="compressAll">
-          <LoaderCircle v-if="isCompressing" :size="16" :stroke-width="2" :class="$style.spin" />
-          <ImageIcon v-else :size="16" :stroke-width="2" />
-          圧縮
+        <button type="button" class="btn btn-secondary" @click="settingsDialogOpen = true">
+          <Settings :size="16" :stroke-width="2" />
+          設定
         </button>
-        <button type="button" class="btn btn-secondary" :disabled="items.length === 0 || isCompressing" @click="clearItems">
+        <button type="button" class="btn btn-primary" :disabled="!canConvert" @click="convertAll">
+          <LoaderCircle v-if="isConverting" :size="16" :stroke-width="2" :class="$style.spin" />
+          <ImageIcon v-else :size="16" :stroke-width="2" />
+          変換
+        </button>
+        <button type="button" class="btn btn-secondary" :disabled="items.length === 0 || isConverting" @click="clearItems">
           クリア
         </button>
       </div>
@@ -238,24 +320,17 @@ onBeforeUnmount(clearItems);
         <table :class="$style.resultTable">
           <thead>
             <tr>
+              <th>保存</th>
               <th>ファイル</th>
+              <th>種類</th>
               <th>状態</th>
               <th>元サイズ</th>
               <th>出力サイズ</th>
               <th>削減率</th>
-              <th>保存</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="item in items" :key="item.id">
-              <td>
-                <div :class="$style.fileName">{{ item.file.name }}</div>
-                <div v-if="item.error" :class="$style.errorText">{{ item.error }}</div>
-              </td>
-              <td><span :class="['badge', item.status === 'done' ? 'badge-success' : item.status === 'error' ? 'badge-danger' : 'badge-muted']">{{ statusLabel(item.status) }}</span></td>
-              <td>{{ formatBytes(item.file.size) }}</td>
-              <td>{{ item.outputBlob ? formatBytes(item.outputBlob.size) : '-' }}</td>
-              <td>{{ reductionPercent(item) }}</td>
               <td>
                 <a
                   v-if="item.outputUrl"
@@ -268,22 +343,32 @@ onBeforeUnmount(clearItems);
                 </a>
                 <span v-else>-</span>
               </td>
+              <td>
+                <div :class="$style.fileName">{{ item.file.name }}</div>
+                <div v-if="item.error" :class="$style.errorText">{{ item.error }}</div>
+              </td>
+              <td>{{ kindLabel(item.kind) }}</td>
+              <td><span :class="['badge', item.status === 'done' ? 'badge-success' : item.status === 'error' ? 'badge-danger' : 'badge-muted']">{{ statusLabel(item) }}</span></td>
+              <td>{{ formatBytes(item.file.size) }}</td>
+              <td>{{ item.outputBlob ? formatBytes(item.outputBlob.size) : '-' }}</td>
+              <td>{{ reductionPercent(item) }}</td>
             </tr>
           </tbody>
         </table>
       </div>
+      <div v-if="doneItems.length > 0" :class="$style.doneSummary">
+        {{ doneItems.length }} 件の変換が完了しました。
+      </div>
     </section>
 
-    <section :class="$style.comingSoon">
-      <article v-for="item in comingSoonItems" :key="item.title" class="card" :class="$style.soonCard">
-        <component :is="item.icon" :size="20" :stroke-width="2" :class="$style.soonIcon" />
-        <div>
-          <h2>{{ item.title }}</h2>
-          <p>{{ item.description }}</p>
-        </div>
-        <span class="badge badge-muted">Coming soon</span>
-      </article>
-    </section>
+    <MediaConversionSettingsDialog
+      v-model:open="settingsDialogOpen"
+      v-model="settings"
+      force-enable
+      :can-encode-webp="canEncodeWebp"
+      :can-encode-avif="canEncodeAvif"
+      :avif-variants="avifVariants"
+    />
   </main>
 </template>
 
@@ -353,20 +438,23 @@ onBeforeUnmount(clearItems);
   background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
 }
 
-.fileInput {
-  display: none;
-}
-
-.controls {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(120px, 1fr));
-  gap: 12px;
-}
-
+.dropIcons,
 .actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.actions {
+  align-items: center;
+}
+
+.actions > :global(.btn-secondary:last-child) {
+  margin-left: auto;
+}
+
+.fileInput {
+  display: none;
 }
 
 .spin {
@@ -379,7 +467,7 @@ onBeforeUnmount(clearItems);
 
 .resultTable {
   width: 100%;
-  min-width: 720px;
+  min-width: 820px;
   border-collapse: collapse;
 }
 
@@ -409,36 +497,9 @@ onBeforeUnmount(clearItems);
   font-size: 0.78rem;
 }
 
-.comingSoon {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
-  gap: 14px;
-}
-
-.soonCard {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: start;
-}
-
-.soonCard h2 {
-  font-size: 1rem;
-  overflow-wrap: anywhere;
-}
-
-.soonCard p {
-  margin: 0;
+.doneSummary {
   color: var(--color-text-muted);
-}
-
-.soonIcon {
-  color: var(--color-primary);
-}
-
-.soonCard > :global(.badge) {
-  justify-self: end;
-  white-space: nowrap;
+  font-size: 0.875rem;
 }
 
 @keyframes spin {
@@ -448,25 +509,8 @@ onBeforeUnmount(clearItems);
 }
 
 @media (max-width: 720px) {
-  .controls {
-    grid-template-columns: 1fr;
-  }
-
   .cardHeader {
     flex-direction: column;
-  }
-
-  .soonCard {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .comingSoon {
-    grid-template-columns: 1fr;
-  }
-
-  .soonCard > :global(.badge) {
-    grid-column: 2;
-    justify-self: start;
   }
 }
 </style>

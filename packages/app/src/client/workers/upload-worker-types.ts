@@ -1,19 +1,40 @@
 import type { FileVisibility } from '../../shared/file-visibility';
+import type { MediaImageConversionSettings, MediaVideoConversionSettings } from '../utils/media-conversion';
+import type { ResolvedUploadEntry } from '../utils/upload-tree';
 
 export type UploadJobMode = 'individual' | 'gz' | 'tar' | 'targz';
 export type UploadJobStatus = 'queued' | 'running' | 'done' | 'error';
 
 export interface UploadWorkerFileEntry {
+	source?: 'file';
 	path: string;
 	file: File;
 }
 
-export interface UploadImageCompressionOptions {
+export interface UploadWorkerOpfsEntry {
+	source: 'opfs';
+	path: string;
+	opfsName: string;
+	size: number;
+	type: string;
+	lastModified: number;
+}
+
+export type UploadWorkerEntry = UploadWorkerFileEntry | UploadWorkerOpfsEntry;
+
+export interface UploadResolvedEntry extends Omit<ResolvedUploadEntry, 'source'> {
+	originalSize: number;
+	source:
+		| { kind: 'file'; file: File }
+		| { kind: 'opfs'; opfsName: string };
+}
+
+export interface UploadImageCompressionOptions extends MediaImageConversionSettings {
 	enabled: boolean;
-	quality: number;
-	maxWidth: number;
-	maxHeight: number;
-	mimeType: 'image/jpeg' | 'image/webp';
+}
+
+export interface UploadVideoConversionOptions extends MediaVideoConversionSettings {
+	enabled: boolean;
 }
 
 export interface UploadJobRequest {
@@ -28,11 +49,16 @@ export interface UploadJobRequest {
 	isDownloadCountEnabled?: boolean;
 	isDownloadCountVisible?: boolean;
 	imageCompression?: UploadImageCompressionOptions;
+	videoConversion?: UploadVideoConversionOptions;
 	partSize: number;
 	nonResumeUploadLimitBytes: number;
-	files: UploadWorkerFileEntry[];
+	files: UploadWorkerEntry[];
 	totalBytes: number;
 	authToken: string | null;
+}
+
+export interface UploadStreamingJobRequest extends Omit<UploadJobRequest, 'files' | 'imageCompression' | 'videoConversion'> {
+	totalFiles: number;
 }
 
 export interface UploadJobSnapshot {
@@ -54,8 +80,12 @@ export interface UploadJobSnapshot {
 
 export type UploadWorkerClientMessage =
 	| { type: 'subscribe' }
-	| { type: 'enqueue'; job: UploadJobRequest };
+	| { type: 'enqueue'; job: UploadJobRequest }
+	| { type: 'enqueue-streaming'; requestId: string; job: UploadStreamingJobRequest }
+	| { type: 'push-entry'; jobId: string; entry: UploadResolvedEntry }
+	| { type: 'finish-entries'; jobId: string }
+	| { type: 'fail-entries'; jobId: string; error: string };
 
 export type UploadWorkerServerMessage =
 	| { type: 'snapshot'; jobs: UploadJobSnapshot[] }
-	| { type: 'enqueued'; jobId: string };
+	| { type: 'enqueued'; jobId: string; requestId?: string };

@@ -25,15 +25,18 @@ importers:
 
   packages/app:
     dependencies:
+      '@browser-mc/browser-image-resizer-ex':
+        specifier: ^0.6.0
+        version: 0.6.0
+      '@browser-mc/browser-movie-converter':
+        specifier: ^0.2.0
+        version: 0.2.0
       '@hono/standard-validator':
         specifier: ^0.2.2
         version: 0.2.2(@standard-schema/spec@1.1.0)(hono@4.12.18)
       '@lucide/vue':
         specifier: ^1.16.0
         version: 1.16.0(vue@3.5.34(typescript@6.0.3))
-      '@misskey-dev/browser-image-resizer':
-        specifier: ^2024.1.0
-        version: 2024.1.0
       '@pdfme/common':
         specifier: ^6.1.2
         version: 6.1.2
@@ -88,6 +91,9 @@ importers:
       marked:
         specifier: ^18.0.4
         version: 18.0.4
+      mediabunny:
+        specifier: ^1.46.0
+        version: 1.46.0
       mrmime:
         specifier: ^2.0.1
         version: 2.0.1
@@ -722,6 +728,30 @@ packages:
 
   '@base-org/account@2.4.0':
     resolution: {integrity: sha512-A4Umpi8B9/pqR78D1Yoze4xHyQaujioVRqqO3d6xuDFw9VRtjg6tK3bPlwE0aW+nVH/ntllCpPa2PbI8Rnjcug==}
+
+  '@browser-mc/binary@0.0.1':
+    resolution: {integrity: sha512-mPqAS4zWKdjrKCPgY7JfpDl9jgZ5DlHJ15SopDK+gvnLCOgJOoQCLTyAGV4CrrLqDkemke7LMOLSSTd6SQv7rg==}
+
+  '@browser-mc/browser-image-resizer-ex@0.6.0':
+    resolution: {integrity: sha512-OQF6Fxo0DCdphO/afrChOWwgNb5HPMLgWmLC2c6GrVccAZNCd43TcYKYBHZR18z0K5akYHceZnF2Tr3Hl8vsmw==}
+
+  '@browser-mc/browser-movie-converter@0.2.0':
+    resolution: {integrity: sha512-BH0mMIMkbv9jSs2M1EEN/EFJIZb4n6NmQ1pMlLrmzeamSxa5nzkvga5VBRk1DTiRRfL3QlZTPgd35J1o+nXy7g==}
+
+  '@browser-mc/exif-transplant@0.0.4':
+    resolution: {integrity: sha512-mHrzFKvFFXow4d1w3iMIhIRHH/iFLEwl+rln0wbxl6VD6d7V7nj8K6qGnmkmkWv8tEnngGsMXN1uzfULMxmbAA==}
+
+  '@browser-mc/media-container@0.3.1':
+    resolution: {integrity: sha512-0fAPfWJQ1gz1tvECyyK2jwWEIl4QRdjeAXL9SNp8m/dbR6yLsZL1Og9zGHW+7e52Hbr648vxWk6WGaDsoXRwCw==}
+
+  '@browser-mc/mediabunny-scene-keyframes@0.0.1':
+    resolution: {integrity: sha512-mK2iT/DIbTRz29mrd/z7u9QBRdyWAmtS4L/abs9RNmgnG6avr5uCZInI69bRnApdQvCa6WfeNaaMn2kXFM6RYw==}
+
+  '@browser-mc/webcodecs-avif@0.4.2':
+    resolution: {integrity: sha512-xkziNb6jf2mv/blG608EVP/zWVLgHHjR43i38cStfuXStigLhV42BMcCJHf7JtO7DYW3EHBfPMWxT83yJus0cw==}
+
+  '@browser-mc/webcodecs-color@0.2.0':
+    resolution: {integrity: sha512-xc1gmItZktrrstZ9qYhqMP3PdzNh5ap+YnInLrdgCZrE4SDSgQ0dYccf36b9L9G34hrAOYqSc/S/iQJk3WOziQ==}
 
   '@bufbuild/protobuf@2.12.0':
     resolution: {integrity: sha512-B/XlCaFIP8LOwzo+bz5uFzATYokcwCKQcghqnlfwSmM5eX/qTkvDBnDPs+gXtX/RyjxJ4DRikECcPJbyALA8FA==}
@@ -1685,9 +1715,6 @@ packages:
 
   '@marijn/find-cluster-break@1.0.2':
     resolution: {integrity: sha512-l0h88YhZFyKdXIFNfSWpyjStDjGHwZ/U7iobcK1cQQD8sejsONdQtTVU+1wVN1PBw40PiiHB1vA5S7VTfQiP9g==}
-
-  '@misskey-dev/browser-image-resizer@2024.1.0':
-    resolution: {integrity: sha512-4EnO0zLW5NDtng3Gaz5MuT761uiuoOuplwX18wBqgj8w56LTU5BjLn/vbHwDIIe0j2gwqDYhMb7bDjmr1/Fomg==}
 
   '@misskey-dev/eslint-plugin@2.2.0':
     resolution: {integrity: sha512-NlDtaFRaO2r4KRnacTiYK2Ax/z95ZvhszQ3gfZ7VWWQzPvgoQHSEBT6q94i1/HPzWrcR+l+76c3Y3T1V/yVPeg==}
@@ -2780,6 +2807,12 @@ packages:
 
   '@types/deep-eql@4.0.2':
     resolution: {integrity: sha512-c9h9dVVMigMPc4bwTvC5dxqtqJZwQPePsWjPlpSOnojbor6pGqdk541lfA7AqFQr5pB1BRdq0juY9db81BwyFw==}
+
+  '@types/dom-mediacapture-transform@0.1.11':
+    resolution: {integrity: sha512-Y2p+nGf1bF2XMttBnsVPHUWzRRZzqUoJAKmiP10b5umnO6DDrWI0BrGDJy1pOHoOULVmGSfFNkQrAlC5dcj6nQ==}
+
+  '@types/dom-webcodecs@0.1.13':
+    resolution: {integrity: sha512-O5hkiFIcjjszPIYyUSyvScyvrBoV3NOEEZx/pMlsu44TKzWNkLVBBxnxJz42in5n3QIolYOcBYFCPZZ0h8SkwQ==}
 
   '@types/esrecurse@4.3.1':
     resolution: {integrity: sha512-xJBAbDifo5hpffDBuHl0Y8ywswbiAp/Wi7Y/GtAgSlZyIABppyurxVueOPE8LUQOxdlgi6Zqce7uoEpqNTeiUw==}
@@ -4582,6 +4615,9 @@ packages:
 
   mdast-util-to-hast@13.2.1:
     resolution: {integrity: sha512-cctsq2wp5vTsLIcaymblUriiTcZd0CwWtCbLvrOzYCDZoWyMNV8sZ7krj09FSnsiJi3WVsHLM4k6Dq/yaPyCXA==}
+
+  mediabunny@1.46.0:
+    resolution: {integrity: sha512-HIaMQ6PVMndrFb9sNCh9/uAsLFBfLzyAgbk3kN7ZqlRRq//9RPYqIOQtXYpkbWBZU8ZJkaAUNLDtwTcdKo7yQw==}
 
   memoize-one@6.0.0:
     resolution: {integrity: sha512-rkpe71W0N0c0Xz6QD0eJETuWAJGnJ9afsl1srmwPrI+yBCkge5EycXXbYRyvL29zZVUWQCY7InPRCv3GDXuZNw==}
@@ -6750,6 +6786,45 @@ snapshots:
       - zod
     optional: true
 
+  '@browser-mc/binary@0.0.1': {}
+
+  '@browser-mc/browser-image-resizer-ex@0.6.0':
+    dependencies:
+      '@browser-mc/binary': 0.0.1
+      '@browser-mc/exif-transplant': 0.0.4
+      '@browser-mc/media-container': 0.3.1
+      '@browser-mc/webcodecs-avif': 0.4.2
+      '@browser-mc/webcodecs-color': 0.2.0
+
+  '@browser-mc/browser-movie-converter@0.2.0':
+    dependencies:
+      '@browser-mc/mediabunny-scene-keyframes': 0.0.1
+      '@browser-mc/webcodecs-color': 0.2.0
+      mediabunny: 1.46.0
+
+  '@browser-mc/exif-transplant@0.0.4':
+    dependencies:
+      '@browser-mc/binary': 0.0.1
+      '@browser-mc/media-container': 0.3.1
+
+  '@browser-mc/media-container@0.3.1':
+    dependencies:
+      '@browser-mc/binary': 0.0.1
+
+  '@browser-mc/mediabunny-scene-keyframes@0.0.1':
+    dependencies:
+      mediabunny: 1.46.0
+
+  '@browser-mc/webcodecs-avif@0.4.2':
+    dependencies:
+      '@browser-mc/binary': 0.0.1
+      '@browser-mc/media-container': 0.3.1
+      '@browser-mc/webcodecs-color': 0.2.0
+
+  '@browser-mc/webcodecs-color@0.2.0':
+    dependencies:
+      '@browser-mc/binary': 0.0.1
+
   '@bufbuild/protobuf@2.12.0': {}
 
   '@cloudflare/kv-asset-handler@0.5.0': {}
@@ -7449,8 +7524,6 @@ snapshots:
       vue: 3.5.34(typescript@6.0.3)
 
   '@marijn/find-cluster-break@1.0.2': {}
-
-  '@misskey-dev/browser-image-resizer@2024.1.0': {}
 
   '@misskey-dev/eslint-plugin@2.2.0(@eslint/compat@2.1.0(eslint@9.39.4))(@eslint/js@9.39.4)(@stylistic/eslint-plugin@5.10.0(eslint@9.39.4))(@typescript-eslint/eslint-plugin@8.59.3(@typescript-eslint/parser@8.59.3(eslint@9.39.4)(typescript@6.0.3))(eslint@9.39.4)(typescript@6.0.3))(@typescript-eslint/parser@8.59.3(eslint@9.39.4)(typescript@6.0.3))(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.59.3(eslint@9.39.4)(typescript@6.0.3))(eslint@9.39.4))(eslint@9.39.4)(globals@17.6.0)':
     dependencies:
@@ -8826,6 +8899,12 @@ snapshots:
       assertion-error: 2.0.1
 
   '@types/deep-eql@4.0.2': {}
+
+  '@types/dom-mediacapture-transform@0.1.11':
+    dependencies:
+      '@types/dom-webcodecs': 0.1.13
+
+  '@types/dom-webcodecs@0.1.13': {}
 
   '@types/esrecurse@4.3.1': {}
 
@@ -11117,6 +11196,11 @@ snapshots:
       unist-util-position: 5.0.0
       unist-util-visit: 5.1.0
       vfile: 6.0.3
+
+  mediabunny@1.46.0:
+    dependencies:
+      '@types/dom-mediacapture-transform': 0.1.11
+      '@types/dom-webcodecs': 0.1.13
 
   memoize-one@6.0.0: {}
 

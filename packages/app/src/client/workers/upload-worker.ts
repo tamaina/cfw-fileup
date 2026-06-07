@@ -1,13 +1,15 @@
 /// <reference lib="webworker" />
 
-import { readAndCompressImage } from '@misskey-dev/browser-image-resizer';
 import { BgzfTarArchiver, TarArchiver, type ArchiveProgress, type TarGzIndex, type TarIndex } from 'bgzf';
+import type { FileEntry } from 'bgzf';
 import type {
-	UploadImageCompressionOptions,
 	UploadJobRequest,
 	UploadJobSnapshot,
-	UploadWorkerFileEntry,
+	UploadResolvedEntry,
+	UploadStreamingJobRequest,
 	UploadWorkerClientMessage,
+	UploadWorkerEntry,
+	UploadWorkerFileEntry,
 	UploadWorkerServerMessage,
 } from './upload-worker-types';
 
@@ -23,10 +25,18 @@ interface OpenUploadResult {
 	partSize: number;
 }
 
+interface StreamingJob {
+	id: string;
+	request: UploadStreamingJobRequest;
+	queue: UploadEntryQueue;
+	done: boolean;
+	started: boolean;
+}
+
 const ports = new Set<MessagePort>();
 const jobs: UploadJobSnapshot[] = [];
-const queue: Array<{ id: string; request: UploadJobRequest }> = [];
-let running = false;
+const streamingJobs = new Map<string, StreamingJob>();
+let runningJobs = Promise.resolve();
 const DEFAULT_NON_RESUME_UPLOAD_LIMIT_BYTES = 32 * 1024 * 1024;
 
 self.onconnect = (event) => {
@@ -39,26 +49,29 @@ self.onconnect = (event) => {
 			return;
 		}
 		if (message.type === 'enqueue') {
-			const id = crypto.randomUUID();
-			const now = Date.now();
-			jobs.unshift({
-				id,
-				status: 'queued',
-				bucketName: message.job.bucketName,
-				prefix: message.job.prefix,
-				mode: message.job.mode,
-				filename: '',
-				fileIndex: 0,
-				totalFiles: message.job.files.length,
-				uploadedBytes: 0,
-				totalBytes: message.job.totalBytes,
-				createdAt: now,
-				updatedAt: now,
-			});
-			queue.push({ id, request: message.job });
+			const id = createStreamingJob({ ...message.job, totalFiles: message.job.files.length }, message.job.files.length);
 			post(port, { type: 'enqueued', jobId: id });
-			broadcast();
-			void pump();
+			for (let i = 0; i < message.job.files.length; i++) {
+				pushEntry(id, legacyEntryToResolved(message.job.files[i], i));
+			}
+			finishEntries(id);
+			return;
+		}
+		if (message.type === 'enqueue-streaming') {
+			const id = createStreamingJob(message.job, message.job.totalFiles);
+			post(port, { type: 'enqueued', jobId: id, requestId: message.requestId });
+			return;
+		}
+		if (message.type === 'push-entry') {
+			pushEntry(message.jobId, message.entry);
+			return;
+		}
+		if (message.type === 'finish-entries') {
+			finishEntries(message.jobId);
+			return;
+		}
+		if (message.type === 'fail-entries') {
+			failEntries(message.jobId, message.error);
 		}
 	};
 	port.start();
@@ -81,23 +94,115 @@ function updateJob(id: string, patch: Partial<UploadJobSnapshot>): void {
 	broadcast();
 }
 
-async function pump(): Promise<void> {
-	if (running) return;
-	running = true;
-	try {
-		while (queue.length > 0) {
-			const item = queue.shift()!;
-			updateJob(item.id, { status: 'running' });
-			try {
-				const result = await executeUpload(item.id, item.request);
-				updateJob(item.id, { status: 'done', uploadedBytes: result.totalBytes, totalBytes: result.totalBytes, completedPath: result.completedPath });
-			} catch (err) {
-				updateJob(item.id, { status: 'error', error: err instanceof Error ? err.message : String(err) });
-			}
+function createStreamingJob(request: UploadStreamingJobRequest, totalFiles: number): string {
+	const id = crypto.randomUUID();
+	const now = Date.now();
+	const job: StreamingJob = {
+		id,
+		request,
+		queue: new UploadEntryQueue(request.mode === 'tar' || request.mode === 'targz' ? 'index' : 'ready'),
+		done: false,
+		started: false,
+	};
+	streamingJobs.set(id, job);
+	jobs.unshift({
+		id,
+		status: 'queued',
+		bucketName: request.bucketName,
+		prefix: request.prefix,
+		mode: request.mode,
+		filename: '',
+		fileIndex: 0,
+		totalFiles,
+		uploadedBytes: 0,
+		totalBytes: request.totalBytes,
+		createdAt: now,
+		updatedAt: now,
+	});
+	broadcast();
+	startStreamingJob(job);
+	return id;
+}
+
+function startStreamingJob(job: StreamingJob): void {
+	if (job.started) return;
+	job.started = true;
+	runningJobs = runningJobs.then(async () => {
+		updateJob(job.id, { status: 'running' });
+		try {
+			const result = await executeStreamingUpload(job.id, job.request, job.queue);
+			updateJob(job.id, { status: 'done', uploadedBytes: result.totalBytes, totalBytes: result.totalBytes, completedPath: result.completedPath });
+		} catch (err) {
+			job.queue.close();
+			updateJob(job.id, { status: 'error', error: err instanceof Error ? err.message : String(err) });
+		} finally {
+			streamingJobs.delete(job.id);
+			await job.queue.cleanupAll();
 		}
-	} finally {
-		running = false;
+	});
+}
+
+function pushEntry(jobId: string, entry: UploadResolvedEntry): void {
+	const job = streamingJobs.get(jobId);
+	if (!job) {
+		void cleanupResolvedEntry(entry);
+		return;
 	}
+	const current = jobs.find(item => item.id === jobId);
+	if (current) {
+		updateJob(jobId, { totalBytes: current.totalBytes + entry.size - entry.originalSize });
+	}
+	job.queue.push(entry);
+}
+
+function finishEntries(jobId: string): void {
+	const job = streamingJobs.get(jobId);
+	if (!job) return;
+	job.done = true;
+	job.queue.close();
+}
+
+function failEntries(jobId: string, error: string): void {
+	const job = streamingJobs.get(jobId);
+	if (!job) return;
+	job.queue.fail(new Error(error));
+}
+
+function legacyEntryToResolved(entry: UploadWorkerEntry, index: number): UploadResolvedEntry {
+	if (entry.source === 'opfs') {
+		return {
+			originalIndex: index,
+			path: entry.path,
+			name: basename(entry.path),
+			parentPath: parentPath(entry.path),
+			size: entry.size,
+			originalSize: entry.size,
+			type: entry.type,
+			lastModified: entry.lastModified,
+			source: { kind: 'opfs', opfsName: entry.opfsName },
+		};
+	}
+	return {
+		originalIndex: index,
+		path: entry.path,
+		name: basename(entry.path),
+		parentPath: parentPath(entry.path),
+		size: entry.file.size,
+		originalSize: entry.file.size,
+		type: entry.file.type,
+		lastModified: entry.file.lastModified,
+		source: { kind: 'file', file: entry.file },
+	};
+}
+
+function basename(path: string): string {
+	const slash = path.lastIndexOf('/');
+	return slash === -1 ? path : path.slice(slash + 1);
+}
+
+function parentPath(path: string): string {
+	const slash = path.lastIndexOf('/');
+	return slash === -1 ? '' : path.slice(0, slash + 1);
 }
 
 function authHeaders(token: string | null): Record<string, string> {
@@ -128,7 +233,7 @@ async function getUploadPartCount(fileId: string, token: string | null): Promise
 	return result?.partCount ?? -1;
 }
 
-async function openUpload(path: string, request: UploadJobRequest): Promise<OpenUploadResult> {
+async function openUpload(path: string, request: UploadStreamingJobRequest): Promise<OpenUploadResult> {
 	const result = await apiPost<{ fileId: string; partSize: number }>('/api/files/create/open', {
 		bucketId: request.bucketId,
 		path,
@@ -137,7 +242,7 @@ async function openUpload(path: string, request: UploadJobRequest): Promise<Open
 	return { fileId: result.fileId, partSize: result.partSize };
 }
 
-async function closeUpload(fileId: string, request: UploadJobRequest): Promise<void> {
+async function closeUpload(fileId: string, request: UploadStreamingJobRequest): Promise<void> {
 	await apiPost('/api/files/create/close', {
 		fileId,
 		visibility: request.visibility,
@@ -148,11 +253,11 @@ async function closeUpload(fileId: string, request: UploadJobRequest): Promise<v
 	}, request.authToken);
 }
 
-async function deleteExistingFile(path: string, request: UploadJobRequest): Promise<void> {
+async function deleteExistingFile(path: string, request: UploadStreamingJobRequest): Promise<void> {
 	await apiPost('/api/files/delete', { bucketId: request.bucketId, path }, request.authToken);
 }
 
-async function tusUpload(fileId: string, blob: Blob, path: string, partSize: number, request: UploadJobRequest, onProgress: (uploaded: number) => void): Promise<void> {
+async function tusUpload(fileId: string, blob: Blob, path: string, partSize: number, request: UploadStreamingJobRequest, onProgress: (uploaded: number) => void): Promise<void> {
 	const total = blob.size;
 	let offset = Math.max(0, await getResumeOffset(fileId, request.authToken));
 	onProgress(offset);
@@ -200,7 +305,7 @@ async function tusUpload(fileId: string, blob: Blob, path: string, partSize: num
 	}
 }
 
-async function nonResumeUpload(fileId: string, blob: Blob, path: string, request: UploadJobRequest, onProgress: (uploaded: number) => void): Promise<void> {
+async function nonResumeUpload(fileId: string, blob: Blob, path: string, request: UploadStreamingJobRequest, onProgress: (uploaded: number) => void): Promise<void> {
 	const res = await fetch(`/upload/${fileId}`, {
 		method: 'PUT',
 		headers: {
@@ -217,7 +322,7 @@ async function nonResumeUpload(fileId: string, blob: Blob, path: string, request
 	onProgress(blob.size);
 }
 
-async function uploadBlob(blob: Blob, path: string, request: UploadJobRequest, onProgress: (uploaded: number) => void): Promise<void> {
+async function uploadBlob(blob: Blob, path: string, request: UploadStreamingJobRequest, onProgress: (uploaded: number) => void): Promise<void> {
 	const { fileId, partSize } = await openUpload(path, request);
 	try {
 		const nonResumeUploadLimitBytes = request.nonResumeUploadLimitBytes ?? DEFAULT_NON_RESUME_UPLOAD_LIMIT_BYTES;
@@ -233,7 +338,7 @@ async function uploadBlob(blob: Blob, path: string, request: UploadJobRequest, o
 	}
 }
 
-async function uploadStream(stream: ReadableStream<Uint8Array<ArrayBuffer>>, path: string, request: UploadJobRequest, onProgress: (uploaded: number) => void): Promise<void> {
+async function uploadStream(stream: ReadableStream<Uint8Array<ArrayBuffer>>, path: string, request: UploadStreamingJobRequest, onProgress: (uploaded: number) => void): Promise<void> {
 	const fileId = await uploadChunkedStream(stream, path, request, onProgress);
 	await closeUpload(fileId, request);
 }
@@ -243,7 +348,7 @@ async function uploadArchiveStream(
 	index: Promise<TarIndex[] | TarGzIndex[]>,
 	archivePath: string,
 	indexEndpoint: '/api/files/create/tar-index' | '/api/files/create/targz-index',
-	request: UploadJobRequest,
+	request: UploadStreamingJobRequest,
 	onProgress: (uploaded: number) => void,
 ): Promise<void> {
 	const { fileId, partSize } = await openUpload(archivePath, request);
@@ -260,7 +365,7 @@ async function uploadArchiveStream(
 async function uploadChunkedStream(
 	stream: ReadableStream<Uint8Array<ArrayBuffer>>,
 	path: string,
-	request: UploadJobRequest,
+	request: UploadStreamingJobRequest,
 	onProgress: (uploaded: number) => void,
 ): Promise<string> {
 	const { fileId, partSize } = await openUpload(path, request);
@@ -278,7 +383,7 @@ async function writeStreamParts(
 	partSize: number,
 	stream: ReadableStream<Uint8Array<ArrayBuffer>>,
 	path: string,
-	request: UploadJobRequest,
+	request: UploadStreamingJobRequest,
 	onProgress: (uploaded: number) => void,
 ): Promise<void> {
 	const reader = stream.getReader();
@@ -331,7 +436,7 @@ class TusChunkQueue {
 		private readonly fileId: string,
 		private readonly path: string,
 		private readonly partSize: number,
-		private readonly request: UploadJobRequest,
+		private readonly request: UploadStreamingJobRequest,
 		private readonly onUploadedBytes: (total: number) => void,
 	) {}
 
@@ -424,116 +529,184 @@ class TusChunkQueue {
 	}
 }
 
-async function deleteFromOpfs(name: string): Promise<void> {
-	const root = await navigator.storage.getDirectory();
-	await root.removeEntry(name).catch(() => {});
-}
+class UploadEntryQueue {
+	private readonly ready: UploadResolvedEntry[] = [];
+	private readonly byIndex = new Map<number, UploadResolvedEntry>();
+	private readonly waiters: Array<{
+		resolve: (entry: UploadResolvedEntry | null) => void;
+		reject: (reason?: unknown) => void;
+	}> = [];
+	private closed = false;
+	private error: unknown = null;
+	private nextIndex = 0;
+	private readonly cleanupEntries = new Set<UploadResolvedEntry>();
 
-type PreparedUploadEntry = UploadWorkerFileEntry & {
-	readonly originalSize: number;
-};
+	constructor(private readonly mode: 'ready' | 'index') {}
 
-function isImageCompressionEnabled(request: UploadJobRequest): request is UploadJobRequest & { imageCompression: UploadImageCompressionOptions } {
-	return request.mode === 'individual' && request.imageCompression?.enabled === true;
-}
-
-function compressedImagePathForMimeType(path: string, mimeType: UploadImageCompressionOptions['mimeType']): string {
-	const extension = mimeType === 'image/webp' ? '.webp' : '.jpg';
-	const dot = path.lastIndexOf('.');
-	const slash = path.lastIndexOf('/');
-	if (dot > slash) return `${path.slice(0, dot)}${extension}`;
-	return `${path}${extension}`;
-}
-
-async function canEncodeImageMimeType(mimeType: UploadImageCompressionOptions['mimeType']): Promise<boolean> {
-	if (typeof OffscreenCanvas !== 'undefined') {
-		const canvas = new OffscreenCanvas(1, 1);
-		const blob = await canvas.convertToBlob({ type: mimeType }).catch(() => null);
-		if (blob?.type === mimeType) return true;
-	}
-	return mimeType === 'image/jpeg';
-}
-
-async function resolveImageCompressionMimeType(mimeType: UploadImageCompressionOptions['mimeType']): Promise<UploadImageCompressionOptions['mimeType']> {
-	if (mimeType === 'image/jpeg') return 'image/jpeg';
-	return await canEncodeImageMimeType('image/webp') ? 'image/webp' : 'image/jpeg';
-}
-
-async function prepareUploadEntry(entry: UploadWorkerFileEntry, request: UploadJobRequest): Promise<PreparedUploadEntry> {
-	if (!isImageCompressionEnabled(request) || !entry.file.type.startsWith('image/')) {
-		return { ...entry, originalSize: entry.file.size };
+	push(entry: UploadResolvedEntry): void {
+		this.cleanupEntries.add(entry);
+		if (this.closed || this.error) {
+			void cleanupResolvedEntry(entry);
+			return;
+		}
+		if (this.mode === 'ready') {
+			this.ready.push(entry);
+		} else {
+			this.byIndex.set(entry.originalIndex, entry);
+		}
+		this.flush();
 	}
 
-	const mimeType = await resolveImageCompressionMimeType(request.imageCompression.mimeType);
-	const blob = await readAndCompressImage(entry.file, {
-		quality: request.imageCompression.quality,
-		maxWidth: request.imageCompression.maxWidth,
-		maxHeight: request.imageCompression.maxHeight,
-		mimeType,
-		argorithm: null,
-		processByHalf: true,
-	});
-	const name = compressedImagePathForMimeType(entry.file.name, mimeType);
-	return {
-		path: compressedImagePathForMimeType(entry.path, mimeType),
-		file: new File([blob], name, { type: mimeType, lastModified: entry.file.lastModified }),
-		originalSize: entry.file.size,
-	};
+	close(): void {
+		this.closed = true;
+		this.flush();
+	}
+
+	fail(error: unknown): void {
+		this.error = error;
+		for (const waiter of this.waiters.splice(0)) waiter.reject(error);
+	}
+
+	async next(): Promise<UploadResolvedEntry | null> {
+		if (this.error) throw this.error;
+		const entry = this.shiftReadyEntry();
+		if (entry) return entry;
+		if (this.closed) return null;
+		return await new Promise((resolve, reject) => {
+			this.waiters.push({ resolve, reject });
+		});
+	}
+
+	markConsumed(entry: UploadResolvedEntry): void {
+		this.cleanupEntries.delete(entry);
+	}
+
+	async cleanupAll(): Promise<void> {
+		await Promise.all(Array.from(this.cleanupEntries, cleanupResolvedEntry));
+		this.cleanupEntries.clear();
+	}
+
+	private flush(): void {
+		while (this.waiters.length > 0) {
+			if (this.error) {
+				this.waiters.shift()?.reject(this.error);
+				continue;
+			}
+			const entry = this.shiftReadyEntry();
+			if (entry) {
+				this.waiters.shift()?.resolve(entry);
+				continue;
+			}
+			if (this.closed) {
+				this.waiters.shift()?.resolve(null);
+				continue;
+			}
+			break;
+		}
+	}
+
+	private shiftReadyEntry(): UploadResolvedEntry | null {
+		if (this.mode === 'ready') return this.ready.shift() ?? null;
+		const entry = this.byIndex.get(this.nextIndex);
+		if (!entry) return null;
+		this.byIndex.delete(this.nextIndex++);
+		return entry;
+	}
 }
 
-async function executeUpload(id: string, request: UploadJobRequest): Promise<{ completedPath: string; totalBytes: number }> {
-	const files = request.files;
+async function executeStreamingUpload(id: string, request: UploadStreamingJobRequest, queue: UploadEntryQueue): Promise<{ completedPath: string; totalBytes: number }> {
 	let cumulativeBytes = 0;
 	let totalBytes = request.totalBytes;
 	let completedPath = '';
 
 	if (request.mode === 'individual' || request.mode === 'gz') {
-		for (let i = 0; i < files.length; i++) {
-			const entry = files[i];
-			updateJob(id, { filename: entry.path, fileIndex: i, totalFiles: files.length, uploadedBytes: cumulativeBytes });
-			const preparedEntry = await prepareUploadEntry(entry, request);
-			if (preparedEntry.file.size !== preparedEntry.originalSize || preparedEntry.path !== entry.path) {
-				totalBytes += preparedEntry.file.size - preparedEntry.originalSize;
-				request.totalBytes = totalBytes;
-				updateJob(id, { filename: preparedEntry.path, totalBytes });
-			}
-			const path = request.mode === 'gz' ? `${request.prefix}${preparedEntry.path}.gz` : `${request.prefix}${preparedEntry.path}`;
+		let processedFiles = 0;
+		while (true) {
+			const entry = await queue.next();
+			if (!entry) break;
+			updateJob(id, { filename: entry.path, fileIndex: processedFiles, uploadedBytes: cumulativeBytes, totalBytes });
+			const file = await readResolvedEntryFile(entry);
+			const path = request.mode === 'gz' ? `${request.prefix}${entry.path}.gz` : `${request.prefix}${entry.path}`;
 			if (request.mode === 'gz') {
-				await uploadStream(preparedEntry.file.stream().pipeThrough(new CompressionStream('gzip')), path, request, (n) => {
+				await uploadStream(file.stream().pipeThrough(new CompressionStream('gzip')), path, request, (n) => {
 					updateJob(id, { uploadedBytes: cumulativeBytes + n });
 				});
 			} else {
-				await uploadBlob(preparedEntry.file, path, request, (n) => {
+				await uploadBlob(file, path, request, (n) => {
 					updateJob(id, { uploadedBytes: cumulativeBytes + n });
 				});
 			}
-			cumulativeBytes += preparedEntry.file.size;
+			cumulativeBytes += file.size;
+			processedFiles++;
 			completedPath = path;
-			updateJob(id, { fileIndex: i + 1, uploadedBytes: cumulativeBytes });
+			queue.markConsumed(entry);
+			await cleanupResolvedEntry(entry);
+			updateJob(id, { fileIndex: processedFiles, uploadedBytes: cumulativeBytes });
 		}
-		return { completedPath, totalBytes };
+			return { completedPath, totalBytes: currentJobTotalBytes(id, totalBytes) };
 	}
 
-	updateJob(id, { filename: '', fileIndex: 0, totalFiles: 0, uploadedBytes: 0 });
+	updateJob(id, { filename: '', fileIndex: 0, totalFiles: request.totalFiles, uploadedBytes: 0 });
+	const archiveEntries = resolvedEntriesAsFileEntries(queue);
 	if (request.mode === 'tar') {
 		const archivePath = `${request.prefix}${request.archiveBaseName}.tar`;
-		const archiver = await TarArchiver.createFromEntries(files, (p: ArchiveProgress) => {
+		const archiver = await TarArchiver.createFromEntries(archiveEntries, (p: ArchiveProgress) => {
 			updateJob(id, { filename: p.currentFile, fileIndex: p.processedFiles, totalFiles: p.totalFiles });
 		});
 		await uploadArchiveStream(archiver.stream, archiver.index, archivePath, '/api/files/create/tar-index', request, (n) => {
 			updateJob(id, { uploadedBytes: n });
 		});
-		return { completedPath: archivePath, totalBytes };
+			return { completedPath: archivePath, totalBytes: currentJobTotalBytes(id, totalBytes) };
 	}
 
 	const archivePath = `${request.prefix}${request.archiveBaseName}.tar.gz`;
-	const archiver = await BgzfTarArchiver.createFromEntries(files, (p: ArchiveProgress) => {
+	const archiver = await BgzfTarArchiver.createFromEntries(archiveEntries, (p: ArchiveProgress) => {
 		updateJob(id, { filename: p.currentFile, fileIndex: p.processedFiles, totalFiles: p.totalFiles });
 	});
 	await uploadArchiveStream(archiver.stream, archiver.index, archivePath, '/api/files/create/targz-index', request, (n) => {
 		updateJob(id, { uploadedBytes: n });
 	});
-	return { completedPath: archivePath, totalBytes };
+	return { completedPath: archivePath, totalBytes: currentJobTotalBytes(id, totalBytes) };
+}
+
+function currentJobTotalBytes(id: string, fallback: number): number {
+	return jobs.find(job => job.id === id)?.totalBytes ?? fallback;
+}
+
+async function* resolvedEntriesAsFileEntries(queue: UploadEntryQueue): AsyncGenerator<FileEntry> {
+	while (true) {
+		const entry = await queue.next();
+		if (!entry) break;
+		try {
+			yield {
+				path: entry.path,
+				file: await readResolvedEntryFile(entry),
+			};
+		} finally {
+			queue.markConsumed(entry);
+			await cleanupResolvedEntry(entry);
+		}
+	}
+}
+
+async function readResolvedEntryFile(entry: UploadResolvedEntry): Promise<File> {
+	if (entry.source.kind === 'opfs') {
+		const root = await navigator.storage.getDirectory();
+		const handle = await root.getFileHandle(entry.source.opfsName);
+		const file = await handle.getFile();
+		return new File([file], entry.path, { type: entry.type || file.type, lastModified: entry.lastModified || file.lastModified });
+	}
+	return entry.source.file;
+}
+
+async function cleanupResolvedEntry(entry: UploadResolvedEntry): Promise<void> {
+	if (entry.source.kind !== 'opfs') return;
+	await deleteFromOpfs(entry.source.opfsName);
+}
+
+async function deleteFromOpfs(name: string): Promise<void> {
+	const root = await navigator.storage.getDirectory();
+	await root.removeEntry(name).catch(() => {});
 }
 
 function delay(ms: number): Promise<void> {

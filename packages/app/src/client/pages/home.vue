@@ -49,8 +49,8 @@ const featureItems: FeatureItem[] = [
 		icon: RadioTower,
 	},
 	{
-		title: '画像をローカルで圧縮',
-		description: 'ブラウザ内で画像をJPEGへ圧縮し、アップロード前に保存できます。',
+		title: 'メディア縮小ツール',
+		description: 'ブラウザ内で画像や動画を縮小し、アップロード前に保存できます。',
 		icon: Image,
 		to: '/tools/media-compress',
 	},

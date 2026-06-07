@@ -32,9 +32,10 @@
     "generate:viem-chain-assets": "tsx scripts/generate-viem-chain-assets.ts"
   },
   "dependencies": {
+    "@browser-mc/browser-image-resizer-ex": "^0.6.0",
+    "@browser-mc/browser-movie-converter": "^0.2.0",
     "@hono/standard-validator": "^0.2.2",
     "@lucide/vue": "^1.16.0",
-    "@misskey-dev/browser-image-resizer": "^2024.1.0",
     "@pdfme/common": "^6.1.2",
     "@pdfme/generator": "^6.1.2",
     "@pdfme/schemas": "^6.1.2",
@@ -53,6 +54,7 @@
     "ipaddr.js": "^2.4.0",
     "magic-bytes.js": "^1.13.0",
     "marked": "^18.0.4",
+    "mediabunny": "^1.46.0",
     "mrmime": "^2.0.1",
     "range-parser": "^1.2.1",
     "shiki": "^4.1.0",
