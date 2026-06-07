@@ -5,6 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
+  '@browser-mc/webcodecs-color': 0.2.1
   esbuild@<=0.24.2: 0.25.12
   ws@>=8.0.0 <8.20.1: 8.20.1
 
@@ -750,8 +751,8 @@ packages:
   '@browser-mc/webcodecs-avif@0.4.2':
     resolution: {integrity: sha512-xkziNb6jf2mv/blG608EVP/zWVLgHHjR43i38cStfuXStigLhV42BMcCJHf7JtO7DYW3EHBfPMWxT83yJus0cw==}
 
-  '@browser-mc/webcodecs-color@0.2.0':
-    resolution: {integrity: sha512-xc1gmItZktrrstZ9qYhqMP3PdzNh5ap+YnInLrdgCZrE4SDSgQ0dYccf36b9L9G34hrAOYqSc/S/iQJk3WOziQ==}
+  '@browser-mc/webcodecs-color@0.2.1':
+    resolution: {integrity: sha512-cBtcA+L0cyj+WDrdhEufKeaxTA7aJWRgMNbfze0PszVOkodgKRwu8OEUUGM+e0vvucHo5bFGZ0L8TSFb5FFBIA==}
 
   '@bufbuild/protobuf@2.12.0':
     resolution: {integrity: sha512-B/XlCaFIP8LOwzo+bz5uFzATYokcwCKQcghqnlfwSmM5eX/qTkvDBnDPs+gXtX/RyjxJ4DRikECcPJbyALA8FA==}
@@ -6794,12 +6795,12 @@ snapshots:
       '@browser-mc/exif-transplant': 0.0.4
       '@browser-mc/media-container': 0.3.1
       '@browser-mc/webcodecs-avif': 0.4.2
-      '@browser-mc/webcodecs-color': 0.2.0
+      '@browser-mc/webcodecs-color': 0.2.1
 
   '@browser-mc/browser-movie-converter@0.2.0':
     dependencies:
       '@browser-mc/mediabunny-scene-keyframes': 0.0.1
-      '@browser-mc/webcodecs-color': 0.2.0
+      '@browser-mc/webcodecs-color': 0.2.1
       mediabunny: 1.46.0
 
   '@browser-mc/exif-transplant@0.0.4':
@@ -6819,9 +6820,9 @@ snapshots:
     dependencies:
       '@browser-mc/binary': 0.0.1
       '@browser-mc/media-container': 0.3.1
-      '@browser-mc/webcodecs-color': 0.2.0
+      '@browser-mc/webcodecs-color': 0.2.1
 
-  '@browser-mc/webcodecs-color@0.2.0':
+  '@browser-mc/webcodecs-color@0.2.1':
     dependencies:
       '@browser-mc/binary': 0.0.1
 

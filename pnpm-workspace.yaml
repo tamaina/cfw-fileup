@@ -2,6 +2,7 @@ packages:
   - packages/*
 
 overrides:
+  '@browser-mc/webcodecs-color': 0.2.1
   esbuild@<=0.24.2: 0.25.12
   ws@>=8.0.0 <8.20.1: 8.20.1
 
@@ -14,7 +15,6 @@ allowBuilds:
   vue-demi: true
   workerd: true
 
-# 5/21になったら消す
 minimumReleaseAge: 0
 
 onlyBuiltDependencies:
