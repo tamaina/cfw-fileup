@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { AudioLines, BadgeInfo, Clapperboard, Maximize2, Palette, Sparkles, X } from '@lucide/vue';
-import { formatKbps, formatMbps, type MediaConversionSettings } from '@/utils/media-conversion';
+import { AudioLines, BadgeInfo, Clapperboard, Maximize2, Palette, Sparkles, SwatchBook, X } from '@lucide/vue';
+import { formatKbps, formatMbps, type MediaColorMetadataPolicy, type MediaConversionSettings } from '@/utils/media-conversion';
 
 const props = withDefaults(defineProps<{
 	settings: MediaConversionSettings;
@@ -25,11 +25,18 @@ const avifSamplingLabel = computed(() => {
 	return `${sampling} ${props.settings.image.avifBitDepth}bit`;
 });
 const imageQualityLabel = computed(() => `${Math.round(props.settings.image.quality * 100)}%`);
+const imageColorMetadataLabel = computed(() => colorMetadataLabel(props.settings.image.colorMetadata ?? 'preserve'));
+const videoColorMetadataLabel = computed(() => colorMetadataLabel(props.settings.video.colorMetadata ?? 'preserve'));
 const videoMaxSizeLabel = computed(() => {
 	const { maxWidth, maxHeight } = props.settings.video;
 	if (maxWidth == null && maxHeight == null) return '自動サイズ';
 	return `${maxWidth ?? '自動'} x ${maxHeight ?? '自動'}`;
 });
+
+function colorMetadataLabel(policy: MediaColorMetadataPolicy): string {
+	if (policy === 'canvas-sdr') return 'Canvas SDR';
+	return '色維持';
+}
 </script>
 
 <template>
@@ -40,6 +47,7 @@ const videoMaxSizeLabel = computed(() => {
         <span v-if="settings.image.outputMime === 'image/avif'" :class="$style.item"><Palette :size="14" :stroke-width="2" aria-hidden="true" />{{ avifSamplingLabel }}</span>
         <span :class="$style.item"><Sparkles :size="14" :stroke-width="2" aria-hidden="true" />{{ imageQualityLabel }}</span>
         <span :class="$style.item"><BadgeInfo :size="14" :stroke-width="2" aria-hidden="true" />{{ imageExifLabel }}</span>
+        <span :class="$style.item"><SwatchBook :size="14" :stroke-width="2" aria-hidden="true" />{{ imageColorMetadataLabel }}</span>
         <span :class="$style.item"><Maximize2 :size="14" :stroke-width="2" aria-hidden="true" />{{ settings.image.maxWidth }} x {{ settings.image.maxHeight }}</span>
       </span>
       <span v-if="showImage && showVideo" :class="$style.separator" aria-hidden="true">・</span>
@@ -47,6 +55,7 @@ const videoMaxSizeLabel = computed(() => {
         <span :class="$style.format">{{ videoOutputLabel }}</span>
         <span :class="$style.item"><Clapperboard :size="14" :stroke-width="2" aria-hidden="true" />{{ settings.video.videoCodec.toUpperCase() }} {{ formatMbps(settings.video.videoBitrate) }}</span>
         <span :class="$style.item"><AudioLines :size="14" :stroke-width="2" aria-hidden="true" />{{ settings.video.audioCodec.toUpperCase() }} {{ formatKbps(settings.video.audioBitrate) }}</span>
+        <span :class="$style.item"><SwatchBook :size="14" :stroke-width="2" aria-hidden="true" />{{ videoColorMetadataLabel }}</span>
         <span :class="$style.item"><Maximize2 :size="14" :stroke-width="2" aria-hidden="true" />{{ videoMaxSizeLabel }}</span>
       </span>
     </template>

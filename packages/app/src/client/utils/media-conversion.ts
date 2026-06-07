@@ -18,6 +18,7 @@ type BrowserImageResizerSupportWithAvif = Awaited<ReturnType<typeof getBrowserIm
 export type MediaImageOutputMime = BrowserImageOutputMime;
 export type MediaImageAvifBitDepth = 8 | 10;
 export type MediaImageAvifChromaSubsampling = '444' | '420';
+export type MediaColorMetadataPolicy = 'preserve' | 'canvas-sdr';
 export type MediaImageAvifVariant = {
 	chromaSubsampling: MediaImageAvifChromaSubsampling;
 	bitDepth: MediaImageAvifBitDepth;
@@ -33,6 +34,7 @@ export interface MediaImageConversionSettings {
 	maxHeight: number;
 	exif: BrowserImageExifPolicy;
 	animation: BrowserImageAnimationPolicy;
+	colorMetadata: MediaColorMetadataPolicy;
 	avifBitDepth: MediaImageAvifBitDepth;
 	avifChromaSubsampling: MediaImageAvifChromaSubsampling;
 }
@@ -46,6 +48,7 @@ export interface MediaVideoConversionSettings {
 	audioBitrate: number;
 	maxWidth: number | null;
 	maxHeight: number | null;
+	colorMetadata: MediaColorMetadataPolicy;
 }
 
 export interface MediaConversionSettings {
@@ -68,6 +71,7 @@ export const defaultMediaConversionSettings = (): MediaConversionSettings => ({
 		maxHeight: 1920,
 		exif: 'drop-gps',
 		animation: 'preserve',
+		colorMetadata: 'preserve',
 		avifBitDepth: 8,
 		avifChromaSubsampling: '444',
 	},
@@ -80,6 +84,7 @@ export const defaultMediaConversionSettings = (): MediaConversionSettings => ({
 		audioBitrate: 128_000,
 		maxWidth: 1920,
 		maxHeight: 1080,
+		colorMetadata: 'preserve',
 	},
 });
 
@@ -244,7 +249,7 @@ export async function convertImageFile(file: File, settings: MediaImageConversio
 			quality: settings.quality,
 			exif: settings.exif,
 			animation,
-			colorMetadata: 'preserve',
+			colorMetadata: settings.colorMetadata ?? 'preserve',
 			rawBitDepth: settings.avifBitDepth,
 			rawChromaSubsampling: settings.avifChromaSubsampling,
 			avif: {
@@ -300,7 +305,7 @@ export async function convertVideoFile(file: File, settings: MediaVideoConversio
 				}
 				: undefined,
 			forceTranscode: true,
-			colorMetadata: 'preserve',
+			colorMetadata: normalizedSettings.colorMetadata ?? 'preserve',
 		});
 		const conversion = await Conversion.init(plan.options);
 		conversion.onProgress = progress => onProgress?.(progress);

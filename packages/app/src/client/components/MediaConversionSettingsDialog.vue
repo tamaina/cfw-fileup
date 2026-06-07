@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { Dialog } from '@vuetify/v0';
-import { AudioLines, BadgeInfo, Clapperboard, FileType, Film, Gauge, MoveHorizontal, MoveVertical, Palette, ScanLine, Sparkles } from '@lucide/vue';
+import { AudioLines, BadgeInfo, Clapperboard, FileType, Film, Gauge, MoveHorizontal, MoveVertical, Palette, ScanLine, Sparkles, SwatchBook } from '@lucide/vue';
 import {
 	type AudioCodec,
 	defaultAudioCodecForOutput,
 	defaultVideoCodecForOutput,
 	mediaAudioCodecOptions,
 	mediaVideoCodecOptions,
+	type MediaColorMetadataPolicy,
 	type MediaImageAvifBitDepth,
 	type MediaImageAvifChromaSubsampling,
 	type MediaImageAvifVariant,
@@ -107,6 +108,12 @@ const imageAnimation = computed({
 		draftSettings.value = { ...draftSettings.value, image: { ...draftSettings.value.image, animation } };
 	},
 });
+const imageColorMetadata = computed({
+	get: () => draftSettings.value.image.colorMetadata ?? 'preserve',
+	set: colorMetadata => {
+		draftSettings.value = { ...draftSettings.value, image: { ...draftSettings.value.image, colorMetadata } };
+	},
+});
 const imageAvifBitDepth = computed({
 	get: () => draftSettings.value.image.avifBitDepth,
 	set: avifBitDepth => {
@@ -190,6 +197,12 @@ const videoMaxHeight = computed({
 		draftSettings.value = { ...draftSettings.value, video: { ...draftSettings.value.video, maxHeight } };
 	},
 });
+const videoColorMetadata = computed({
+	get: () => draftSettings.value.video.colorMetadata ?? 'preserve',
+	set: colorMetadata => {
+		draftSettings.value = { ...draftSettings.value, video: { ...draftSettings.value.video, colorMetadata } };
+	},
+});
 const selectableVideoCodecs = computed(() => mediaVideoCodecOptions[draftSettings.value.video.outputMime]);
 const selectableAudioCodecs = computed(() => mediaAudioCodecOptions[draftSettings.value.video.outputMime]);
 const selectableAvifBitDepths = computed(() => uniqueAvifVariantValues(
@@ -222,6 +235,11 @@ function restoreOpenedSettings(): void {
 
 function uniqueAvifVariantValues<T extends MediaImageAvifBitDepth | MediaImageAvifChromaSubsampling>(values: T[]): T[] {
 	return [...new Set(values)];
+}
+
+function colorMetadataLabel(policy: MediaColorMetadataPolicy): string {
+	if (policy === 'canvas-sdr') return 'Canvas SDR';
+	return '維持';
 }
 
 function nullableNumber(event: Event): number | null {
@@ -283,6 +301,13 @@ function nullableNumber(event: Event): number | null {
                 <option value="preserve">維持</option>
                 <option value="first-frame">先頭フレーム</option>
                 <option value="error">エラーにする</option>
+              </select>
+            </label>
+            <label class="form-group">
+              <span class="form-label" :class="$style.label"><SwatchBook :size="14" :stroke-width="2" />色メタデータ</span>
+              <select v-model="imageColorMetadata" class="form-input" :disabled="!canEditImageSettings">
+                <option value="preserve">{{ colorMetadataLabel('preserve') }}</option>
+                <option value="canvas-sdr">{{ colorMetadataLabel('canvas-sdr') }}</option>
               </select>
             </label>
             <label v-if="imageOutputMime === 'image/avif'" class="form-group">
@@ -347,6 +372,13 @@ function nullableNumber(event: Event): number | null {
             <label class="form-group">
               <span class="form-label" :class="$style.label"><MoveVertical :size="14" :stroke-width="2" />最大高さ</span>
               <input :value="videoMaxHeight ?? ''" class="form-input" type="number" min="1" step="1" placeholder="自動" :disabled="!canEditVideoSettings" @input="videoMaxHeight = nullableNumber($event)">
+            </label>
+            <label class="form-group">
+              <span class="form-label" :class="$style.label"><SwatchBook :size="14" :stroke-width="2" />色メタデータ</span>
+              <select v-model="videoColorMetadata" class="form-input" :disabled="!canEditVideoSettings">
+                <option value="preserve">{{ colorMetadataLabel('preserve') }}</option>
+                <option value="canvas-sdr">{{ colorMetadataLabel('canvas-sdr') }}</option>
+              </select>
             </label>
           </div>
         </section>
