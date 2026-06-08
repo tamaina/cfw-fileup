@@ -5,7 +5,6 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  '@browser-mc/webcodecs-color': 0.2.1
   esbuild@<=0.24.2: 0.25.12
   ws@>=8.0.0 <8.20.1: 8.20.1
 
@@ -27,8 +26,8 @@ importers:
   packages/app:
     dependencies:
       '@browser-mc/browser-image-resizer-ex':
-        specifier: ^0.6.0
-        version: 0.6.0
+        specifier: ^0.6.1
+        version: 0.6.1
       '@browser-mc/browser-movie-converter':
         specifier: ^0.2.0
         version: 0.2.0
@@ -733,8 +732,8 @@ packages:
   '@browser-mc/binary@0.0.1':
     resolution: {integrity: sha512-mPqAS4zWKdjrKCPgY7JfpDl9jgZ5DlHJ15SopDK+gvnLCOgJOoQCLTyAGV4CrrLqDkemke7LMOLSSTd6SQv7rg==}
 
-  '@browser-mc/browser-image-resizer-ex@0.6.0':
-    resolution: {integrity: sha512-OQF6Fxo0DCdphO/afrChOWwgNb5HPMLgWmLC2c6GrVccAZNCd43TcYKYBHZR18z0K5akYHceZnF2Tr3Hl8vsmw==}
+  '@browser-mc/browser-image-resizer-ex@0.6.1':
+    resolution: {integrity: sha512-L8c0sqkUnhCnVl++2fA+AZ4UNGUyXlO6qWWZrkDt+G8938IZFFqsUqTRtScqSrDD7XqgQ40IMrzfjv4i5ChJbA==}
 
   '@browser-mc/browser-movie-converter@0.2.0':
     resolution: {integrity: sha512-BH0mMIMkbv9jSs2M1EEN/EFJIZb4n6NmQ1pMlLrmzeamSxa5nzkvga5VBRk1DTiRRfL3QlZTPgd35J1o+nXy7g==}
@@ -6789,7 +6788,7 @@ snapshots:
 
   '@browser-mc/binary@0.0.1': {}
 
-  '@browser-mc/browser-image-resizer-ex@0.6.0':
+  '@browser-mc/browser-image-resizer-ex@0.6.1':
     dependencies:
       '@browser-mc/binary': 0.0.1
       '@browser-mc/exif-transplant': 0.0.4
