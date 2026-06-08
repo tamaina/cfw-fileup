@@ -214,6 +214,15 @@ async function resolveImageAnimationPolicy(file: File, settings: MediaImageConve
 	return 'first-frame';
 }
 
+async function resolveImageColorMetadataPolicy(settings: MediaImageConversionSettings): Promise<MediaColorMetadataPolicy> {
+	const colorMetadata = settings.colorMetadata ?? 'preserve';
+	if (colorMetadata !== 'preserve') return colorMetadata;
+	const support = await getMemoizedBrowserImageResizerSupportWithAvif();
+	if (support.imageDecoder) return 'preserve';
+	console.warn('ImageDecoder is not available; falling back to Canvas SDR color handling for image conversion');
+	return 'canvas-sdr';
+}
+
 export function mediaOutputExtension(mimeType: MediaImageOutputMime | MediaVideoOutputMime): string {
 	if (mimeType === 'image/avif') return '.avif';
 	if (mimeType === 'image/jpeg') return '.jpg';
@@ -230,15 +239,11 @@ export function replacePathExtension(path: string, mimeType: MediaImageOutputMim
 	return `${path}${extension}`;
 }
 
-function avifCodecForVariant(chromaSubsampling: MediaImageAvifChromaSubsampling, bitDepth: MediaImageAvifBitDepth): string {
-	const profile = chromaSubsampling === '444' ? 1 : 0;
-	return `av01.${profile}.08M.${String(bitDepth).padStart(2, '0')}`;
-}
-
 export async function convertImageFile(file: File, settings: MediaImageConversionSettings): Promise<File> {
 	try {
 		const outputMime = await resolveImageOutputMimeType(settings.outputMime);
 		const animation = await resolveImageAnimationPolicy(file, settings);
+		const colorMetadata = await resolveImageColorMetadataPolicy(settings);
 		const result = await resizeAndConvertImage({
 			input: file,
 			inputMime: file.type,
@@ -249,13 +254,12 @@ export async function convertImageFile(file: File, settings: MediaImageConversio
 			quality: settings.quality,
 			exif: settings.exif,
 			animation,
-			colorMetadata: settings.colorMetadata ?? 'preserve',
+			colorMetadata,
 			rawBitDepth: settings.avifBitDepth,
 			rawChromaSubsampling: settings.avifChromaSubsampling,
 			avif: {
 				alpha: 'keep',
 				chromaSubsampling: settings.avifChromaSubsampling,
-				codec: avifCodecForVariant(settings.avifChromaSubsampling, settings.avifBitDepth),
 			},
 		});
 		const name = replacePathExtension(file.name, result.mime);
