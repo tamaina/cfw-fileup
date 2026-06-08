@@ -32,7 +32,7 @@
     "generate:viem-chain-assets": "tsx scripts/generate-viem-chain-assets.ts"
   },
   "dependencies": {
-    "@browser-mc/browser-image-resizer-ex": "^0.6.1",
+    "@browser-mc/browser-image-resizer-ex": "^0.6.2",
     "@browser-mc/browser-movie-converter": "^0.2.0",
     "@hono/standard-validator": "^0.2.2",
     "@lucide/vue": "^1.16.0",
