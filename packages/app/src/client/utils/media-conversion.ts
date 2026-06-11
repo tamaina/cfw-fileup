@@ -12,6 +12,8 @@ import {
 	BlobSource,
 	BufferTarget,
 	Conversion,
+	getFirstEncodableAudioCodec,
+	getFirstEncodableVideoCodec,
 	Input,
 	Mp4OutputFormat,
 	Output,
@@ -358,6 +360,67 @@ function videoResizeOptions(settings: Pick<MediaVideoConversionSettings, 'maxWid
 	};
 }
 
+/**
+ * 変換前にブラウザの WebCodecs 対応状況を確認・補正するためのヘルパー群。
+ *
+ * Firefox など一部のブラウザではソース動画のデコード（例: HEVC は OS 依存）や
+ * 指定コーデックのエンコード（例: AAC）に対応していないことがある。そのまま
+ * mediabunny に渡すとトラックが黙って破棄され、変換設定が無視されたように見える
+ * 結果（音声のみの HLS など）や変換失敗になる。
+ * https://github.com/tamaina/cfw-fileup/issues/126
+ */
+async function assertVideoSourceDecodable(input: Input): Promise<void> {
+	const videoTrack = await input.getPrimaryVideoTrack();
+	if (videoTrack && !(await videoTrack.canDecode())) {
+		const codec = await videoTrack.getCodec();
+		throw new Error(`このブラウザでは元動画の映像（${codec ?? '不明なコーデック'}）をデコードできないため、変換できません。`);
+	}
+}
+
+async function resolveEncodableVideoCodec(
+	preferred: VideoCodec,
+	candidates: readonly VideoCodec[],
+	maxWidth: number | null,
+	maxHeight: number | null,
+	bitrate: number,
+): Promise<VideoCodec> {
+	const ordered = [preferred, ...candidates.filter(codec => codec !== preferred)];
+	const encodable = await getFirstEncodableVideoCodec(ordered, {
+		width: maxWidth ?? 1920,
+		height: maxHeight ?? 1080,
+		bitrate,
+	});
+	if (!encodable) {
+		throw new Error('このブラウザではいずれの動画コーデックでもエンコードできないため、変換できません。');
+	}
+	if (encodable !== preferred) {
+		console.warn(`Video codec "${preferred}" cannot be encoded in this browser; falling back to "${encodable}"`);
+	}
+	return encodable;
+}
+
+async function resolveEncodableAudioCodec(
+	input: Input,
+	preferred: AudioCodec,
+	candidates: readonly AudioCodec[],
+	bitrate: number,
+): Promise<AudioCodec> {
+	const audioTrack = await input.getPrimaryAudioTrack();
+	if (!audioTrack) return preferred;
+	const ordered = [preferred, ...candidates.filter(codec => codec !== preferred)];
+	const encodable = await getFirstEncodableAudioCodec(ordered, {
+		numberOfChannels: await audioTrack.getNumberOfChannels(),
+		sampleRate: await audioTrack.getSampleRate(),
+		bitrate,
+	});
+	// どれもエンコードできない場合はそのまま渡し、mediabunny 側で音声トラックを破棄して映像のみで続行する
+	if (!encodable) return preferred;
+	if (encodable !== preferred) {
+		console.warn(`Audio codec "${preferred}" cannot be encoded in this browser; falling back to "${encodable}"`);
+	}
+	return encodable;
+}
+
 /** HLS 変換の出力ディレクトリ（入力パスの拡張子を除いたもの） */
 export function hlsOutputDirectory(path: string): string {
 	const dot = path.lastIndexOf('.');
@@ -424,25 +487,39 @@ export async function* convertVideoFileToHls(file: File, settings: MediaVideoCon
 			source: new BlobSource(file),
 			formats: ALL_FORMATS,
 		});
+		await assertVideoSourceDecodable(input);
+		const audioCodec = await resolveEncodableAudioCodec(
+			input,
+			normalizedSettings.audioCodec,
+			mediaAudioCodecOptions[HLS_PLAYLIST_MIME],
+			normalizedSettings.audioBitrate,
+		);
+		const variants = await Promise.all(normalizedSettings.hlsVariants.map(async variant => ({
+			video: {
+				codec: await resolveEncodableVideoCodec(
+					variant.videoCodec,
+					mediaVideoCodecOptions[HLS_PLAYLIST_MIME],
+					variant.maxWidth,
+					variant.maxHeight,
+					variant.videoBitrate,
+				),
+				bitrate: variant.videoBitrate,
+			},
+			resize: videoResizeOptions({
+				...normalizedSettings,
+				maxWidth: variant.maxWidth,
+				maxHeight: variant.maxHeight,
+				rawBitDepth: variant.rawBitDepth,
+				rawChromaSubsampling: variant.rawChromaSubsampling,
+			}),
+			colorMetadata: variant.colorMetadata,
+		})));
 		for await (const asset of convertMovieToHls({
 			input,
 			rootPath: HLS_MASTER_PLAYLIST_NAME,
-			variants: normalizedSettings.hlsVariants.map(variant => ({
-				video: {
-					codec: variant.videoCodec,
-					bitrate: variant.videoBitrate,
-				},
-				resize: videoResizeOptions({
-					...normalizedSettings,
-					maxWidth: variant.maxWidth,
-					maxHeight: variant.maxHeight,
-					rawBitDepth: variant.rawBitDepth,
-					rawChromaSubsampling: variant.rawChromaSubsampling,
-				}),
-				colorMetadata: variant.colorMetadata,
-			})),
+			variants,
 			audio: {
-				codec: normalizedSettings.audioCodec,
+				codec: audioCodec,
 				bitrate: normalizedSettings.audioBitrate,
 			},
 			colorMetadata: normalizedSettings.colorMetadata ?? 'preserve',
@@ -480,15 +557,29 @@ export async function convertVideoFile(file: File, settings: MediaVideoConversio
 			source: new BlobSource(file),
 			formats: ALL_FORMATS,
 		});
+		await assertVideoSourceDecodable(input);
+		const videoCodec = await resolveEncodableVideoCodec(
+			normalizedSettings.videoCodec,
+			mediaVideoCodecOptions[normalizedSettings.outputMime],
+			normalizedSettings.maxWidth,
+			normalizedSettings.maxHeight,
+			normalizedSettings.videoBitrate,
+		);
+		const audioCodec = await resolveEncodableAudioCodec(
+			input,
+			normalizedSettings.audioCodec,
+			mediaAudioCodecOptions[normalizedSettings.outputMime],
+			normalizedSettings.audioBitrate,
+		);
 		const plan = await buildMovieConversionOptions({
 			input,
 			output,
 			video: {
-				codec: normalizedSettings.videoCodec,
+				codec: videoCodec,
 				bitrate: normalizedSettings.videoBitrate,
 			},
 			audio: {
-				codec: normalizedSettings.audioCodec,
+				codec: audioCodec,
 				bitrate: normalizedSettings.audioBitrate,
 			},
 			resize: videoResizeOptions(normalizedSettings),

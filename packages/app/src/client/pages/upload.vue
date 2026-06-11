@@ -76,6 +76,7 @@ const dragPreviewX = ref(0);
 const dragPreviewY = ref(0);
 let previousBodyCursor = '';
 const uploadError = ref('');
+const conversionFallbackWarnings = ref<string[]>([]);
 const uploadDone = ref(false);
 const redirectUploadJobId = ref<string | null>(null);
 const quotaWarningOpen = ref(false);
@@ -327,6 +328,10 @@ async function runMediaConversionPipeline(jobId: string, plannedEntries: readonl
 		},
 		onFallbackEntry: (entry, error) => {
 			pushUploadEntry(jobId, entry);
+			conversionFallbackWarnings.value = [
+				...conversionFallbackWarnings.value,
+				`「${entry.path}」の変換に失敗したため、元のファイルをそのままアップロードしました: ${error}`,
+			];
 			console.warn('Media conversion failed; falling back to original file', error);
 		},
 	});
@@ -1052,6 +1057,7 @@ async function confirmQuotaWarning(): Promise<void> {
 
 async function executeUpload(): Promise<void> {
 	uploadError.value = '';
+	conversionFallbackWarnings.value = [];
 	uploadDone.value = false;
 	if (!bucket.value) return;
 	const tree = selectedTree.value;
@@ -1485,6 +1491,9 @@ onMounted(async () => {
         </div>
 
         <div v-if="uploadError" class="alert alert-error">{{ uploadError }}</div>
+        <div v-if="conversionFallbackWarnings.length > 0" class="alert alert-warning">
+          <div v-for="warning in conversionFallbackWarnings" :key="warning">{{ warning }}</div>
+        </div>
         <div v-if="uploadDone" class="alert alert-success">
           アップロードジョブを開始しました。
           <NirA to="/my/uploadings?tab=browser" :class="$style.doneLink">進捗を見る →</NirA>
