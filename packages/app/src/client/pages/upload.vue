@@ -26,7 +26,7 @@ import type { MediaConversionWorkerRequest } from '@/workers/media-conversion.wo
 import type { UploadResolvedEntry, UploadWorkerFileEntry } from '@/workers/upload-worker-types';
 import { navigateTo } from '@/navigate';
 import { browserUploadAutoOpen, browserUploadNonResumeLimitBytes, browserUploadPartSizeBytes } from '@/store/browser-upload-settings';
-import { cloneMediaConversionSettings, defaultMediaConversionSettings, hlsTarArchivePath, isHlsVideoOutput, normalizeMediaImageConversionSettingsForBrowserSupport, replacePathExtension, supportedAudioEncodeVariants, supportedVideoEncodeVariants, type MediaAudioEncodeVariant, type MediaImageAvifVariant, type MediaVideoEncodeVariant } from '@/utils/media-conversion';
+import { checkMediaVideoInputSupport, cloneMediaConversionSettings, defaultMediaConversionSettings, hlsTarArchivePath, isHlsVideoOutput, normalizeMediaImageConversionSettingsForBrowserSupport, replacePathExtension, supportedAudioEncodeVariants, supportedVideoEncodeVariants, type MediaAudioEncodeVariant, type MediaImageAvifVariant, type MediaVideoEncodeVariant, type MediaVideoInputSupport } from '@/utils/media-conversion';
 import { runMediaConversionWorker } from '@/store/media-conversion-worker';
 
 type ArchiveMode = 'individual' | 'gz' | 'tar' | 'targz';
@@ -55,6 +55,7 @@ const canEncodeAvif = ref(true);
 const avifVariants = ref<MediaImageAvifVariant[]>([{ chromaSubsampling: '444', bitDepth: 8 }]);
 const videoEncodeVariants = ref<MediaVideoEncodeVariant[]>([]);
 const audioEncodeVariants = ref<MediaAudioEncodeVariant[]>([]);
+const videoInputSupportByFile = ref(new Map<string, MediaVideoInputSupport | 'checking'>());
 const mediaConversionSettings = ref(defaultMediaConversionSettings());
 const libraryName = ref('');
 const visibility = ref<FileVisibility>('public');
@@ -113,7 +114,10 @@ function shouldCompressImagePath(entry: Pick<SelectedUploadEntry, 'file'>): bool
 }
 
 function shouldConvertVideoPath(entry: Pick<SelectedUploadEntry, 'file'>): boolean {
-	return mediaConversionSettings.value.video.enabled && isVideoFile(entry.file);
+	const support = videoInputSupport(entry);
+	return mediaConversionSettings.value.video.enabled
+		&& isVideoFile(entry.file)
+		&& (support == null || support === 'checking' || support.supported);
 }
 
 function shouldConvertMediaEntry(entry: PlannedUploadEntry): boolean {
@@ -170,6 +174,20 @@ function conversionOutputExtension(entry: SelectedUploadEntry): string | null {
 	const to = fileExtension(planned.path);
 	if (!from || !to || from === to) return null;
 	return `→ ${to.toLowerCase()}`;
+}
+
+function videoInputSupport(entry: Pick<SelectedUploadEntry, 'file'>): MediaVideoInputSupport | 'checking' | undefined {
+	return videoInputSupportByFile.value.get(videoInputSupportKey(entry.file));
+}
+
+function videoInputSupportReason(entry: Pick<SelectedUploadEntry, 'file'>): string | null {
+	const support = videoInputSupport(entry);
+	if (!support || support === 'checking' || support.supported) return null;
+	return support.reason;
+}
+
+function videoInputSupportKey(file: File): string {
+	return `${file.name}:${file.size}:${file.lastModified}:${file.type}`;
 }
 
 function basename(path: string): string {
@@ -269,17 +287,21 @@ function validateUploadPaths(paths: string[]): boolean {
 		uploadError.value = `パスは${MAX_FILE_PATH_LENGTH}文字以内で入力してください: ${tooLongPath}`;
 		return false;
 	}
-	const seen = new Set<string>();
-	const duplicatePath = paths.find(path => {
-		if (seen.has(path)) return true;
-		seen.add(path);
-		return false;
-	});
+	const duplicatePath = findDuplicatePath(paths);
 	if (duplicatePath) {
 		uploadError.value = `同じアップロード先になるファイルがあります: ${duplicatePath}`;
 		return false;
 	}
 	return true;
+}
+
+function findDuplicatePath(paths: readonly string[]): string | null {
+	const seen = new Set<string>();
+	return paths.find(path => {
+		if (seen.has(path)) return true;
+		seen.add(path);
+		return false;
+	}) ?? null;
 }
 
 function validateArchiveMemberPaths(entries: readonly PlannedUploadEntry[]): boolean {
@@ -377,6 +399,26 @@ const hasHlsConversionEntries = computed(() =>
 	&& isHlsVideoOutput(mediaConversionSettings.value.video.outputMime)
 	&& (plannedTree.value?.entries.some(entry => entry.conversionPlan?.kind === 'video') ?? false),
 );
+const hasPendingVideoInputSupportChecks = computed(() =>
+	selectedTree.value?.entries.some(entry => isVideoFile(entry.file) && videoInputSupport(entry) === 'checking') ?? false,
+);
+const duplicateEstimatedUploadPath = computed(() => {
+	if (hasPendingVideoInputSupportChecks.value) return null;
+	let entries: PlannedUploadEntry[];
+	try {
+		entries = getEffectivePlannedEntries();
+	} catch {
+		return null;
+	}
+	const plannedPaths = getUploadPaths(entries);
+	const plannedPathSet = new Set(plannedPaths);
+	const fallbackPaths = getFallbackUploadPaths(entries).filter(path => !plannedPathSet.has(path));
+	return findDuplicatePath([...plannedPaths, ...fallbackPaths]);
+});
+const duplicateEstimatedUploadPathMessage = computed(() => {
+	if (!duplicateEstimatedUploadPath.value) return '';
+	return `変換後のファイル名が重複します: ${duplicateEstimatedUploadPath.value}`;
+});
 const tarRecommendationMessage = computed(() => {
 	const count = compressedImageEntries.value.length;
 	return `画像が${count}枚あります。再圧縮しても容量が減りにくいため、tarにまとめるのがおすすめです。`;
@@ -490,9 +532,28 @@ async function setSelectedTree(tree: UploadTree<SelectedUploadEntry>, entryToSel
 	redirectUploadJobId.value = null;
 	selectedTree.value = tree;
 	selectEntry(entryToSelect);
+	void checkSelectedTreeVideoInputSupport(tree);
 	if (archiveMode.value === 'gz' && tree.hasDirectories) archiveMode.value = 'individual';
 	if (!archiveModeTouched.value && shouldRecommendTarForCompressedImages.value) archiveMode.value = 'tar';
 	if (hasHlsConversionEntries.value) archiveMode.value = 'individual';
+}
+
+async function checkSelectedTreeVideoInputSupport(tree: UploadTree<SelectedUploadEntry>): Promise<void> {
+	const videoEntries = tree.entries.filter(entry => isVideoFile(entry.file));
+	if (videoEntries.length === 0) return;
+	for (const entry of videoEntries) {
+		const key = videoInputSupportKey(entry.file);
+		if (videoInputSupportByFile.value.has(key)) continue;
+		videoInputSupportByFile.value.set(key, 'checking');
+	}
+	videoInputSupportByFile.value = new Map(videoInputSupportByFile.value);
+	await Promise.all(videoEntries.map(async (entry) => {
+		const key = videoInputSupportKey(entry.file);
+		if (videoInputSupportByFile.value.get(key) !== 'checking') return;
+		const support = await checkMediaVideoInputSupport(entry.file);
+		videoInputSupportByFile.value.set(key, support);
+	}));
+	videoInputSupportByFile.value = new Map(videoInputSupportByFile.value);
 }
 
 async function addSelectedTree(tree: UploadTree<SelectedUploadEntry>): Promise<void> {
@@ -1037,6 +1098,14 @@ async function deleteExistingFile(path: string): Promise<boolean> {
 // ---- startUpload ----
 
 async function startUpload(): Promise<void> {
+	if (hasPendingVideoInputSupportChecks.value) {
+		uploadError.value = '動画の変換可否を検査中です。しばらく待ってからアップロードしてください。';
+		return;
+	}
+	if (duplicateEstimatedUploadPathMessage.value) {
+		uploadError.value = duplicateEstimatedUploadPathMessage.value;
+		return;
+	}
 	if (isQuotaWarningNeeded.value && !quotaWarningConfirmed.value) {
 		quotaWarningOpen.value = true;
 		return;
@@ -1375,6 +1444,8 @@ onMounted(async () => {
                   <component :is="getFileIcon(item.entry)" :class="$style.fileIcon" :size="16" :stroke-width="2" aria-hidden="true" />
                   <span :class="$style.fileNameWithConversion">
                     <span :class="$style.fileName">{{ item.entry.name }}</span>
+                    <span v-if="videoInputSupport(item.entry) === 'checking'" :class="$style.conversionBadge">検査中</span>
+                    <span v-else-if="videoInputSupportReason(item.entry)" :class="$style.unsupportedConversionBadge" :title="videoInputSupportReason(item.entry) ?? undefined">変換不可</span>
                     <span v-if="conversionOutputExtension(item.entry)" :class="$style.conversionBadge">{{ conversionOutputExtension(item.entry) }}</span>
                   </span>
                   <span :class="$style.fileSize">{{ formatBytes(item.entry.size) }}</span>
@@ -1479,13 +1550,14 @@ onMounted(async () => {
           <Button.Root
             class="btn btn-primary btn-lg w-full"
             :class="$style.fullButton"
-            :disabled="!selectedTree || selectedTree.entries.length === 0 || uploadDone && !uploadError"
+            :disabled="!selectedTree || selectedTree.entries.length === 0 || hasPendingVideoInputSupportChecks || duplicateEstimatedUploadPath != null || uploadDone && !uploadError"
             @click="startUpload"
           >
             <Button.Content>アップロード開始</Button.Content>
           </Button.Root>
         </div>
 
+        <div v-if="duplicateEstimatedUploadPathMessage" class="alert alert-error">{{ duplicateEstimatedUploadPathMessage }}</div>
         <div v-if="uploadError" class="alert alert-error">{{ uploadError }}</div>
         <div v-if="uploadDone" class="alert alert-success">
           アップロードジョブを開始しました。
@@ -2031,6 +2103,12 @@ onMounted(async () => {
 
 .conversionBadge {
   color: var(--color-text-muted);
+  font-size: 0.6875rem;
+  white-space: nowrap;
+}
+
+.unsupportedConversionBadge {
+  color: var(--color-danger);
   font-size: 0.6875rem;
   white-space: nowrap;
 }

@@ -2,9 +2,11 @@ import { checkImageDecodeSupport, getBrowserImageResizerSupportWithAvif, resizeA
 import {
 	buildMovieConversionOptions,
 	checkMovieAudioEncoderSupport,
+	checkMovieConversionSupport,
 	checkMovieVideoEncoderBitDepthSupport,
 	convertMovieToHls,
 	type BrowserMovieResizeOptions,
+	type BrowserMovieConversionSupportResult,
 	type MovieHlsAsset,
 } from '@browser-mc/browser-movie-converter';
 import {
@@ -97,6 +99,10 @@ export interface MediaVideoEncodeVariant {
 export interface MediaAudioEncodeVariant {
 	audioCodec: AudioCodec;
 }
+
+export type MediaVideoInputSupport =
+	| { supported: true }
+	| { supported: false; reason: string };
 
 export const defaultMediaConversionSettings = (): MediaConversionSettings => ({
 	image: {
@@ -272,6 +278,52 @@ export async function supportedAudioEncodeVariants(): Promise<MediaAudioEncodeVa
 			audioCodec: result.codec,
 		})));
 	return await promise;
+}
+
+export async function checkMediaVideoInputSupport(file: File): Promise<MediaVideoInputSupport> {
+	try {
+		const support = await checkMediaVideoInputConversionSupport(file);
+		if (support.supported) return { supported: true };
+		const trackError = support.tracks.all.find(track => !track.supported)?.error;
+		const discardedTrack = support.conversion?.discardedTracks[0];
+		return {
+			supported: false,
+			reason: trackError?.message
+				?? (discardedTrack ? `変換できないトラックがあります: ${discardedTrack.reason}` : null)
+				?? support.error?.message
+				?? 'この動画は現在のブラウザでは変換できません。',
+		};
+	} catch (error) {
+		return {
+			supported: false,
+			reason: error instanceof Error ? error.message : String(error),
+		};
+	}
+}
+
+async function checkMediaVideoInputConversionSupport(file: File): Promise<BrowserMovieConversionSupportResult> {
+	const input = new Input({
+		source: new BlobSource(file),
+		formats: ALL_FORMATS,
+	});
+	const output = new Output({
+		target: new BufferTarget(),
+		format: new Mp4OutputFormat({ fastStart: 'in-memory' }),
+	});
+	return await checkMovieConversionSupport({
+		input,
+		output,
+		video: {
+			codec: 'avc',
+			bitrate: 2_500_000,
+		},
+		audio: {
+			codec: 'aac',
+			bitrate: 128_000,
+		},
+		tracks: 'primary',
+		forceTranscode: true,
+	});
 }
 
 function isSupportedMediaVideoRawChromaSubsampling(chromaSubsampling: string): chromaSubsampling is Exclude<MediaVideoRawChromaSubsampling, 'preserve'> {

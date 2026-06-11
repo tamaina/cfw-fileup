@@ -6,6 +6,7 @@ import MediaConversionSettingsSummary from '@/components/MediaConversionSettings
 import { formatBytes } from '@/utils/byte-size';
 import {
 	cloneMediaConversionSettings,
+	checkMediaVideoInputSupport,
 	defaultMediaConversionSettings,
 	normalizeMediaImageConversionSettingsForBrowserSupport,
 	replacePathExtension,
@@ -34,6 +35,7 @@ type MediaItem = {
 	outputBlob: Blob | null;
 	outputUrl: string;
 	opfsName: string;
+	supportChecking: boolean;
 };
 
 const settings = ref<MediaConversionSettings>(defaultMediaConversionSettings());
@@ -52,7 +54,7 @@ const supported = computed(() => (
 	typeof OffscreenCanvas !== 'undefined'
 	&& typeof createImageBitmap !== 'undefined'
 ));
-const readyItems = computed(() => items.value.filter(item => item.status !== 'skipped'));
+const readyItems = computed(() => items.value.filter(item => item.status !== 'skipped' && !item.supportChecking));
 const doneItems = computed(() => items.value.filter(item => item.status === 'done' && item.outputUrl));
 const canConvert = computed(() => supported.value && readyItems.value.length > 0 && !isConverting.value);
 
@@ -82,6 +84,7 @@ function createItem(file: File): MediaItem {
 		outputBlob: null,
 		outputUrl: '',
 		opfsName: '',
+		supportChecking: kind === 'video',
 	};
 }
 
@@ -102,7 +105,20 @@ function addFiles(fileList: FileList | File[]): void {
 	selectionError.value = '';
 	const files = Array.from(fileList);
 	if (files.length === 0) return;
+	const startIndex = items.value.length;
 	items.value.push(...files.map(createItem));
+	for (const item of items.value.slice(startIndex)) void checkItemVideoSupport(item);
+}
+
+async function checkItemVideoSupport(item: MediaItem): Promise<void> {
+	if (item.kind !== 'video') return;
+	item.supportChecking = true;
+	const support = await checkMediaVideoInputSupport(item.file);
+	item.supportChecking = false;
+	if (support.supported) return;
+	if (item.status === 'processing' || item.status === 'done') return;
+	item.status = 'skipped';
+	item.error = support.reason;
 }
 
 function handleFileInputChange(event: Event): void {
@@ -219,7 +235,8 @@ function reductionPercent(item: MediaItem): string {
 }
 
 function statusLabel(item: MediaItem): string {
-	if (item.status === 'queued') return '待機中';
+	if (item.supportChecking) return '検査中';
+	if (item.status === 'queued') return '変換可能';
 	if (item.status === 'processing') return item.kind === 'video' && item.progress > 0 ? `変換中 ${item.progress}%` : '変換中';
 	if (item.status === 'done') return '完了';
 	if (item.status === 'skipped') return '対象外';

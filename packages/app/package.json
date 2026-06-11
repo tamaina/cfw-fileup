@@ -33,7 +33,7 @@
   },
   "dependencies": {
     "@browser-mc/browser-image-resizer-ex": "^1.0.0",
-    "@browser-mc/browser-movie-converter": "^1.1.0",
+    "@browser-mc/browser-movie-converter": "^1.2.0",
     "@hono/standard-validator": "^0.2.2",
     "@lucide/vue": "^1.17.0",
     "@pdfme/common": "^6.1.5",
