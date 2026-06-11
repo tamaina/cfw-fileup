@@ -3,7 +3,7 @@ import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import * as v from 'valibot';
 import type { FileVisibility } from '../../shared/file-visibility';
 import { Button, Popover } from '@vuetify/v0';
-import { Archive, CheckCheck, Download, EllipsisVertical, Eye, EyeOff, FileArchive, FileIcon, Folder, FolderPlus, LayoutGrid, List, PackageOpen, ShieldCheck, ShieldOff, TextCursorInput, Trash2, Upload, X } from '@lucide/vue';
+import { Archive, CheckCheck, Download, EllipsisVertical, Eye, EyeOff, FileArchive, FileIcon, FileVideo, Folder, FolderPlus, LayoutGrid, List, PackageOpen, ShieldCheck, ShieldOff, TextCursorInput, Trash2, Upload, X } from '@lucide/vue';
 import NirA from '@/components/NirA.vue';
 import { authStore, authHeaders } from '@/store/auth';
 import { apiPost } from '@/utils/api';
@@ -26,6 +26,7 @@ import { registerDownloadedOpfsFile } from '@/store/download-cleanup';
 import { formatBytes } from '@/utils/byte-size';
 import { archiveEntryDownloadUrl } from '@/utils/archive-entry-url';
 import type { DistributiveOmit } from '../../shared/type-hack';
+import { HLS_TAR_MIME } from '../../shared/hls';
 
 const props = defineProps<{
 	bucketName: string;
@@ -56,6 +57,7 @@ interface DisplayEntry {
 	isDownloadCountEnabled?: boolean;
 	isDownloadCountVisible?: boolean;
 	previewUrl?: string;
+	isHlsTar?: boolean;
 }
 
 const downloadUrl = computed(() => {
@@ -141,6 +143,10 @@ function setViewMode(mode: ViewMode): void {
 
 function isImageMime(mime: string): boolean {
 	return mime.startsWith('image/');
+}
+
+function isHlsTarMime(mime: string | undefined): boolean {
+	return mime?.toLowerCase() === HLS_TAR_MIME;
 }
 
 // 一括選択・削除用の状態
@@ -1049,7 +1055,7 @@ function toDisplayEntry(e: DirectoryEntry): DisplayEntry {
 		fullPath: e.path ?? e.name,
 		size: e.size,
 		fileId: e.fileId,
-		label: e.isTargz ? 'tar.gz' : e.isTar ? 'tar' : mime,
+		label: isHlsTarMime(e.mimeType) ? 'HLS tar' : e.isTargz ? 'tar.gz' : e.isTar ? 'tar' : mime,
 		visibility: e.visibility,
 		isListed: e.isListed,
 		isModerationForcedPrivate: e.isModerationForcedPrivate,
@@ -1057,6 +1063,7 @@ function toDisplayEntry(e: DirectoryEntry): DisplayEntry {
 		isDownloadCountEnabled: e.isDownloadCountEnabled,
 		isDownloadCountVisible: e.isDownloadCountVisible,
 		previewUrl,
+		isHlsTar: isHlsTarMime(e.mimeType),
 	};
 }
 
@@ -1294,7 +1301,9 @@ watch([isPartiallySelected, isAllSelected], async () => {
                   </button>
                   <NirA v-else-if="isArchive && !entry.isDir" :to="entry.link" :class="$style.entryLink">{{ entry.name }}</NirA>
                   <NirA v-else :to="entry.link" :class="$style.entryLink">
-                    <Folder v-if="entry.isDir" :class="$style.folderIcon" :size="16" :stroke-width="2" aria-hidden="true" />{{ entry.name }}
+                    <Folder v-if="entry.isDir" :class="$style.folderIcon" :size="16" :stroke-width="2" aria-hidden="true" />
+                    <FileVideo v-else-if="entry.isHlsTar" :class="$style.fileTypeIcon" :size="16" :stroke-width="2" aria-hidden="true" />
+                    {{ entry.name }}
                   </NirA>
                 </td>
                 <td :class="[$style.sizeCell, 'col-right', 'col-muted']">
@@ -1304,7 +1313,7 @@ watch([isPartiallySelected, isAllSelected], async () => {
                   {{ !entry.isDir && entry.downloadCount != null ? entry.downloadCount.toLocaleString() : '' }}
                 </td>
                 <td :class="$style.labelCell">
-                  <span v-if="entry.label" class="badge badge-muted">{{ entry.label }}</span>
+                  <span v-if="entry.label" :class="entry.isHlsTar ? ['badge', $style.hlsTarBadge] : ['badge', 'badge-muted']">{{ entry.label }}</span>
                 </td>
                 <td v-if="!isArchive && authStore.user" :class="$style.publicCell">
                   <div :class="$style.publicBadges">
@@ -1435,6 +1444,7 @@ watch([isPartiallySelected, isAllSelected], async () => {
                 >
                 <div v-else :class="$style.gridCardIcon">
                   <Folder v-if="entry.isDir" :size="42" :stroke-width="1.8" aria-hidden="true" />
+                  <FileVideo v-else-if="entry.isHlsTar" :size="38" :stroke-width="1.8" aria-hidden="true" />
                   <FileIcon v-else :size="34" :stroke-width="1.8" aria-hidden="true" />
                 </div>
               </div>
@@ -1443,7 +1453,7 @@ watch([isPartiallySelected, isAllSelected], async () => {
                 <div :class="$style.gridCardMeta">
                   <span v-if="entry.size != null" :class="$style.gridCardSize">{{ formatSize(entry.size) }}</span>
                   <span v-if="!entry.isDir && entry.downloadCount != null" class="badge badge-info">DL {{ entry.downloadCount.toLocaleString() }}</span>
-                  <span v-if="entry.label" class="badge badge-muted">{{ entry.label }}</span>
+                  <span v-if="entry.label" :class="entry.isHlsTar ? ['badge', $style.hlsTarBadge] : ['badge', 'badge-muted']">{{ entry.label }}</span>
                   <span v-if="!entry.isDir && entry.visibility != null && !isArchive" :class="entry.visibility === 'public' ? 'badge badge-success' : entry.visibility === 'passphrase' ? 'badge badge-warning' : 'badge badge-muted'">
                     {{ entry.visibility === 'public' ? '公開' : entry.visibility === 'passphrase' ? '合言葉' : '非公開' }}
                   </span>
@@ -1802,6 +1812,13 @@ watch([isPartiallySelected, isAllSelected], async () => {
   vertical-align: -3px;
 }
 
+.fileTypeIcon {
+  flex: 0 0 auto;
+  margin-right: 4px;
+  color: var(--color-primary);
+  vertical-align: -3px;
+}
+
 .entryLink {
   display: inline-flex;
   align-items: center;
@@ -1814,6 +1831,12 @@ watch([isPartiallySelected, isAllSelected], async () => {
 
 .labelCell {
   white-space: nowrap;
+}
+
+.hlsTarBadge {
+  color: #0f4a64;
+  background: #dff4fb;
+  border: 1px solid #a9d8e8;
 }
 
 .publicCell {
