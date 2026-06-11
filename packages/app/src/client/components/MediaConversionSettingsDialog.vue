@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { Dialog } from '@vuetify/v0';
-import { AudioLines, BadgeInfo, Clapperboard, FileType, Film, Gauge, MoveHorizontal, MoveVertical, Palette, ScanLine, Sparkles, SwatchBook } from '@lucide/vue';
+import { AudioLines, BadgeInfo, Clapperboard, FileType, Film, Gauge, MoveHorizontal, MoveVertical, Palette, ScanLine, Sparkles, SwatchBook, Timer } from '@lucide/vue';
 import {
 	type AudioCodec,
 	defaultAudioCodecForOutput,
@@ -196,6 +196,13 @@ const audioBitrate = computed({
 	get: () => draftSettings.value.video.audioBitrate / 1_000,
 	set: audioKbps => {
 		draftSettings.value = { ...draftSettings.value, video: { ...draftSettings.value.video, audioBitrate: Math.round(audioKbps * 1_000) } };
+	},
+});
+const hlsSegmentDuration = computed({
+	get: () => draftSettings.value.video.hlsSegmentDuration ?? 2,
+	set: seconds => {
+		if (!Number.isFinite(seconds) || seconds <= 0) return;
+		draftSettings.value = { ...draftSettings.value, video: { ...draftSettings.value.video, hlsSegmentDuration: Math.max(0.5, Math.round(seconds * 10) / 10) } };
 	},
 });
 const videoMaxWidth = computed({
@@ -586,6 +593,10 @@ function nullableNumber(event: Event): number | null {
             <label class="form-group">
               <span class="form-label" :class="$style.label"><Gauge :size="14" :stroke-width="2" />音声ビットレート (Kbps)</span>
               <input v-model.number="audioBitrate" class="form-input" type="number" min="32" step="16" :disabled="!canEditVideoSettings">
+            </label>
+            <label v-if="isHlsDraftOutput" class="form-group">
+              <span class="form-label" :class="$style.label"><Timer :size="14" :stroke-width="2" />セグメント長 (秒)</span>
+              <input v-model.number="hlsSegmentDuration" class="form-input" type="number" min="0.5" step="0.5" :disabled="!canEditVideoSettings">
             </label>
             <label v-if="!isHlsDraftOutput" class="form-group">
               <span class="form-label" :class="$style.label"><MoveHorizontal :size="14" :stroke-width="2" />最大幅</span>

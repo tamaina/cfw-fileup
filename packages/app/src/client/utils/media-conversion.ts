@@ -75,6 +75,8 @@ export interface MediaVideoConversionSettings {
 	colorMetadata: MediaColorMetadataPolicy;
 	rawBitDepth: MediaVideoRawBitDepth;
 	rawChromaSubsampling: MediaVideoRawChromaSubsampling;
+	/** HLS 出力時の目標セグメント長（秒）。HLS 以外の出力では使われない Mediabunnyの仕様的に全体設定がよい */
+	hlsSegmentDuration: number;
 	/** HLS 出力時のバリアント一覧。HLS 以外の出力では使われない */
 	hlsVariants: MediaHlsVariantSettings[];
 }
@@ -129,6 +131,7 @@ export const defaultMediaConversionSettings = (): MediaConversionSettings => ({
 		colorMetadata: 'preserve',
 		rawBitDepth: 'preserve',
 		rawChromaSubsampling: 'preserve',
+		hlsSegmentDuration: 2,
 		hlsVariants: [{
 			videoCodec: 'avc',
 			videoBitrate: 2_500_000,
@@ -202,8 +205,14 @@ export function normalizeVideoConversionSettings(settings: MediaVideoConversionS
 		audioCodec,
 		rawBitDepth: settings.rawBitDepth ?? 'preserve',
 		rawChromaSubsampling: settings.rawChromaSubsampling ?? 'preserve',
+		hlsSegmentDuration: normalizedHlsSegmentDuration(settings.hlsSegmentDuration),
 		hlsVariants,
 	};
+}
+
+function normalizedHlsSegmentDuration(value: number | undefined): number {
+	if (value == null || !Number.isFinite(value) || value <= 0) return 2;
+	return Math.max(0.5, Math.round(value * 10) / 10);
 }
 
 export function formatMbps(bitsPerSecond: number): string {
@@ -512,6 +521,7 @@ export async function* convertVideoFileToHls(file: File, settings: MediaVideoCon
 				codec: normalizedSettings.audioCodec,
 				bitrate: normalizedSettings.audioBitrate,
 			},
+			targetDuration: normalizedSettings.hlsSegmentDuration,
 			colorMetadata: normalizedSettings.colorMetadata ?? 'preserve',
 			forceTranscode: true,
 			onProgress: progress => onProgress?.(progress),

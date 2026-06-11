@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { AudioLines, BadgeInfo, Clapperboard, Maximize2, Palette, ScanLine, Sparkles, SwatchBook, X } from '@lucide/vue';
+import { AudioLines, BadgeInfo, Clapperboard, Maximize2, Palette, ScanLine, Sparkles, SwatchBook, Timer, X } from '@lucide/vue';
 import { formatKbps, formatMbps, isHlsVideoOutput, type MediaColorMetadataPolicy, type MediaConversionSettings, type MediaHlsVariantSettings, type MediaVideoRawChromaSubsampling } from '@/utils/media-conversion';
 
 const props = withDefaults(defineProps<{
@@ -44,6 +44,7 @@ const videoRawBitDepthLabel = computed(() => {
 	return bitDepth === 'preserve' ? 'bit維持' : `${bitDepth}bit`;
 });
 const videoRawChromaSubsamplingLabel = computed(() => chromaSubsamplingLabel(props.settings.video.rawChromaSubsampling ?? 'preserve'));
+const hlsSegmentDurationLabel = computed(() => `${props.settings.video.hlsSegmentDuration ?? 2}秒`);
 const videoMaxSizeLabel = computed(() => {
 	const { maxWidth, maxHeight } = props.settings.video;
 	if (maxWidth == null && maxHeight == null) return '自動サイズ';
@@ -84,6 +85,7 @@ function chromaSubsamplingLabel(chromaSubsampling: MediaVideoRawChromaSubsamplin
         </template>
         <span v-else :class="$style.item"><Clapperboard :size="14" :stroke-width="2" aria-hidden="true" />{{ settings.video.videoCodec.toUpperCase() }} {{ formatMbps(settings.video.videoBitrate) }}</span>
         <span :class="$style.item"><AudioLines :size="14" :stroke-width="2" aria-hidden="true" />{{ settings.video.audioCodec.toUpperCase() }} {{ formatKbps(settings.video.audioBitrate) }}</span>
+        <span v-if="isHlsVideo" :class="$style.item"><Timer :size="14" :stroke-width="2" aria-hidden="true" />{{ hlsSegmentDurationLabel }}</span>
         <span v-if="!isHlsVideo" :class="$style.item"><SwatchBook :size="14" :stroke-width="2" aria-hidden="true" />{{ videoColorMetadataLabel }}</span>
         <span v-if="!isHlsVideo" :class="$style.item"><Palette :size="14" :stroke-width="2" aria-hidden="true" />{{ videoRawBitDepthLabel }}</span>
         <span v-if="!isHlsVideo" :class="$style.item"><ScanLine :size="14" :stroke-width="2" aria-hidden="true" />{{ videoRawChromaSubsamplingLabel }}</span>
