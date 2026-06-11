@@ -9,7 +9,9 @@ import {
 	defaultMediaConversionSettings,
 	normalizeMediaImageConversionSettingsForBrowserSupport,
 	replacePathExtension,
+	supportedAudioEncodeVariants,
 	supportedVideoEncodeVariants,
+	type MediaAudioEncodeVariant,
 	type MediaImageAvifVariant,
 	type MediaConversionSettings,
 	type MediaVideoEncodeVariant,
@@ -40,6 +42,7 @@ const canEncodeWebp = ref(true);
 const canEncodeAvif = ref(true);
 const avifVariants = ref<MediaImageAvifVariant[]>([{ chromaSubsampling: '444', bitDepth: 8 }]);
 const videoEncodeVariants = ref<MediaVideoEncodeVariant[]>([]);
+const audioEncodeVariants = ref<MediaAudioEncodeVariant[]>([]);
 const items = ref<MediaItem[]>([]);
 const isConverting = ref(false);
 const selectionError = ref('');
@@ -235,6 +238,7 @@ onMounted(async () => {
 	canEncodeAvif.value = browserSupport.support.canEncodeAvif;
 	avifVariants.value = browserSupport.support.avifVariants;
 	videoEncodeVariants.value = await supportedVideoEncodeVariants();
+	audioEncodeVariants.value = await supportedAudioEncodeVariants();
 	settings.value = { ...settings.value, image: browserSupport.settings };
 });
 
@@ -350,6 +354,7 @@ onBeforeUnmount(() => {
       :can-encode-avif="canEncodeAvif"
       :avif-variants="avifVariants"
       :video-encode-variants="videoEncodeVariants"
+      :audio-encode-variants="audioEncodeVariants"
       allow-hls-video
     />
   </main>

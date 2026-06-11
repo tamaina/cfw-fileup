@@ -1,6 +1,7 @@
 import { checkImageDecodeSupport, getBrowserImageResizerSupportWithAvif, resizeAndConvertImage, type BrowserImageAnimationPolicy, type BrowserImageExifPolicy, type BrowserImageOutputMime } from '@browser-mc/browser-image-resizer-ex';
 import {
 	buildMovieConversionOptions,
+	checkMovieAudioEncoderSupport,
 	checkMovieVideoEncoderBitDepthSupport,
 	convertMovieToHls,
 	type BrowserMovieResizeOptions,
@@ -91,6 +92,10 @@ export interface MediaVideoEncodeVariant {
 	videoCodec: VideoCodec;
 	bitDepth: Exclude<MediaVideoRawBitDepth, 'preserve'>;
 	chromaSubsampling: Exclude<MediaVideoRawChromaSubsampling, 'preserve'>;
+}
+
+export interface MediaAudioEncodeVariant {
+	audioCodec: AudioCodec;
 }
 
 export const defaultMediaConversionSettings = (): MediaConversionSettings => ({
@@ -215,6 +220,7 @@ export function cloneMediaConversionSettings(settings: MediaConversionSettings):
 
 let browserImageResizerSupportWithAvifPromise: Promise<BrowserImageResizerSupportWithAvif> | undefined;
 let browserMediaVideoEncodeSupportPromise: Promise<MediaVideoEncodeVariant[]> | undefined;
+let browserMediaAudioEncodeSupportPromise: Promise<MediaAudioEncodeVariant[]> | undefined;
 
 async function getMemoizedBrowserImageResizerSupportWithAvif(): Promise<BrowserImageResizerSupportWithAvif> {
 	browserImageResizerSupportWithAvifPromise ??= getBrowserImageResizerSupportWithAvif();
@@ -255,6 +261,15 @@ export async function supportedVideoEncodeVariants(): Promise<MediaVideoEncodeVa
 			videoCodec: result.codec as VideoCodec,
 			bitDepth: result.bitDepth,
 			chromaSubsampling: result.chromaSubsampling as Exclude<MediaVideoRawChromaSubsampling, 'preserve'>,
+		})));
+	return await promise;
+}
+
+export async function supportedAudioEncodeVariants(): Promise<MediaAudioEncodeVariant[]> {
+	const promise = browserMediaAudioEncodeSupportPromise ??= checkMovieAudioEncoderSupport().then(results => results
+		.filter(result => result.supported)
+		.map(result => ({
+			audioCodec: result.codec,
 		})));
 	return await promise;
 }

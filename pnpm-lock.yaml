@@ -29,8 +29,8 @@ importers:
         specifier: ^1.0.0
         version: 1.0.0
       '@browser-mc/browser-movie-converter':
-        specifier: ^1.0.1
-        version: 1.0.1
+        specifier: ^1.1.0
+        version: 1.1.0
       '@hono/standard-validator':
         specifier: ^0.2.2
         version: 0.2.2(@standard-schema/spec@1.1.0)(hono@4.12.25)
@@ -738,8 +738,8 @@ packages:
   '@browser-mc/browser-image-resizer-ex@1.0.0':
     resolution: {integrity: sha512-5UBbc0d6YyJMiYpA/ZKL4LKPhlL7YOnxjOkwf35C/7Wr6d7aGzOoQzPtQDEaBJ9MRb0I/VeJG61K62Ml22EXmA==}
 
-  '@browser-mc/browser-movie-converter@1.0.1':
-    resolution: {integrity: sha512-bvUj+fTcXRNIRuWeNU6r36ooJ3ITYewfX45N7ZB6cFeV/8eqBuTANLD2xPd5dvhA9QUDN1mIs8o0O0MrEvWiUw==}
+  '@browser-mc/browser-movie-converter@1.1.0':
+    resolution: {integrity: sha512-bkkjdDfg5x1gHCroV0QKD+5KmxqlQxm+J6vnPhwg0wwDL6Vxsm8lqwI9RigMdlq0vG1ArfXiqdPqHCbeKM1aLQ==}
 
   '@browser-mc/exif-transplant@0.0.4':
     resolution: {integrity: sha512-mHrzFKvFFXow4d1w3iMIhIRHH/iFLEwl+rln0wbxl6VD6d7V7nj8K6qGnmkmkWv8tEnngGsMXN1uzfULMxmbAA==}
@@ -6733,7 +6733,7 @@ snapshots:
       '@browser-mc/webcodecs-avif': 0.4.2
       '@browser-mc/webcodecs-color': 1.0.1
 
-  '@browser-mc/browser-movie-converter@1.0.1':
+  '@browser-mc/browser-movie-converter@1.1.0':
     dependencies:
       '@browser-mc/mediabunny-scene-keyframes': 0.0.1
       '@browser-mc/video-codec': 0.0.1

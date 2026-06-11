@@ -15,6 +15,7 @@ import {
 	type MediaImageAvifBitDepth,
 	type MediaImageAvifChromaSubsampling,
 	type MediaImageAvifVariant,
+	type MediaAudioEncodeVariant,
 	type MediaConversionSettings,
 	type MediaVideoEncodeVariant,
 	type MediaVideoRawBitDepth,
@@ -35,6 +36,7 @@ const props = withDefaults(defineProps<{
 	allowHlsVideo?: boolean;
 	avifVariants?: MediaImageAvifVariant[];
 	videoEncodeVariants?: MediaVideoEncodeVariant[];
+	audioEncodeVariants?: MediaAudioEncodeVariant[];
 }>(), {
 	enableImage: true,
 	enableVideo: true,
@@ -44,6 +46,7 @@ const props = withDefaults(defineProps<{
 	allowHlsVideo: false,
 	avifVariants: () => [{ chromaSubsampling: '444', bitDepth: 8 }],
 	videoEncodeVariants: () => [],
+	audioEncodeVariants: () => [],
 });
 
 const emit = defineEmits<{
@@ -231,7 +234,12 @@ const selectableVideoCodecs = computed(() => {
 	const supportedCodecs = codecs.filter(codec => props.videoEncodeVariants.some(variant => variant.videoCodec === codec));
 	return supportedCodecs.length > 0 ? supportedCodecs : codecs;
 });
-const selectableAudioCodecs = computed(() => mediaAudioCodecOptions[draftSettings.value.video.outputMime]);
+const selectableAudioCodecs = computed(() => {
+	const codecs = mediaAudioCodecOptions[draftSettings.value.video.outputMime] as readonly AudioCodec[];
+	if (props.audioEncodeVariants.length === 0) return codecs;
+	const supportedCodecs = codecs.filter(codec => props.audioEncodeVariants.some(variant => variant.audioCodec === codec));
+	return supportedCodecs.length > 0 ? supportedCodecs : codecs;
+});
 const isHlsDraftOutput = computed(() => isHlsVideoOutput(draftSettings.value.video.outputMime));
 const hlsVariants = computed(() => draftSettings.value.video.hlsVariants);
 const fallbackVideoRawBitDepths = [8] as const satisfies readonly Exclude<MediaVideoRawBitDepth, 'preserve'>[];
@@ -273,6 +281,18 @@ watch(selectableVideoCodecs, (codecs) => {
 			},
 		};
 	}
+}, { immediate: true });
+
+watch(selectableAudioCodecs, (codecs) => {
+	const fallbackCodec = codecs[0] ?? defaultAudioCodecForOutput(draftSettings.value.video.outputMime);
+	if (codecs.includes(draftSettings.value.video.audioCodec)) return;
+	draftSettings.value = {
+		...draftSettings.value,
+		video: {
+			...draftSettings.value.video,
+			audioCodec: fallbackCodec,
+		},
+	};
 }, { immediate: true });
 
 function updateHlsVariant(index: number, patch: Partial<MediaHlsVariantSettings>): void {

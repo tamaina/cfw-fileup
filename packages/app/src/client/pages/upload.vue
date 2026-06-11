@@ -26,7 +26,7 @@ import type { MediaConversionWorkerRequest } from '@/workers/media-conversion.wo
 import type { UploadResolvedEntry, UploadWorkerFileEntry } from '@/workers/upload-worker-types';
 import { navigateTo } from '@/navigate';
 import { browserUploadAutoOpen, browserUploadNonResumeLimitBytes, browserUploadPartSizeBytes } from '@/store/browser-upload-settings';
-import { cloneMediaConversionSettings, defaultMediaConversionSettings, hlsTarArchivePath, isHlsVideoOutput, normalizeMediaImageConversionSettingsForBrowserSupport, replacePathExtension, supportedVideoEncodeVariants, type MediaImageAvifVariant, type MediaVideoEncodeVariant } from '@/utils/media-conversion';
+import { cloneMediaConversionSettings, defaultMediaConversionSettings, hlsTarArchivePath, isHlsVideoOutput, normalizeMediaImageConversionSettingsForBrowserSupport, replacePathExtension, supportedAudioEncodeVariants, supportedVideoEncodeVariants, type MediaAudioEncodeVariant, type MediaImageAvifVariant, type MediaVideoEncodeVariant } from '@/utils/media-conversion';
 import { runMediaConversionWorker } from '@/store/media-conversion-worker';
 
 type ArchiveMode = 'individual' | 'gz' | 'tar' | 'targz';
@@ -54,6 +54,7 @@ const canEncodeWebp = ref(true);
 const canEncodeAvif = ref(true);
 const avifVariants = ref<MediaImageAvifVariant[]>([{ chromaSubsampling: '444', bitDepth: 8 }]);
 const videoEncodeVariants = ref<MediaVideoEncodeVariant[]>([]);
+const audioEncodeVariants = ref<MediaAudioEncodeVariant[]>([]);
 const mediaConversionSettings = ref(defaultMediaConversionSettings());
 const libraryName = ref('');
 const visibility = ref<FileVisibility>('public');
@@ -1157,6 +1158,7 @@ onMounted(async () => {
 	canEncodeAvif.value = browserSupport.support.canEncodeAvif;
 	avifVariants.value = browserSupport.support.avifVariants;
 	videoEncodeVariants.value = await supportedVideoEncodeVariants();
+	audioEncodeVariants.value = await supportedAudioEncodeVariants();
 	mediaConversionSettings.value = { ...mediaConversionSettings.value, image: browserSupport.settings };
 	await loadBucket();
 	const pending = takePendingUpload();
@@ -1565,6 +1567,7 @@ onMounted(async () => {
         :can-encode-avif="canEncodeAvif"
         :avif-variants="avifVariants"
         :video-encode-variants="videoEncodeVariants"
+        :audio-encode-variants="audioEncodeVariants"
         allow-hls-video
       />
 
