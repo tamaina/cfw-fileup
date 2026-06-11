@@ -124,6 +124,7 @@ export const filesApiDef = {
 			passphrase: v.optional(v.pipe(v.string(), v.maxLength(MAX_PASSPHRASE_LENGTH))),
 			isDownloadCountEnabled: v.optional(v.boolean()),
 			isDownloadCountVisible: v.optional(v.boolean()),
+			mimeType: v.optional(MimeTypeString),
 		}),
 		res: {
 			200: { description: 'Success', content: { 'application/json': { vSchema: v.object({ ok: v.literal(true) }) } } },

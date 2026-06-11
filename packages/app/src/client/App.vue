@@ -103,7 +103,7 @@ function toggleTheme(): void {
             <NirA to="/signin" :class="$style.navLink">サインイン</NirA>
             <NirA to="/signup" :class="$style.navLink">サインアップ</NirA>
           </template>
-          <NirA to="/tools/media-compress" :class="$style.navLink">ツール</NirA>
+          <NirA to="/tools/media-compress" :class="$style.navLink">画像動画縮小</NirA>
           <NirA to="/about" :class="$style.navLink">About</NirA>
           <template v-if="authStore.user?.isAdmin || authStore.user?.isModerator">
             <NirA to="/admin" :class="$style.navLink">管理</NirA>

@@ -5,6 +5,7 @@ import { Form, Input } from '@vuetify/v0';
 import BrowseDirectory from './browse.directory.vue';
 import BrowseFile from './browse.file.vue';
 import BrowseFileTokens from './browse.file-tokens.vue';
+import HlsTarPreview from '@/components/HlsTarPreview.vue';
 import TurnstileWidget from '@/components/TurnstileWidget.vue';
 import NirA from '@/components/NirA.vue';
 import { authStore, authHeaders, updateTermsAgreedAt } from '@/store/auth';
@@ -12,9 +13,10 @@ import { apiPost } from '@/utils/api';
 import { mainRouter } from '@/router';
 import { Nirax, type RouteDef } from '@/nirax';
 import { formatBytes } from '@/utils/byte-size';
-import { archiveEntryDownloadUrl } from '@/utils/archive-entry-url';
+import { archiveEntryDownloadUrl, archiveEntryStreamUrl } from '@/utils/archive-entry-url';
 import { createBgzfDecompressor } from 'bgzf';
 import { hasMimeTypeMismatch as detectMimeTypeMismatch, inferMimeTypeByExtension, isExecutableMimeType, selectStoredOrSniffedMimeType } from '../../shared/mime-by-extension';
+import { HLS_TAR_MIME } from '../../shared/hls';
 
 const props = withDefaults(defineProps<{
 	bucketName: string;
@@ -22,6 +24,7 @@ const props = withDefaults(defineProps<{
 }>(), { filePath: '' });
 
 const archiveEntryMount = '/:entries';
+const archiveEntryMarker = ':entries';
 const archiveEntryRouteDef = [
 	{
 		path: '/:entryPath(*)?',
@@ -35,14 +38,23 @@ function resolveArchiveEntryRoute(path: string): string {
 	return typeof entryPath === 'string' ? entryPath : '';
 }
 
+function decodePathSegment(segment: string): string | null {
+	try {
+		return decodeURIComponent(segment);
+	} catch {
+		return null;
+	}
+}
+
 const archiveRoute = computed(() => {
-	const markerIndex = props.filePath.indexOf(archiveEntryMount);
-	if (markerIndex === -1) {
+	const segments = props.filePath.split('/');
+	const markerSegmentIndex = segments.findIndex(segment => decodePathSegment(segment) === archiveEntryMarker);
+	if (markerSegmentIndex === -1) {
 		return { baseFilePath: props.filePath, entryPath: null };
 	}
-	const entryRoutePath = props.filePath.slice(markerIndex + archiveEntryMount.length) || '/';
+	const entryRoutePath = `/${segments.slice(markerSegmentIndex + 1).join('/')}` || '/';
 	return {
-		baseFilePath: props.filePath.slice(0, markerIndex),
+		baseFilePath: segments.slice(0, markerSegmentIndex).join('/'),
 		entryPath: resolveArchiveEntryRoute(entryRoutePath),
 	};
 });
@@ -80,6 +92,12 @@ const innerDownloadUrl = computed(() => {
 	return archiveEntryDownloadUrl(fileId.value, entryPath.value ?? '', autoToken.value);
 });
 const innerPreviewUrl = computed(() => isTargz.value ? innerObjectUrl.value : innerDownloadUrl.value);
+const innerHlsUrl = computed(() => {
+	if (!fileId.value || !entryPath.value) return undefined;
+	if (!entryPath.value.toLowerCase().endsWith('.m3u8')) return undefined;
+	// プレイリスト内の相対パス解決のため、スラッシュを温存したURLを使う
+	return archiveEntryStreamUrl(fileId.value, entryPath.value, autoToken.value);
+});
 const innerDownloadFilename = computed(() => entryPath.value?.split('/').filter(Boolean).at(-1) || 'download');
 const innerDownloadError = ref('');
 
@@ -336,6 +354,7 @@ const needsPassphrase = computed(() =>
 const detailsLoading = computed(() =>
 	browseTermsLoading.value || metaLoading.value || (activeTab.value === 'info' && authStore.user && !isDirectory.value && fileVisibility.value !== 'public' && autoTokenLoading.value),
 );
+const isHlsTar = computed(() => fileMimeType.value === HLS_TAR_MIME && isTar.value);
 const browseTermsUpdatedAt = ref('');
 const currentBrowseUrl = computed(() => {
 	const parsed = mainRouter.currentRef.value?._parsedRoute;
@@ -805,8 +824,17 @@ onUnmounted(revokeInnerObjectUrl);
         <p v-if="fileMimeType || fileExtensionMimeType" :class="$style.fileTypeWarningLine">内容: {{ fileMimeType ?? '不明' }} / 拡張子: {{ fileExtensionMimeType ?? '不明' }}</p>
       </div>
 
+      <HlsTarPreview
+        v-if="isHlsTar && fileId && !isEntryFile && !authStore.user && !needsPassphrase"
+        :file-id="fileId"
+        :filename="baseFilePath"
+        :token="autoToken"
+        :owner-can-disable-file-ads="ownerCanDisableFileAds"
+        :show-ads="true"
+      />
+
       <!-- アーカイブ内ファイルビュー (ログイン有無問わず) -->
-      <template v-if="(isTargz || isTar) && isEntryFile">
+      <template v-else-if="(isTargz || isTar) && isEntryFile">
         <BrowseFile
           :bucketName="bucketName"
           :filePath="entryPath ?? ''"
@@ -821,6 +849,7 @@ onUnmounted(revokeInnerObjectUrl);
           :extension-mime-type="innerExtensionMimeType"
           :has-mime-type-mismatch="innerHasMimeTypeMismatch"
           :has-executable-content="innerHasExecutableContent"
+          :hls-url="innerHlsUrl"
           :report-path="`${baseFilePath}/${archiveEntryMount.slice(1)}/${entryPath ?? ''}`"
           :hideManagement="true"
           :showAds="true"
@@ -838,7 +867,15 @@ onUnmounted(revokeInnerObjectUrl);
 
         <!-- 詳細タブ: ファイル表示 -->
         <template v-if="activeTab === 'info'">
-	          <BrowseDirectory v-if="isTargz || isTar" :bucketName="bucketName" :filePath="baseFilePath" :isTargz="isTargz" :isTar="isTar" :entryPath="entryPath ?? ''" :token="autoToken ?? undefined" :fileId="fileId ?? undefined" :ownerCanDisableFileAds="ownerCanDisableFileAds" />
+          <HlsTarPreview
+            v-if="isHlsTar && fileId"
+            :file-id="fileId"
+            :filename="baseFilePath"
+            :token="autoToken"
+            :owner-can-disable-file-ads="ownerCanDisableFileAds"
+            :show-ads="true"
+          />
+	          <BrowseDirectory v-else-if="isTargz || isTar" :bucketName="bucketName" :filePath="baseFilePath" :isTargz="isTargz" :isTar="isTar" :entryPath="entryPath ?? ''" :token="autoToken ?? undefined" :fileId="fileId ?? undefined" :ownerCanDisableFileAds="ownerCanDisableFileAds" />
 	          <BrowseFile
             v-else
             :bucketName="bucketName"

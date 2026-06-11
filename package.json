@@ -20,10 +20,10 @@
     "check": "pnpm lint && pnpm test && pnpm typecheck:all"
   },
   "dependencies": {
-    "hono": "^4.12.19"
+    "hono": "^4.12.25"
   },
   "devDependencies": {
     "typescript": "^6.0.3",
-    "wrangler": "^4.92.0"
+    "wrangler": "^4.99.0"
   }
 }

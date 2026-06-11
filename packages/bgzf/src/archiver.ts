@@ -66,6 +66,8 @@ const mimeTypesByExtension: Record<string, string> = {
 	html: 'text/html',
 	js: 'text/javascript',
 	json: 'application/json',
+	m3u8: 'application/vnd.apple.mpegurl',
+	m4s: 'video/iso.segment',
 	md: 'text/markdown',
 	sh: 'text/x-shellscript',
 	svg: 'image/svg+xml',
@@ -82,6 +84,15 @@ function inferMimeTypeByExtension(path: string): string | undefined {
 	const filename = path.split('/').pop() ?? path;
 	const extension = filename.includes('.') ? filename.split('.').pop()?.toLowerCase() : undefined;
 	return extension ? mimeTypesByExtension[extension] : undefined;
+}
+
+/** MPEG-TS は magic bytes では video/mpeg として検出されるため、拡張子が TS 系なら video/mp2t に読み替える */
+function refineMagicMimeType(path: string, magicMimeType: string | undefined): string | undefined {
+	if (magicMimeType !== 'video/mpeg') return magicMimeType;
+	const filename = path.split('/').pop() ?? path;
+	const extension = filename.includes('.') ? filename.split('.').pop()?.toLowerCase() : undefined;
+	if (extension === 'ts' || extension === 'm2ts' || extension === 'mts') return 'video/mp2t';
+	return magicMimeType;
 }
 
 class TarArchiverBase<TIdx> {
@@ -121,7 +132,7 @@ class TarArchiverBase<TIdx> {
 		return {
 			path,
 			file,
-			mimeType: mimes[0] ?? inferMimeTypeByExtension(path) ?? (file.type || 'application/octet-stream'),
+			mimeType: refineMagicMimeType(path, mimes[0]) ?? inferMimeTypeByExtension(path) ?? (file.type || 'application/octet-stream'),
 			mtime: file.lastModified || now,
 		};
 	}

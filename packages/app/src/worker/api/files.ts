@@ -9,6 +9,7 @@ import { authMiddleware } from '../middleware/auth';
 import { shortGetCache } from '../middleware/short-get-cache';
 import { genEaidx } from '../../shared/eaid-x';
 import { apiDef, getResponseDefWithAuth, type JsonCtx } from '../../shared/api';
+import { HLS_TAR_MIME } from '../../shared/hls';
 import { omitResAndReq } from '../utils/omit';
 import { MAX_BUCKET_NAME_LENGTH, MAX_FILE_PATH_LENGTH, MAX_ID_LENGTH } from '../../shared/const';
 import { hasSuspiciousFileType, inferMimeTypeByExtension, isExecutableMimeType, selectStoredOrSniffedMimeType } from '../utils/mime-by-extension';
@@ -736,7 +737,8 @@ app.post(
 				fallbackMimeType: r2Object.httpMetadata?.contentType,
 			});
 		}
-		const mimeType = detectedMimeType ?? r2Object.httpMetadata?.contentType;
+		const requestedMimeType = body.mimeType === HLS_TAR_MIME ? body.mimeType : undefined;
+		const mimeType = requestedMimeType ?? detectedMimeType ?? r2Object.httpMetadata?.contentType;
 		const mismatch = hasSuspiciousFileType(file.path, mimeType);
 		if (mismatch && await shouldRejectMismatchedFileType(c.env)) {
 			throw apiError(400, 'FILE_CONTENT_TYPE_DOES_NOT_MATCH_FILE_EXTENSION');

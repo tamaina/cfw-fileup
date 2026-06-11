@@ -1,5 +1,6 @@
 import { lookup } from 'mrmime';
 import { filetypemime } from 'magic-bytes.js';
+import { HLS_TAR_MIME } from './hls.js';
 
 const executableMimeTypes = new Set([
 	'application/vnd.microsoft.portable-executable',
@@ -25,6 +26,10 @@ export function preferExtensionMimeTypeForStorage(path: string, detectedMimeType
 	if (normalizeMimeType(detectedMimeType ?? '') === 'application/xml' && inferMimeTypeByExtension(path) === 'image/svg+xml') {
 		return 'image/svg+xml';
 	}
+	// MPEG-TS は magic bytes では video/mpeg として検出されるため、拡張子が TS 系なら video/mp2t を優先する
+	if (normalizeMimeType(detectedMimeType ?? '') === 'video/mpeg' && inferMimeTypeByExtension(path) === 'video/mp2t') {
+		return 'video/mp2t';
+	}
 	return detectedMimeType;
 }
 
@@ -34,7 +39,7 @@ export function sniffFileMimeType(path: string, bytes: Uint8Array): string | und
 	const usableMagicMimeType = magicMimeType === '' || magicMimeType === 'application/octet-stream' || (magicLooksLikeText && !looksLikeUtf8Text(bytes))
 		? undefined
 		: magicMimeType;
-	const detectedMimeType = detectExecutableMimeType(bytes) ?? usableMagicMimeType;
+	const detectedMimeType = detectExecutableMimeType(bytes) ?? usableMagicMimeType ?? detectIsoBmffSegmentMimeType(bytes);
 	const extensionMimeType = inferMimeTypeByExtension(path);
 	const storageDetectedMimeType = preferExtensionMimeTypeForStorage(path, detectedMimeType);
 	const isUtf8Text = bytes.length === 0 || looksLikeUtf8Text(bytes);
@@ -92,6 +97,14 @@ export function looksLikeUtf8Text(bytes: Uint8Array): boolean {
 	}
 }
 
+/** CMAF/fMP4 のメディアセグメント（styp box 開始）。magic bytes ライブラリでは検出できないため自前で判定する */
+export function detectIsoBmffSegmentMimeType(bytes: Uint8Array): string | undefined {
+	if (bytes.length >= 8 && bytes[4] === 0x73 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70) {
+		return 'video/iso.segment';
+	}
+	return undefined;
+}
+
 export function detectExecutableMimeType(bytes: Uint8Array): string | undefined {
 	if (bytes.length >= 2 && bytes[0] === 0x4d && bytes[1] === 0x5a) return 'application/x-msdownload';
 	if (bytes.length >= 4 && bytes[0] === 0x7f && bytes[1] === 0x45 && bytes[2] === 0x4c && bytes[3] === 0x46) return 'application/x-elf';
@@ -118,6 +131,7 @@ export function hasMimeTypeMismatch(path: string, detectedMimeType: string | und
 	const normalizedExtensionMimeType = normalizeMimeType(extensionMimeType);
 	const normalizedDetectedMimeType = normalizeMimeType(detectedMimeType);
 	if (normalizedExtensionMimeType === normalizedDetectedMimeType) return false;
+	if (normalizedDetectedMimeType === HLS_TAR_MIME && normalizedExtensionMimeType === 'application/x-tar') return false;
 	if (normalizedDetectedMimeType === 'application/octet-stream') return true;
 	if (normalizedExtensionMimeType === 'application/octet-stream') return false;
 

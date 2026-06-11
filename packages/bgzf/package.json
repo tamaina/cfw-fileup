@@ -15,9 +15,9 @@
     "magic-bytes.js": "^1.13.0"
   },
   "devDependencies": {
-    "@misskey-dev/eslint-plugin": "^2.2.0",
-    "@typescript-eslint/parser": "^8.59.3",
+    "@misskey-dev/eslint-plugin": "^2.2.1",
+    "@typescript-eslint/parser": "^8.61.0",
     "eslint": "^9.39.4",
-    "vitest": "^4.1.6"
+    "vitest": "^4.1.8"
   }
 }

@@ -49,7 +49,7 @@ const featureItems: FeatureItem[] = [
 		icon: RadioTower,
 	},
 	{
-		title: 'メディア縮小ツール',
+		title: '画像・動画縮小ツール',
 		description: 'ブラウザ内で画像や動画を縮小し、アップロード前に保存できます。',
 		icon: Image,
 		to: '/tools/media-compress',

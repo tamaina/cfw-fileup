@@ -19,7 +19,7 @@ import { MAX_DIRECTORY_NAME_LENGTH, MAX_FILE_PATH_LENGTH } from '../../shared/co
 import { pathSegmentNameValidation } from '../../shared/name-validation';
 import { UploadTree } from '@/utils/upload-tree';
 import type { ArchiveDownloadWorkerMessage, ArchiveDownloadWorkerRequest, ArchiveDownloadProgress } from '@/workers/archive-download.worker';
-import type { DownloadTransformWorkerMessage, DownloadTransformWorkerRequest } from '@/workers/download-transform.worker';
+import type { DownloadTransformWorkerMessage, DownloadTransformWorkerRequestInput } from '@/workers/download-transform.worker';
 import { getOpfsTempFile, removeOpfsTempFile } from '@/workers/opfs-temp';
 import { completeDownloadStatus, failDownloadStatus, startDownloadStatus, updateDownloadStatus } from '@/store/download-status';
 import { registerDownloadedOpfsFile } from '@/store/download-cleanup';
@@ -353,7 +353,7 @@ function getDownloadTransformWorker(): Worker {
 	return downloadTransformWorker;
 }
 
-function runDownloadTransformWorker(request: Omit<DownloadTransformWorkerRequest, 'id'>): Promise<{ opfsName: string; filename: string; mimeType: string }> {
+function runDownloadTransformWorker(request: DownloadTransformWorkerRequestInput): Promise<{ opfsName: string; filename: string; mimeType: string }> {
 	const id = `download-${++archiveDownloadRequestId}`;
 	return new Promise((resolve, reject) => {
 		downloadTransformRequests.set(id, { resolve, reject });

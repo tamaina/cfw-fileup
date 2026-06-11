@@ -1,7 +1,8 @@
 /// <reference lib="webworker" />
 
-import { BgzfTarArchiver, TarArchiver, type ArchiveProgress, type TarGzIndex, type TarIndex } from 'bgzf';
+import { BgzfTarArchiver, type ArchiveProgress, type TarGzIndex, type TarIndex } from 'bgzf';
 import type { FileEntry } from 'bgzf';
+import { createTarArchive } from '../utils/tar-archive';
 import type {
 	UploadJobRequest,
 	UploadJobSnapshot,
@@ -242,7 +243,7 @@ async function openUpload(path: string, request: UploadStreamingJobRequest): Pro
 	return { fileId: result.fileId, partSize: result.partSize };
 }
 
-async function closeUpload(fileId: string, request: UploadStreamingJobRequest): Promise<void> {
+async function closeUpload(fileId: string, request: UploadStreamingJobRequest, mimeType?: string): Promise<void> {
 	await apiPost('/api/files/create/close', {
 		fileId,
 		visibility: request.visibility,
@@ -250,6 +251,7 @@ async function closeUpload(fileId: string, request: UploadStreamingJobRequest): 
 		passphrase: request.passphrase || undefined,
 		isDownloadCountEnabled: request.isDownloadCountEnabled ?? false,
 		isDownloadCountVisible: request.isDownloadCountEnabled ? request.isDownloadCountVisible ?? false : false,
+		mimeType,
 	}, request.authToken);
 }
 
@@ -322,7 +324,7 @@ async function nonResumeUpload(fileId: string, blob: Blob, path: string, request
 	onProgress(blob.size);
 }
 
-async function uploadBlob(blob: Blob, path: string, request: UploadStreamingJobRequest, onProgress: (uploaded: number) => void): Promise<void> {
+async function uploadResolvedBlob(entry: UploadResolvedEntry, blob: Blob, path: string, request: UploadStreamingJobRequest, onProgress: (uploaded: number) => void): Promise<void> {
 	const { fileId, partSize } = await openUpload(path, request);
 	try {
 		const nonResumeUploadLimitBytes = request.nonResumeUploadLimitBytes ?? DEFAULT_NON_RESUME_UPLOAD_LIMIT_BYTES;
@@ -331,7 +333,10 @@ async function uploadBlob(blob: Blob, path: string, request: UploadStreamingJobR
 		} else {
 			await tusUpload(fileId, blob, path, partSize, request, onProgress);
 		}
-		await closeUpload(fileId, request);
+		if (entry.archive?.kind === 'tar') {
+			await apiPost('/api/files/create/tar-index', { fileId, files: entry.archive.files }, request.authToken);
+		}
+		await closeUpload(fileId, request, entry.archive?.kind === 'tar' ? entry.type : undefined);
 	} catch (err) {
 		await deleteExistingFile(path, request).catch(() => {});
 		throw err;
@@ -626,13 +631,14 @@ async function executeStreamingUpload(id: string, request: UploadStreamingJobReq
 			if (!entry) break;
 			updateJob(id, { filename: entry.path, fileIndex: processedFiles, uploadedBytes: cumulativeBytes, totalBytes });
 			const file = await readResolvedEntryFile(entry);
-			const path = request.mode === 'gz' ? `${request.prefix}${entry.path}.gz` : `${request.prefix}${entry.path}`;
-			if (request.mode === 'gz') {
+			const isTarArchiveEntry = entry.archive?.kind === 'tar';
+			const path = request.mode === 'gz' && !isTarArchiveEntry ? `${request.prefix}${entry.path}.gz` : `${request.prefix}${entry.path}`;
+			if (request.mode === 'gz' && !isTarArchiveEntry) {
 				await uploadStream(file.stream().pipeThrough(new CompressionStream('gzip')), path, request, (n) => {
 					updateJob(id, { uploadedBytes: cumulativeBytes + n });
 				});
 			} else {
-				await uploadBlob(file, path, request, (n) => {
+				await uploadResolvedBlob(entry, file, path, request, (n) => {
 					updateJob(id, { uploadedBytes: cumulativeBytes + n });
 				});
 			}
@@ -650,10 +656,10 @@ async function executeStreamingUpload(id: string, request: UploadStreamingJobReq
 	const archiveEntries = resolvedEntriesAsFileEntries(queue);
 	if (request.mode === 'tar') {
 		const archivePath = `${request.prefix}${request.archiveBaseName}.tar`;
-		const archiver = await TarArchiver.createFromEntries(archiveEntries, (p: ArchiveProgress) => {
+		const archive = await createTarArchive(archiveEntries, (p: ArchiveProgress) => {
 			updateJob(id, { filename: p.currentFile, fileIndex: p.processedFiles, totalFiles: p.totalFiles });
 		});
-		await uploadArchiveStream(archiver.stream, archiver.index, archivePath, '/api/files/create/tar-index', request, (n) => {
+		await uploadArchiveStream(archive.stream, archive.index, archivePath, '/api/files/create/tar-index', request, (n) => {
 			updateJob(id, { uploadedBytes: n });
 		});
 			return { completedPath: archivePath, totalBytes: currentJobTotalBytes(id, totalBytes) };

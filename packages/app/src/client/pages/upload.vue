@@ -22,11 +22,12 @@ import { takeShareTargetPayload } from '../../shared/share-target-store';
 import { readBlobTextPreview } from '@/utils/text-preview';
 import { formatBytes } from '@/utils/byte-size';
 import type { ZipExtractWorkerMessage } from '@/workers/zip-extract.worker';
-import type { MediaConversionWorkerMessage, MediaConversionWorkerRequest } from '@/workers/media-conversion.worker';
+import type { MediaConversionWorkerRequest } from '@/workers/media-conversion.worker';
 import type { UploadResolvedEntry, UploadWorkerFileEntry } from '@/workers/upload-worker-types';
 import { navigateTo } from '@/navigate';
 import { browserUploadAutoOpen, browserUploadNonResumeLimitBytes, browserUploadPartSizeBytes } from '@/store/browser-upload-settings';
-import { cloneMediaConversionSettings, defaultMediaConversionSettings, normalizeMediaImageConversionSettingsForBrowserSupport, replacePathExtension, type MediaImageAvifVariant } from '@/utils/media-conversion';
+import { cloneMediaConversionSettings, defaultMediaConversionSettings, hlsTarArchivePath, isHlsVideoOutput, normalizeMediaImageConversionSettingsForBrowserSupport, replacePathExtension, supportedVideoEncodeVariants, type MediaImageAvifVariant, type MediaVideoEncodeVariant } from '@/utils/media-conversion';
+import { runMediaConversionWorker } from '@/store/media-conversion-worker';
 
 type ArchiveMode = 'individual' | 'gz' | 'tar' | 'targz';
 
@@ -52,6 +53,7 @@ const mediaConversionDialogOpen = ref(false);
 const canEncodeWebp = ref(true);
 const canEncodeAvif = ref(true);
 const avifVariants = ref<MediaImageAvifVariant[]>([{ chromaSubsampling: '444', bitDepth: 8 }]);
+const videoEncodeVariants = ref<MediaVideoEncodeVariant[]>([]);
 const mediaConversionSettings = ref(defaultMediaConversionSettings());
 const libraryName = ref('');
 const visibility = ref<FileVisibility>('public');
@@ -75,7 +77,6 @@ const dragPreviewY = ref(0);
 let previousBodyCursor = '';
 const uploadError = ref('');
 const uploadDone = ref(false);
-const mediaConversionStatus = ref('');
 const redirectUploadJobId = ref<string | null>(null);
 const quotaWarningOpen = ref(false);
 const quotaWarningConfirmed = ref(false);
@@ -133,7 +134,10 @@ function createConversionPlan(entry: SelectedUploadEntry): UploadConversionPlan 
 		const outputType = settings.video.outputMime;
 		return {
 			kind: 'video',
-			outputPath: replacePathExtension(entry.path, outputType),
+			// HLS はプレイリスト+セグメントを単一 tar にまとめる
+			outputPath: isHlsVideoOutput(outputType)
+				? hlsTarArchivePath(entry.path)
+				: replacePathExtension(entry.path, outputType),
 			outputType,
 			settings: settings.video,
 		};
@@ -228,7 +232,7 @@ function getUploadPaths(entries: readonly PlannedUploadEntry[] | null = plannedT
 	if (archiveMode.value === 'tar') return [`${uploadPrefix.value}${archiveUploadBaseName.value}.tar`];
 	if (archiveMode.value === 'targz') return [`${uploadPrefix.value}${archiveUploadBaseName.value}.tar.gz`];
 	return entries.map(entry =>
-		archiveMode.value === 'gz'
+		archiveMode.value === 'gz' && !isHlsPlannedEntry(entry)
 			? `${uploadPrefix.value}${entry.path}.gz`
 			: `${uploadPrefix.value}${entry.path}`,
 	);
@@ -239,10 +243,14 @@ function getFallbackUploadPaths(entries: readonly PlannedUploadEntry[]): string[
 	return entries
 		.filter(entry => entry.conversionPlan != null)
 		.map(entry =>
-			archiveMode.value === 'gz'
+			archiveMode.value === 'gz' && !isHlsPlannedEntry(entry)
 				? `${uploadPrefix.value}${entry.originalPath}.gz`
 				: `${uploadPrefix.value}${entry.originalPath}`,
-		);
+	);
+}
+
+function isHlsPlannedEntry(entry: PlannedUploadEntry): boolean {
+	return entry.conversionPlan?.kind === 'video' && isHlsVideoOutput(entry.conversionPlan.outputType);
 }
 
 function validateUploadPaths(paths: string[]): boolean {
@@ -311,42 +319,16 @@ async function runMediaConversionPipeline(jobId: string, plannedEntries: readonl
 		finishUploadEntries(jobId);
 		return;
 	}
-	mediaConversionStatus.value = 'メディアを変換中...';
-	await new Promise<void>((resolve, reject) => {
-		const worker = new Worker(new URL('../workers/media-conversion.worker.ts', import.meta.url), { type: 'module' });
-		worker.onmessage = (event: MessageEvent<MediaConversionWorkerMessage>) => {
-			const message = event.data;
-			if (message.id !== request.id) return;
-			if (message.type === 'progress') {
-				const current = message.progress.fileIndex + 1;
-				const total = message.progress.totalFiles;
-				const videoProgress = message.progress.videoProgress != null ? ` ${Math.round(message.progress.videoProgress * 100)}%` : '';
-				mediaConversionStatus.value = `${message.progress.phase === 'writing' ? '変換結果を書き込み中' : 'メディアを変換中'} ${current}/${total}: ${message.progress.fileName}${videoProgress}`;
-				return;
-			}
-			if (message.type === 'converted-entry') {
-				pushUploadEntry(jobId, message.entry);
-				return;
-			}
-			if (message.type === 'fallback-entry') {
-				pushUploadEntry(jobId, message.entry);
-				mediaConversionStatus.value = `変換できなかったため元ファイルでアップロードします: ${message.entry.path}`;
-				console.warn('Media conversion failed; falling back to original file', message.error);
-				return;
-			}
-			worker.terminate();
-			mediaConversionStatus.value = '';
-			if (message.type === 'done') {
-				resolve();
-				return;
-			}
-			reject(new Error(message.error));
-		};
-		worker.onerror = (event) => {
-			worker.terminate();
-			reject(new Error(event.message));
-		};
-		worker.postMessage(request);
+	await runMediaConversionWorker(request, {
+		title: 'アップロード前のメディア変換',
+		uploadJobId: jobId,
+		onConvertedEntry: (entry) => {
+			pushUploadEntry(jobId, entry);
+		},
+		onFallbackEntry: (entry, error) => {
+			pushUploadEntry(jobId, entry);
+			console.warn('Media conversion failed; falling back to original file', error);
+		},
 	});
 	finishUploadEntries(jobId);
 }
@@ -388,6 +370,12 @@ const draggingItemName = computed(() => {
 const selectedUploadBytes = computed(() => selectedTree.value?.totalSize ?? 0);
 const compressedImageEntries = computed(() => selectedTree.value?.entries.filter(isCompressedImageEntry) ?? []);
 const shouldRecommendTarForCompressedImages = computed(() => compressedImageEntries.value.length >= 3);
+/** HLS 変換対象の動画が含まれているか。HLS 変換結果は動画ごとの単一 tar として個別アップロードする */
+const hasHlsConversionEntries = computed(() =>
+	mediaConversionSettings.value.video.enabled
+	&& isHlsVideoOutput(mediaConversionSettings.value.video.outputMime)
+	&& (plannedTree.value?.entries.some(entry => entry.conversionPlan?.kind === 'video') ?? false),
+);
 const tarRecommendationMessage = computed(() => {
 	const count = compressedImageEntries.value.length;
 	return `画像が${count}枚あります。再圧縮しても容量が減りにくいため、tarにまとめるのがおすすめです。`;
@@ -503,6 +491,7 @@ async function setSelectedTree(tree: UploadTree<SelectedUploadEntry>, entryToSel
 	selectEntry(entryToSelect);
 	if (archiveMode.value === 'gz' && tree.hasDirectories) archiveMode.value = 'individual';
 	if (!archiveModeTouched.value && shouldRecommendTarForCompressedImages.value) archiveMode.value = 'tar';
+	if (hasHlsConversionEntries.value) archiveMode.value = 'individual';
 }
 
 async function addSelectedTree(tree: UploadTree<SelectedUploadEntry>): Promise<void> {
@@ -1027,6 +1016,10 @@ watch(zipConfirmOpen, (open) => {
 	zipConfirmResolve = null;
 });
 
+watch(hasHlsConversionEntries, (hasHls) => {
+	if (hasHls) archiveMode.value = 'individual';
+});
+
 onUnmounted(() => {
 	revokePreviewUrl();
 	resetFileMoveDrag();
@@ -1060,7 +1053,6 @@ async function confirmQuotaWarning(): Promise<void> {
 async function executeUpload(): Promise<void> {
 	uploadError.value = '';
 	uploadDone.value = false;
-	mediaConversionStatus.value = '';
 	if (!bucket.value) return;
 	const tree = selectedTree.value;
 	if (!tree || tree.entries.length === 0) return;
@@ -1080,6 +1072,10 @@ async function executeUpload(): Promise<void> {
 	const paths = [...plannedPaths, ...fallbackPaths];
 	if (!validateUploadPaths(paths)) return;
 	if (!validateArchiveMemberPaths(plannedEntries)) return;
+	if (plannedEntries.some(isHlsPlannedEntry) && archiveMode.value !== 'individual') {
+		uploadError.value = 'HLS 変換された動画は単一の tar として個別アップロードしてください。';
+		return;
+	}
 	if (paths.length > 0) {
 		const conflicts: string[] = [];
 		const missingDirectories = new Set<string>();
@@ -1149,11 +1145,9 @@ async function executeUpload(): Promise<void> {
 			const message = err instanceof Error ? err.message : String(err);
 			uploadError.value = message;
 			failUploadEntries(jobId, message);
-			mediaConversionStatus.value = '';
 		});
 	} catch (err) {
 		uploadError.value = err instanceof Error ? err.message : String(err);
-		mediaConversionStatus.value = '';
 	}
 }
 
@@ -1162,6 +1156,7 @@ onMounted(async () => {
 	canEncodeWebp.value = browserSupport.support.canEncodeWebp;
 	canEncodeAvif.value = browserSupport.support.canEncodeAvif;
 	avifVariants.value = browserSupport.support.avifVariants;
+	videoEncodeVariants.value = await supportedVideoEncodeVariants();
 	mediaConversionSettings.value = { ...mediaConversionSettings.value, image: browserSupport.settings };
 	await loadBucket();
 	const pending = takePendingUpload();
@@ -1426,7 +1421,7 @@ onMounted(async () => {
               </span>
             </label>
             <label :class="[$style.archiveModeOption, archiveMode === 'gz' ? $style.archiveModeOptionSelected : null]">
-              <input :checked="archiveMode === 'gz'" type="radio" value="gz" :class="$style.radioInput" @change="updateArchiveMode('gz')">
+              <input :checked="archiveMode === 'gz'" type="radio" value="gz" :class="$style.radioInput" :disabled="hasHlsConversionEntries" @change="updateArchiveMode('gz')">
               <FileArchive :class="$style.archiveModeIcon" :size="20" :stroke-width="2" aria-hidden="true" />
               <span :class="$style.archiveModeBody">
                 <span :class="$style.archiveModeText">gzip 圧縮してアップロード</span>
@@ -1435,7 +1430,7 @@ onMounted(async () => {
               <span class="badge badge-muted" :class="$style.archiveModeBadge">.gz</span>
             </label>
             <label :class="[$style.archiveModeOption, archiveMode === 'tar' ? $style.archiveModeOptionSelected : null]">
-              <input :checked="archiveMode === 'tar'" type="radio" value="tar" :class="$style.radioInput" @change="updateArchiveMode('tar')">
+              <input :checked="archiveMode === 'tar'" type="radio" value="tar" :class="$style.radioInput" :disabled="hasHlsConversionEntries" @change="updateArchiveMode('tar')">
               <FileArchive :class="$style.archiveModeIcon" :size="20" :stroke-width="2" aria-hidden="true" />
               <span :class="$style.archiveModeBody">
                 <span :class="$style.archiveModeText">tar にまとめてアップロード</span>
@@ -1446,7 +1441,7 @@ onMounted(async () => {
               </span>
             </label>
             <label :class="[$style.archiveModeOption, archiveMode === 'targz' ? $style.archiveModeOptionSelected : null]">
-              <input :checked="archiveMode === 'targz'" type="radio" value="targz" :class="$style.radioInput" @change="updateArchiveMode('targz')">
+              <input :checked="archiveMode === 'targz'" type="radio" value="targz" :class="$style.radioInput" :disabled="hasHlsConversionEntries" @change="updateArchiveMode('targz')">
               <FileArchive :class="$style.archiveModeIcon" :size="20" :stroke-width="2" aria-hidden="true" />
               <span :class="$style.archiveModeBody">
                 <span :class="$style.archiveModeText">tar.gz にまとめてアップロード</span>
@@ -1457,6 +1452,9 @@ onMounted(async () => {
           </div>
           <div v-if="shouldRecommendTarForCompressedImages" class="alert alert-info mt-3" :class="$style.tarRecommendation">
             {{ tarRecommendationMessage }}
+          </div>
+          <div v-if="hasHlsConversionEntries" class="alert alert-info mt-3" :class="$style.tarRecommendation">
+            HLS 変換された動画は、プレイリストとセグメントを単一の tar にまとめて個別アップロードします。
           </div>
           <div v-if="archiveMode === 'tar' || archiveMode === 'targz'" :class="[$style.libraryNameGroup, 'form-group']">
             <label class="form-label" for="upload-library-name">ライブラリ名</label>
@@ -1479,14 +1477,13 @@ onMounted(async () => {
           <Button.Root
             class="btn btn-primary btn-lg w-full"
             :class="$style.fullButton"
-            :disabled="mediaConversionStatus !== '' || !selectedTree || selectedTree.entries.length === 0 || uploadDone && !uploadError"
+            :disabled="!selectedTree || selectedTree.entries.length === 0 || uploadDone && !uploadError"
             @click="startUpload"
           >
             <Button.Content>アップロード開始</Button.Content>
           </Button.Root>
         </div>
 
-        <div v-if="mediaConversionStatus" class="alert alert-info">{{ mediaConversionStatus }}</div>
         <div v-if="uploadError" class="alert alert-error">{{ uploadError }}</div>
         <div v-if="uploadDone" class="alert alert-success">
           アップロードジョブを開始しました。
@@ -1567,6 +1564,8 @@ onMounted(async () => {
         :can-encode-webp="canEncodeWebp"
         :can-encode-avif="canEncodeAvif"
         :avif-variants="avifVariants"
+        :video-encode-variants="videoEncodeVariants"
+        allow-hls-video
       />
 
       <FileVisibilitySettingsDialog

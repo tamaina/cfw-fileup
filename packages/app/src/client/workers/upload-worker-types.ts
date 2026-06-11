@@ -1,4 +1,5 @@
 import type { FileVisibility } from '../../shared/file-visibility';
+import type { TarIndex } from 'bgzf';
 import type { MediaImageConversionSettings, MediaVideoConversionSettings } from '../utils/media-conversion';
 import type { ResolvedUploadEntry } from '../utils/upload-tree';
 
@@ -27,6 +28,7 @@ export interface UploadResolvedEntry extends Omit<ResolvedUploadEntry, 'source'>
 	source:
 		| { kind: 'file'; file: File }
 		| { kind: 'opfs'; opfsName: string };
+	archive?: { kind: 'tar'; files: TarIndex[] };
 }
 
 export interface UploadImageCompressionOptions extends MediaImageConversionSettings {

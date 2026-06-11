@@ -1,4 +1,5 @@
 import { createBgzfDecompressor, isBgzf } from 'bgzf';
+import { Conversion, HLS_FORMATS, Input, Mp4OutputFormat, Output, StreamTarget, UrlSource, type StreamTargetChunk } from 'mediabunny';
 import { createOpfsTempFile } from './opfs-temp';
 
 export type DownloadTransformWorkerRequest =
@@ -10,7 +11,18 @@ export type DownloadTransformWorkerRequest =
 		readonly mimeType: string;
 		readonly transform: 'none' | 'decompress-gzip' | 'recompress-bgzf';
 		readonly authHeaders: Record<string, string>;
+	} | {
+		readonly id: string;
+		readonly mode: 'hls-to-mp4';
+		readonly url: string;
+		readonly filename: string;
+		readonly token?: string | null;
+		readonly authHeaders: Record<string, string>;
 	};
+
+export type DownloadTransformWorkerRequestInput = DownloadTransformWorkerRequest extends infer T
+	? T extends DownloadTransformWorkerRequest ? Omit<T, 'id'> : never
+	: never;
 
 export type DownloadTransformProgress = {
 	phase: 'reading' | 'writing' | 'done';
@@ -35,11 +47,71 @@ async function handleRequest(request: DownloadTransformWorkerRequest): Promise<v
 	try {
 		const tempFile = await createOpfsTempFile(request.id, tempExtension(request.filename));
 		opfsName = tempFile.opfsName;
-		await writeDownload(tempFile.fileHandle, request);
-		post({ type: 'done', id: request.id, opfsName, filename: request.filename, mimeType: request.mimeType });
+		if (request.mode === 'download') {
+			await writeDownload(tempFile.fileHandle, request);
+		} else {
+			await writeHlsMp4(tempFile.fileHandle, request);
+		}
+		post({ type: 'done', id: request.id, opfsName, filename: request.filename, mimeType: request.mode === 'download' ? request.mimeType : 'video/mp4' });
 	} catch (err) {
 		post({ type: 'error', id: request.id, error: err instanceof Error ? err.message : String(err), opfsName });
 	}
+}
+
+async function writeHlsMp4(fileHandle: FileSystemFileHandle, request: Extract<DownloadTransformWorkerRequest, { mode: 'hls-to-mp4' }>): Promise<void> {
+	const writable = await fileHandle.createWritable();
+	try {
+		let completedBytes = 0;
+		progress(request.id, { phase: 'reading', processedFiles: 0, totalFiles: 1, currentFile: request.filename });
+		const input = new Input({
+			source: new UrlSource(new URL(request.url, location.origin), {
+				fetchFn: (input, init) => fetch(withToken(input, request.token), {
+					...init,
+					headers: {
+						...Object.fromEntries(new Headers(init?.headers).entries()),
+						...request.authHeaders,
+					},
+				}),
+			}),
+			formats: HLS_FORMATS,
+		});
+		const output = new Output({
+			format: new Mp4OutputFormat({ fastStart: 'fragmented' }),
+			target: new StreamTarget(new WritableStream<StreamTargetChunk>({
+				async write(chunk) {
+					await writable.seek(chunk.position);
+					await writable.write(chunk.data);
+					completedBytes = Math.max(completedBytes, chunk.position + chunk.data.byteLength);
+					progress(request.id, { phase: 'writing', processedFiles: 0, totalFiles: 1, currentFile: request.filename, completedBytes });
+				},
+			}), { chunked: true }),
+		});
+		const conversion = await Conversion.init({ input, output, tracks: 'primary' });
+		if (!conversion.isValid) {
+			const reason = conversion.discardedTracks.map(item => item.reason).join(', ') || 'unknown reason';
+			throw new Error(`HLS を MP4 に変換できません: ${reason}`);
+		}
+		conversion.onProgress = (value) => {
+			progress(request.id, { phase: 'writing', processedFiles: value >= 1 ? 1 : 0, totalFiles: 1, currentFile: request.filename, completedBytes });
+		};
+		await conversion.execute();
+		await writable.close();
+		input.dispose();
+		progress(request.id, { phase: 'done', processedFiles: 1, totalFiles: 1, currentFile: '', completedBytes });
+	} catch (err) {
+		await writable.abort().catch(() => {});
+		throw err;
+	}
+}
+
+function withToken(input: RequestInfo | URL, token: string | null | undefined): RequestInfo | URL {
+	if (!token) return input;
+	const url = input instanceof Request ? new URL(input.url) : new URL(input, location.origin);
+	if (url.origin === location.origin && !url.searchParams.has('token')) {
+		url.searchParams.set('token', token);
+	}
+	if (input instanceof Request) return new Request(url, input);
+	return url;
 }
 
 function post(message: DownloadTransformWorkerMessage): void {

@@ -9,10 +9,14 @@ import {
 	defaultMediaConversionSettings,
 	normalizeMediaImageConversionSettingsForBrowserSupport,
 	replacePathExtension,
+	supportedVideoEncodeVariants,
 	type MediaImageAvifVariant,
 	type MediaConversionSettings,
+	type MediaVideoEncodeVariant,
 } from '@/utils/media-conversion';
-import type { MediaConversionWorkerMessage, MediaConversionWorkerRequest } from '@/workers/media-conversion.worker';
+import { runMediaConversionWorker, terminateMediaConversionWorker } from '@/store/media-conversion-worker';
+import type { MediaConversionWorkerRequest } from '@/workers/media-conversion.worker';
+import type { UploadResolvedEntry } from '@/workers/upload-worker-types';
 
 type MediaStatus = 'queued' | 'processing' | 'done' | 'skipped' | 'error';
 type MediaKind = 'image' | 'video' | 'unsupported';
@@ -35,11 +39,11 @@ const settingsDialogOpen = ref(false);
 const canEncodeWebp = ref(true);
 const canEncodeAvif = ref(true);
 const avifVariants = ref<MediaImageAvifVariant[]>([{ chromaSubsampling: '444', bitDepth: 8 }]);
+const videoEncodeVariants = ref<MediaVideoEncodeVariant[]>([]);
 const items = ref<MediaItem[]>([]);
 const isConverting = ref(false);
 const selectionError = ref('');
 const isDragOver = ref(false);
-let mediaConversionWorker: Worker | null = null;
 
 const supported = computed(() => (
 	typeof OffscreenCanvas !== 'undefined'
@@ -110,11 +114,6 @@ function handleDrop(event: DragEvent): void {
 	addFiles(event.dataTransfer.files);
 }
 
-function terminateMediaConversionWorker(): void {
-	mediaConversionWorker?.terminate();
-	mediaConversionWorker = null;
-}
-
 function itemConversionKind(kind: MediaKind): 'image' | 'video' {
 	return kind === 'video' ? 'video' : 'image';
 }
@@ -135,64 +134,45 @@ function createMediaConversionWorkerRequest(targetItems: readonly MediaItem[]): 
 	};
 }
 
-function runMediaConversionWorker(targetItems: readonly MediaItem[]): Promise<void> {
+function runMediaConversionForItems(targetItems: readonly MediaItem[]): Promise<void> {
 	const request = createMediaConversionWorkerRequest(targetItems);
-	return new Promise<void>((resolve, reject) => {
-		const pendingOutputLoads: Promise<void>[] = [];
-		terminateMediaConversionWorker();
-		const worker = new Worker(new URL('../../workers/media-conversion.worker.ts', import.meta.url), { type: 'module' });
-		mediaConversionWorker = worker;
-		worker.onmessage = (event: MessageEvent<MediaConversionWorkerMessage>) => {
-			const message = event.data;
-			if (message.id !== request.id) return;
-			if (message.type === 'progress') {
-				const item = targetItems[message.progress.fileIndex];
-				if (!item) return;
-				item.status = 'processing';
-				item.progress = message.progress.videoProgress != null ? Math.round(message.progress.videoProgress * 100) : item.progress;
-				return;
-			}
-			if (message.type === 'converted-entry') {
-				const item = targetItems[message.entry.originalIndex];
-				if (!item) return;
-				const outputLoad = loadOpfsFile(message.entry).then((file) => {
-					revokeItem(item);
-					item.outputBlob = file;
-					item.outputName = file.name;
-					item.outputUrl = URL.createObjectURL(file);
-					item.opfsName = message.entry.source.kind === 'opfs' ? message.entry.source.opfsName : '';
-					item.progress = 100;
-					item.status = 'done';
-				}).catch((err) => {
-					item.status = 'error';
-					item.error = err instanceof Error ? err.message : String(err);
-				});
-				pendingOutputLoads.push(outputLoad);
-				return;
-			}
-			if (message.type === 'fallback-entry') {
-				const item = targetItems[message.entry.originalIndex];
-				if (!item) return;
+	return runMediaConversionWorker(request, {
+		title: '画像・動画縮小ツール',
+		onProgress: (progress) => {
+			const item = targetItems[progress.fileIndex];
+			if (!item) return;
+			item.status = 'processing';
+			item.progress = progress.videoProgress != null ? Math.round(progress.videoProgress * 100) : item.progress;
+		},
+		onConvertedEntry: async (entry) => {
+			const item = targetItems[entry.originalIndex];
+			if (!item) return;
+			await handleSingleConvertedEntry(item, entry).catch((err) => {
 				item.status = 'error';
-				item.error = message.error;
-				return;
-			}
-			terminateMediaConversionWorker();
-			if (message.type === 'done') {
-				Promise.all(pendingOutputLoads).then(() => resolve(), reject);
-				return;
-			}
-			reject(new Error(message.error));
-		};
-		worker.onerror = (event) => {
-			terminateMediaConversionWorker();
-			reject(new Error(event.message));
-		};
-		worker.postMessage(request);
+				item.error = err instanceof Error ? err.message : String(err);
+			});
+		},
+		onFallbackEntry: (entry, error) => {
+			const item = targetItems[entry.originalIndex];
+			if (!item) return;
+			item.status = 'error';
+			item.error = error;
+		},
 	});
 }
 
-async function loadOpfsFile(entry: Extract<MediaConversionWorkerMessage, { type: 'converted-entry' }>['entry']): Promise<File> {
+async function handleSingleConvertedEntry(item: MediaItem, entry: UploadResolvedEntry): Promise<void> {
+	const file = await loadOpfsFile(entry);
+	revokeItem(item);
+	item.outputBlob = file;
+	item.outputName = file.name;
+	item.outputUrl = URL.createObjectURL(file);
+	item.opfsName = entry.source.kind === 'opfs' ? entry.source.opfsName : '';
+	item.progress = 100;
+	item.status = 'done';
+}
+
+async function loadOpfsFile(entry: UploadResolvedEntry): Promise<File> {
 	if (entry.source.kind !== 'opfs') return entry.source.file;
 	const root = await navigator.storage.getDirectory();
 	const handle = await root.getFileHandle(entry.source.opfsName);
@@ -221,7 +201,7 @@ async function convertAll(): Promise<void> {
 			revokeItem(item);
 			item.outputBlob = null;
 		}
-		await runMediaConversionWorker(targetItems);
+		await runMediaConversionForItems(targetItems);
 	} catch (err) {
 		selectionError.value = err instanceof Error ? err.message : String(err);
 	} finally {
@@ -254,6 +234,7 @@ onMounted(async () => {
 	canEncodeWebp.value = browserSupport.support.canEncodeWebp;
 	canEncodeAvif.value = browserSupport.support.canEncodeAvif;
 	avifVariants.value = browserSupport.support.avifVariants;
+	videoEncodeVariants.value = await supportedVideoEncodeVariants();
 	settings.value = { ...settings.value, image: browserSupport.settings };
 });
 
@@ -268,7 +249,7 @@ onBeforeUnmount(() => {
     <section :class="$style.header">
       <div>
         <p :class="$style.kicker">Tools</p>
-        <h1>メディア縮小ツール</h1>
+        <h1>画像・動画縮小ツール</h1>
         <p :class="$style.lead">画像と動画をブラウザ内で縮小して、ローカルに保存できます。</p>
       </div>
     </section>
@@ -368,6 +349,8 @@ onBeforeUnmount(() => {
       :can-encode-webp="canEncodeWebp"
       :can-encode-avif="canEncodeAvif"
       :avif-variants="avifVariants"
+      :video-encode-variants="videoEncodeVariants"
+      allow-hls-video
     />
   </main>
 </template>

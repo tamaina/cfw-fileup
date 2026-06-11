@@ -9,13 +9,14 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import MoveEntryDialog from '@/components/MoveEntryDialog.vue';
 import TurnstileWidget from '@/components/TurnstileWidget.vue';
 import { fileReportReasonIds, fileReportReasonLabels, fileReportRelationshipIds, fileReportRelationshipLabels, type FileReportReasonId, type FileReportRelationshipId } from '../../shared/file-reports';
-import type { DownloadTransformWorkerMessage, DownloadTransformWorkerRequest, DownloadTransformProgress } from '@/workers/download-transform.worker';
+import type { DownloadTransformWorkerMessage, DownloadTransformWorkerRequestInput, DownloadTransformProgress } from '@/workers/download-transform.worker';
 import { getOpfsTempFile, removeOpfsTempFile } from '@/workers/opfs-temp';
 import { completeDownloadStatus, failDownloadStatus, startDownloadStatus, updateDownloadStatus } from '@/store/download-status';
 import { registerDownloadedOpfsFile } from '@/store/download-cleanup';
 import MarkdownPreview from '@/components/MarkdownPreview.vue';
 import RawTextPreview from '@/components/RawTextPreview.vue';
 import JsonPreview from '@/components/JsonPreview.vue';
+import HlsVideoPreview from '@/components/HlsVideoPreview.vue';
 import PreviewInterstitialAd from '@/components/PreviewInterstitialAd.vue';
 import { parseExifDisplayItems, type ExifDisplayItem } from '@/utils/exif';
 
@@ -39,6 +40,8 @@ const props = withDefaults(defineProps<{
 	reportPath?: string;
 	hideManagement?: boolean;
 	showAds?: boolean;
+	/** HLS プレイリスト再生用URL（スラッシュ温存）。アーカイブ内 m3u8 エントリーで指定される */
+	hlsUrl?: string;
 }>(), {
 	showAds: true,
 });
@@ -68,6 +71,11 @@ const isGz = computed(() => {
 const isImage = computed(() => {
 	const ext = props.filePath.split('.').pop()?.toLowerCase() ?? '';
 	return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'avif'].includes(ext);
+});
+const isHlsPlaylist = computed(() => {
+	if (props.filePath.toLowerCase().endsWith('.m3u8')) return true;
+	const mime = (props.mimeType ?? '').toLowerCase();
+	return mime === 'application/vnd.apple.mpegurl' || mime === 'audio/mpegurl' || mime === 'application/x-mpegurl';
 });
 const isMarkdown = computed(() => {
 	const lower = props.filePath.toLowerCase();
@@ -260,7 +268,7 @@ function getDownloadTransformWorker(): Worker {
 	return downloadTransformWorker;
 }
 
-function runDownloadTransformWorker(request: Omit<DownloadTransformWorkerRequest, 'id'>): Promise<{ opfsName: string; filename: string; mimeType: string }> {
+function runDownloadTransformWorker(request: DownloadTransformWorkerRequestInput): Promise<{ opfsName: string; filename: string; mimeType: string }> {
 	const id = String(++downloadTransformRequestId);
 	return new Promise((resolve, reject) => {
 		downloadTransformRequests.set(id, { resolve, reject });
@@ -428,9 +436,10 @@ watch(canShowPreview, () => {
         </dl>
       </aside>
     </div>
+    <HlsVideoPreview v-else-if="canShowPreview && isHlsPlaylist && hlsUrl" :src="hlsUrl" :token="token" :class="$style.hlsPreview" />
     <MarkdownPreview v-else-if="canShowPreview && isMarkdown" :url="previewUrl" :filename="filePath" :class="$style.markdownPreview" />
     <JsonPreview v-else-if="canShowPreview && isJson" :url="previewUrl" :filename="filePath" :class="$style.jsonPreview" />
-    <RawTextPreview v-else-if="canShowPreview && isTextLike" :url="previewUrl" :filename="filePath" :class="$style.rawPreview" />
+    <RawTextPreview v-else-if="canShowPreview && (isTextLike || isHlsPlaylist)" :url="previewUrl" :filename="filePath" :class="$style.rawPreview" />
 
     <div v-if="visibleDownloadError" class="alert alert-error mt-3">{{ visibleDownloadError }}</div>
     <div v-if="deleteError" class="alert alert-error mt-3">{{ deleteError }}</div>
@@ -622,6 +631,10 @@ watch(canShowPreview, () => {
     padding: 8px 0;
     overflow-wrap: anywhere;
   }
+}
+
+.hlsPreview {
+  margin-top: 16px;
 }
 
 .markdownPreview {

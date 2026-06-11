@@ -11,6 +11,7 @@ import { authStore } from '@/store/auth';
 import { apiPost } from '@/utils/api';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import { connectUploadWorker, uploadWorkerJobs } from '@/store/upload-worker';
+import { mediaConversionJobs, type MediaConversionJobSnapshot } from '@/store/media-conversion-worker';
 import { formatBytes } from '@/utils/byte-size';
 import {
 	browserUploadAutoOpen,
@@ -88,6 +89,26 @@ function progressPercent(uploadedBytes: number, totalBytes: number): number {
 	return Math.min(100, Math.round(uploadedBytes / totalBytes * 100));
 }
 
+function mediaConversionProgressPercent(job: MediaConversionJobSnapshot): number {
+	if (job.status === 'done') return 100;
+	if (job.progress != null) return Math.min(100, Math.round(job.progress * 100));
+	if (job.totalFiles <= 0) return 0;
+	return Math.min(100, Math.round(job.fileIndex / job.totalFiles * 100));
+}
+
+function mediaConversionFileIndex(job: MediaConversionJobSnapshot): number {
+	if (job.status === 'done') return job.totalFiles;
+	if (job.totalFiles <= 0) return 0;
+	return Math.min(job.totalFiles, job.fileIndex + 1);
+}
+
+function mediaConversionStatusLabel(job: MediaConversionJobSnapshot): string {
+	if (job.status === 'done') return '完了';
+	if (job.status === 'error') return 'エラー';
+	if (job.status === 'cancelled') return 'キャンセル';
+	return job.phase === 'writing' ? '書き込み中' : '変換中';
+}
+
 async function load(cursor: string | null = null): Promise<void> {
 	const isMore = cursor !== null;
 	if (isMore) {
@@ -156,10 +177,59 @@ onMounted(() => {
       </div>
 
       <div v-if="activeTab === 'browser'">
-        <div v-if="uploadWorkerJobs.length === 0" class="empty-state">
+        <div v-if="uploadWorkerJobs.length === 0 && mediaConversionJobs.length === 0" class="empty-state">
           <p>ブラウザから実行中のアップロードはありません。</p>
         </div>
-        <div v-else :class="[$style.tableCard, 'card']">
+        <div v-if="mediaConversionJobs.length > 0" :class="[$style.tableCard, 'card', $style.browserSection]">
+          <div :class="$style.browserSectionHeader">
+            <h3>メディア変換</h3>
+          </div>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>状態</th>
+                  <th>対象</th>
+                  <th class="col-right">ファイル数</th>
+                  <th class="col-usage">進捗</th>
+                  <th>更新日時</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="job in mediaConversionJobs" :key="job.id">
+                  <td>
+                    <span :class="job.status === 'done' ? 'badge badge-success' : job.status === 'error' || job.status === 'cancelled' ? 'badge badge-danger' : 'badge badge-info'">
+                      {{ mediaConversionStatusLabel(job) }}
+                    </span>
+                  </td>
+                  <td>
+                    <span class="font-mono">{{ job.filename || job.title }}</span>
+                    <div class="col-muted">{{ job.title }}</div>
+                    <div v-if="job.error" class="text-danger">{{ job.error }}</div>
+                    <div v-else-if="job.fallbackError" class="text-danger">一部を元ファイルで処理しました: {{ job.fallbackError }}</div>
+                  </td>
+                  <td class="col-right col-muted">
+                    <template v-if="job.totalFiles > 0">{{ mediaConversionFileIndex(job) }}/{{ job.totalFiles }}</template>
+                  </td>
+                  <td>
+                    <div class="bucket-usage">
+                      <div class="bucket-usage-bar">
+                        <div class="bucket-usage-bar-fill" :style="{ width: `${mediaConversionProgressPercent(job)}%` }" />
+                      </div>
+                      <span class="bucket-usage-pct">{{ mediaConversionProgressPercent(job) }}%</span>
+                    </div>
+                  </td>
+                  <td class="col-muted">{{ formatDate(job.updatedAt) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div v-if="uploadWorkerJobs.length > 0" :class="[$style.tableCard, 'card', $style.browserSection]">
+          <div :class="$style.browserSectionHeader">
+            <h3>アップロード</h3>
+          </div>
           <div class="table-responsive">
             <table class="data-table">
               <thead>
@@ -323,6 +393,19 @@ onMounted(() => {
 .tableCard {
   padding: 0;
   overflow: hidden;
+}
+
+.browserSection {
+  margin-bottom: 16px;
+}
+
+.browserSectionHeader {
+  padding: 14px 16px 0;
+
+  h3 {
+    margin: 0 0 10px;
+    font-size: 1rem;
+  }
 }
 
 .statusBadge {
