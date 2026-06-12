@@ -10,6 +10,7 @@ import { getAppName } from '../utils/app-name';
 import { getPublicFile } from '../utils/public-file';
 import { getHlsTarMetadata } from '../utils/hls-tar-metadata';
 import { HLS_TAR_MIME } from '../../shared/hls';
+import { archiveEntryStreamUrl } from '../../shared/archive-entry-url';
 
 const app = new Hono<{ Bindings: Env }>();
 type AppContext = Context<{ Bindings: Env }>;
@@ -63,6 +64,10 @@ function fileViewUrl(origin: string, bucketName: string, filePath: string, entry
 		: `${origin}/v/${encodeURIComponent(bucketName)}/${encodedFilePath}`;
 }
 
+function absoluteUrl(origin: string, path: string): string {
+	return new URL(path, origin).toString();
+}
+
 function documentTypeForMime(mimeType: string | null): 'Audio' | 'Document' | 'Image' | 'Video' {
 	if (mimeType?.startsWith('image/')) return 'Image';
 	if (mimeType?.startsWith('video/')) return 'Video';
@@ -112,7 +117,7 @@ function fileNote(options: {
 	file: typeof files.$inferSelect;
 	entry?: { path: string; mimeType: string; size?: number | null };
 	/** HLS tar のときに設定。attachment の代わりに /v/ ページへのリンクを吐く */
-	hlsView?: { viewUrl: string; title: string | null };
+	hlsView?: { viewUrl: string; title: string | null; playlistUrl: string };
 }) {
 	const actorId = `${options.origin}/a/buckets/${options.bucket.id}`;
 	const entry = options.entry;
@@ -146,6 +151,18 @@ function fileNote(options: {
 		return {
 			...base,
 			content: `<p><a href="${escapeHtml(options.hlsView.viewUrl)}">${escapeHtml(title)}</a></p>`,
+			url: [
+				{
+					type: 'Link',
+					mediaType: 'text/html',
+					href: options.hlsView.viewUrl,
+				},
+				{
+					type: 'Link',
+					mediaType: 'application/x-mpegURL',
+					href: options.hlsView.playlistUrl,
+				},
+			],
 		};
 	}
 
@@ -293,7 +310,13 @@ app.get('/a/files/:fileId', async (c) => {
 		origin,
 		bucket,
 		file,
-		hlsView: hlsMetadata ? { viewUrl: fileViewUrl(origin, bucket.name, file.path), title: hlsMetadata.title } : undefined,
+		hlsView: hlsMetadata
+			? {
+				viewUrl: fileViewUrl(origin, bucket.name, file.path),
+				title: hlsMetadata.title,
+				playlistUrl: absoluteUrl(origin, archiveEntryStreamUrl(file.id, hlsMetadata.masterEntryPath)),
+			}
+			: undefined,
 	}));
 });
 

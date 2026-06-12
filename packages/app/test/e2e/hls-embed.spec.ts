@@ -144,14 +144,31 @@ test.describe('HLS metadata embedding', () => {
 			headers: { Accept: 'application/activity+json' },
 		});
 		expect(res.status()).toBe(200);
-		const note = await res.json() as { type: string; name?: string; url?: string; content?: string; attachment?: unknown };
+		const note = await res.json() as {
+			type: string;
+			name?: string;
+			url?: Array<{ type: string; mediaType: string; href: string }>;
+			content?: string;
+			attachment?: unknown;
+		};
 		expect(note.type).toBe('Note');
 		expect(note.attachment).toBeUndefined();
 		expect(note.name).toBeUndefined();
 		const viewUrl = `${ORIGIN}/v/${bucketName}/${filePath}`;
-		expect(note.url).toBeUndefined();
 		expect(note.content).toContain(`<a href="${viewUrl}">`);
 		expect(note.content).toContain(CUSTOM_TITLE);
+		expect(note.url).toEqual(expect.arrayContaining([
+			expect.objectContaining({
+				type: 'Link',
+				mediaType: 'text/html',
+				href: viewUrl,
+			}),
+			expect.objectContaining({
+				type: 'Link',
+				mediaType: 'application/x-mpegURL',
+				href: `${ORIGIN}/d/${fileId}/%3Aentries/master.m3u8`,
+			}),
+		]));
 	});
 
 	test('embed page /e/:fileId serves player HTML with injected config', async ({ request, adminUser }) => {
