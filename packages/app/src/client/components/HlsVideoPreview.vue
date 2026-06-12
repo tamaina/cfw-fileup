@@ -7,6 +7,7 @@ const props = defineProps<{
 	/** プレイリスト(.m3u8)のURL。相対パス解決のためスラッシュは温存されていること */
 	src: string;
 	token?: string | null;
+	poster?: string | null;
 }>();
 
 const videoElement = ref<HTMLVideoElement | null>(null);
@@ -96,6 +97,7 @@ onBeforeUnmount(() => {
     <video
       ref="videoElement"
       :class="$style.video"
+      :poster="poster ?? undefined"
       controls
       playsinline
       preload="metadata"

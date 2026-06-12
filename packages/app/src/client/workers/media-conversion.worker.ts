@@ -1,13 +1,15 @@
 import type { FileEntry } from 'bgzf';
-import { convertImageFile, convertVideoFile, convertVideoFileToHls, hlsOutputDirectory, hlsTarArchivePath, isHlsVideoOutput } from '@/utils/media-conversion';
+import { convertImageFile, convertVideoFile, convertVideoFileToHls, hlsTarArchivePath, isHlsVideoOutput, HLS_MASTER_PLAYLIST_NAME } from '@/utils/media-conversion';
 import { writeTarArchiveToDirectory } from '@/utils/tar-archive';
-import { HLS_TAR_MIME } from '../../shared/hls';
+import { HLS_TAR_MIME, HLS_POSTER_NAME, buildHlsSessionDataLines, insertHlsSessionData } from '../../shared/hls';
+import type { HlsEntryUploadSettings } from '@/utils/upload-tree';
 import type { UploadImageCompressionOptions, UploadResolvedEntry, UploadVideoConversionOptions, UploadWorkerFileEntry } from './upload-worker-types';
 
 export interface MediaConversionWorkerFileEntry extends UploadWorkerFileEntry {
 	index: number;
 	conversionKind: 'image' | 'video';
 	originalPath: string;
+	hls?: HlsEntryUploadSettings;
 }
 
 export interface MediaConversionWorkerRequest {
@@ -105,7 +107,6 @@ function isHlsConversionEntry(entry: MediaConversionWorkerFileEntry, request: Me
 async function convertHlsEntry(entry: MediaConversionWorkerFileEntry, request: MediaConversionWorkerRequest, fileIndex: number): Promise<void> {
 	// eslint-disable-next-line @typescript-eslint/no-non-null-assertion
 	const videoConversion = request.videoConversion!;
-	const baseDir = hlsOutputDirectory(entry.path);
 	const assetRecords: { path: string; mimeType: string; opfsName: string; size?: number }[] = [];
 	const writes: Promise<number>[] = [];
 	const opfsNames: string[] = [];
@@ -126,7 +127,8 @@ async function convertHlsEntry(entry: MediaConversionWorkerFileEntry, request: M
 		for await (const asset of assets) {
 			const opfsName = `__media_upload_${request.id}_${entry.index}_${opfsNames.length}_${crypto.randomUUID()}`;
 			opfsNames.push(opfsName);
-			assetRecords.push({ path: `${baseDir}/${asset.path}`, mimeType: asset.mimeType, opfsName });
+			// tar 内はルート直置き(ディレクトリプレフィックスなし)。展開時の包みは tar ファイル名側に任せる
+			assetRecords.push({ path: asset.path, mimeType: asset.mimeType, opfsName });
 			// プレイリスト（特に master.m3u8）のストリームは変換完了まで閉じないことがあるため、
 			// 各アセットの書き込みは並行して進める（直列に await するとデッドロックする）。
 			writes.push(writeStreamToOpfs(asset.data as ReadableStream<Uint8Array<ArrayBuffer>>, opfsName));
@@ -139,6 +141,22 @@ async function convertHlsEntry(entry: MediaConversionWorkerFileEntry, request: M
 			assetRecords[assetIndex].size = sizes[assetIndex];
 		}
 		const root = await navigator.storage.getDirectory();
+		const hlsSettings = entry.hls;
+		if (hlsSettings?.title || hlsSettings?.poster) {
+			// タイトル/ポスターを master.m3u8 に EXT-X-SESSION-DATA として埋め込む（tar 化前に OPFS 上で書き換え）
+			const masterRecord = assetRecords.find(record => record.path === HLS_MASTER_PLAYLIST_NAME);
+			if (masterRecord) {
+				const handle = await root.getFileHandle(masterRecord.opfsName);
+				const text = await (await handle.getFile()).text();
+				const updated = insertHlsSessionData(text, buildHlsSessionDataLines({
+					title: hlsSettings.title,
+					posterUri: hlsSettings.poster ? HLS_POSTER_NAME : undefined,
+				}));
+				const writable = await handle.createWritable();
+				await writable.write(updated);
+				await writable.close();
+			}
+		}
 		const hlsEntries: FileEntry[] = await Promise.all(assetRecords.map(async record => {
 			const handle = await root.getFileHandle(record.opfsName);
 			const file = await handle.getFile();
@@ -147,6 +165,12 @@ async function convertHlsEntry(entry: MediaConversionWorkerFileEntry, request: M
 				file: new File([file], basename(record.path), { type: record.mimeType, lastModified: entry.file.lastModified }),
 			};
 		}));
+		if (hlsSettings?.poster) {
+			hlsEntries.push({
+				path: HLS_POSTER_NAME,
+				file: new File([hlsSettings.poster], HLS_POSTER_NAME, { type: 'image/jpeg', lastModified: entry.file.lastModified }),
+			});
+		}
 		const tarPath = hlsTarArchivePath(entry.path);
 		const tarOpfsName = `__media_upload_${request.id}_${entry.index}_hls_${crypto.randomUUID()}.tar`;
 		const { file: tarFile, index } = await writeTarArchiveToDirectory(hlsEntries, root, tarOpfsName);

@@ -20,6 +20,7 @@ import { activityPubRoutes } from './routes/activitypub';
 import { downloadRoutes } from './routes/download';
 import { uploadRoutes } from './routes/upload';
 import { viewHtmlRoutes } from './routes/view-html';
+import { embedRoutes } from './routes/embed';
 import { ApiError, createApiErrorResponse } from './utils/api-error';
 import { rejectIpBan } from './utils/moderation';
 
@@ -41,6 +42,11 @@ app.use('/v/*', async (c, next) => {
 });
 
 app.use('/d/*', async (c, next) => {
+	await rejectIpBan(c);
+	await next();
+});
+
+app.use('/e/*', async (c, next) => {
 	await rejectIpBan(c);
 	await next();
 });
@@ -83,6 +89,7 @@ app.route('/', activityPubRoutes);
 app.route('/', downloadRoutes);
 app.route('/', uploadRoutes);
 app.route('/', viewHtmlRoutes);
+app.route('/', embedRoutes);
 
 app.get('/ping', (c) => {
 	return c.text('pong');

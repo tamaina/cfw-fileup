@@ -4,6 +4,10 @@ import { buckets, files, tarFiles, targzFiles } from '../scheme/index';
 import { deleteResolveRouteCache, resolveRouteCache } from '../middleware/resolve-route-cache';
 import { getDb } from '../utils/db';
 import { fileMutationEvents, runMutationTask, type FileReference } from '../events/file-mutations';
+import { getAppName } from '../utils/app-name';
+import { getHlsTarMetadata } from '../utils/hls-tar-metadata';
+import { HLS_TAR_MIME } from '../../shared/hls';
+import { archiveEntryStreamUrl } from '../../shared/archive-entry-url';
 
 const app = new Hono<{ Bindings: Env }>();
 type AppContext = Context<{ Bindings: Env }>;
@@ -43,7 +47,17 @@ function parseViewPath(url: string): { bucketName: string; filePath: string; ent
 	return { bucketName, filePath: filePathSegments.join('/'), entryPath };
 }
 
-async function resolveActivityPubHref(c: AppContext): Promise<string | null> {
+interface ViewFileContext {
+	href: string;
+	fileId: string;
+	filePath: string;
+	entryPath: string | null;
+	mimeType: string | null;
+	isTar: boolean;
+	r2Key: string;
+}
+
+async function resolveViewFileContext(c: AppContext): Promise<ViewFileContext | null> {
 	const parsed = parseViewPath(c.req.url);
 	if (!parsed || parsed.filePath === '' || parsed.filePath.endsWith('/')) return null;
 
@@ -56,7 +70,7 @@ async function resolveActivityPubHref(c: AppContext): Promise<string | null> {
 	if (!bucket) return null;
 
 	const file = await db
-		.select({ id: files.id, isTar: files.isTar, isTargz: files.isTargz })
+		.select({ id: files.id, isTar: files.isTar, isTargz: files.isTargz, mimeType: files.mimeType, r2Key: files.r2Key })
 		.from(files)
 		.where(and(
 			eq(files.bucketId, bucket.id),
@@ -70,7 +84,15 @@ async function resolveActivityPubHref(c: AppContext): Promise<string | null> {
 	if (!file) return null;
 
 	const origin = new URL(c.req.url).origin;
-	if (parsed.entryPath === null) return `${origin}/a/files/${file.id}`;
+	const context = {
+		fileId: file.id,
+		filePath: parsed.filePath,
+		entryPath: parsed.entryPath,
+		mimeType: file.mimeType,
+		isTar: file.isTar,
+		r2Key: file.r2Key,
+	};
+	if (parsed.entryPath === null) return { ...context, href: `${origin}/a/files/${file.id}` };
 
 	const entry = file.isTar
 		? await db.select({ id: tarFiles.id }).from(tarFiles).where(and(eq(tarFiles.fileId, file.id), eq(tarFiles.path, parsed.entryPath))).get()
@@ -78,7 +100,54 @@ async function resolveActivityPubHref(c: AppContext): Promise<string | null> {
 			? await db.select({ id: targzFiles.id }).from(targzFiles).where(and(eq(targzFiles.fileId, file.id), eq(targzFiles.path, parsed.entryPath))).get()
 			: null;
 	if (!entry) return null;
-	return `${origin}/a/files/${file.id}/${encodeURIComponent(':entries')}/${encodeURIComponent(parsed.entryPath)}`;
+	return { ...context, href: `${origin}/a/files/${file.id}/${encodeURIComponent(':entries')}/${encodeURIComponent(parsed.entryPath)}` };
+}
+
+function escapeHtmlAttr(value: string): string {
+	return value
+		.replaceAll('&', '&amp;')
+		.replaceAll('<', '&lt;')
+		.replaceAll('>', '&gt;')
+		.replaceAll('"', '&quot;');
+}
+
+function metaTag(attribute: 'property' | 'name', key: string, content: string): string {
+	return `<meta ${attribute}="${escapeHtmlAttr(key)}" content="${escapeHtmlAttr(content)}">`;
+}
+
+/** HLS tar の /v/ ページ向け OGP。twitter:player → /e/ で Misskey 等にプレイヤー埋め込みを出させる */
+function buildHlsOgpHead(options: {
+	origin: string;
+	fileId: string;
+	filePath: string;
+	title: string | null;
+	posterEntryPath: string | null;
+	appName: string;
+	pageUrl: string;
+}): string {
+	const title = options.title ?? (options.filePath.split('/').pop() ?? options.filePath);
+	const embedUrl = `${options.origin}/e/${options.fileId}`;
+	const tags = [
+		metaTag('property', 'og:type', 'video.other'),
+		metaTag('property', 'og:title', title),
+		metaTag('property', 'og:url', options.pageUrl),
+		metaTag('property', 'og:site_name', options.appName),
+		metaTag('property', 'og:video', embedUrl),
+		metaTag('property', 'og:video:secure_url', embedUrl),
+		metaTag('property', 'og:video:type', 'text/html'),
+		metaTag('property', 'og:video:width', '1280'),
+		metaTag('property', 'og:video:height', '720'),
+		metaTag('name', 'twitter:card', 'player'),
+		metaTag('name', 'twitter:player', embedUrl),
+		metaTag('name', 'twitter:player:width', '1280'),
+		metaTag('name', 'twitter:player:height', '720'),
+	];
+	if (options.posterEntryPath) {
+		const posterUrl = `${options.origin}${archiveEntryStreamUrl(options.fileId, options.posterEntryPath)}`;
+		tags.push(metaTag('property', 'og:image', posterUrl));
+		tags.push(metaTag('name', 'twitter:image', posterUrl));
+	}
+	return tags.join('');
 }
 
 function appendLinkHeader(headers: Headers, href: string): void {
@@ -87,12 +156,12 @@ function appendLinkHeader(headers: Headers, href: string): void {
 	headers.set('Link', current ? `${current}, ${link}` : link);
 }
 
-function withActivityPubAlternate(response: Response, href: string): Response {
+function withActivityPubAlternate(response: Response, href: string, extraHeadHtml = ''): Response {
 	const safeHref = href.replace(/"/g, '%22');
 	const transformed = new HTMLRewriter()
 		.on('head', {
 			element(element) {
-				element.append(`<link rel="alternate" type="${activityJsonType}" href="${safeHref}">`, { html: true });
+				element.append(`<link rel="alternate" type="${activityJsonType}" href="${safeHref}">${extraHeadHtml}`, { html: true });
 			},
 		})
 		.transform(response);
@@ -173,9 +242,30 @@ app.use('/v/*', resolveRouteCache({ externalMaxAgeSeconds: viewHtmlCacheMaxAgeSe
 
 app.get('/v/*', async (c) => {
 	const response = await c.env.ASSETS.fetch(c.req.raw);
-	const href = await resolveActivityPubHref(c);
-	if (!href || !response.ok || !response.headers.get('Content-Type')?.includes('text/html')) return response;
-	return withActivityPubAlternate(response, href);
+	const context = await resolveViewFileContext(c);
+	if (!context || !response.ok || !response.headers.get('Content-Type')?.includes('text/html')) return response;
+	let extraHeadHtml = '';
+	if (context.entryPath === null && context.mimeType === HLS_TAR_MIME) {
+		const url = new URL(c.req.url);
+		const metadata = await getHlsTarMetadata(c.env, getDb(c.env), {
+			id: context.fileId,
+			r2Key: context.r2Key,
+			mimeType: context.mimeType,
+			isTar: context.isTar,
+		});
+		if (metadata) {
+			extraHeadHtml = buildHlsOgpHead({
+				origin: url.origin,
+				fileId: context.fileId,
+				filePath: context.filePath,
+				title: metadata.title,
+				posterEntryPath: metadata.posterEntryPath,
+				appName: await getAppName(c.env),
+				pageUrl: `${url.origin}${url.pathname}`,
+			});
+		}
+	}
+	return withActivityPubAlternate(response, context.href, extraHeadHtml);
 });
 
 export const viewHtmlRoutes = app;

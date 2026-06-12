@@ -25,6 +25,19 @@ const devTunnel = devTunnelName === undefined || devTunnelName === ''
 		};
 
 export default defineConfig({
+	environments: {
+		// 入力HTMLの追加はクライアント環境のみ（Workerビルドに波及させない）
+		client: {
+			build: {
+				rollupOptions: {
+					input: {
+						index: resolve(__dirname, 'index.html'),
+						embed: resolve(__dirname, 'embed.html'),
+					},
+				},
+			},
+		},
+	},
 	preview: {
 		allowedHosts: [
 			'.trycloudflare.com',

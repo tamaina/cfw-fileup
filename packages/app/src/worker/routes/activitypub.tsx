@@ -7,6 +7,9 @@ import { apiError } from '../utils/api-error';
 import { deleteResolveRouteCache, resolveRouteCache } from '../middleware/resolve-route-cache';
 import { fileMutationEvents, runMutationTask, type FileReference } from '../events/file-mutations';
 import { getAppName } from '../utils/app-name';
+import { getPublicFile } from '../utils/public-file';
+import { getHlsTarMetadata } from '../utils/hls-tar-metadata';
+import { HLS_TAR_MIME } from '../../shared/hls';
 
 const app = new Hono<{ Bindings: Env }>();
 type AppContext = Context<{ Bindings: Env }>;
@@ -94,15 +97,25 @@ function emptyOrderedCollection(id: string) {
 	};
 }
 
+function escapeHtml(value: string): string {
+	return value
+		.replaceAll('&', '&amp;')
+		.replaceAll('<', '&lt;')
+		.replaceAll('>', '&gt;')
+		.replaceAll('"', '&quot;')
+		.replaceAll('\'', '&#39;');
+}
+
 function fileNote(options: {
 	origin: string;
 	bucket: typeof buckets.$inferSelect;
 	file: typeof files.$inferSelect;
 	entry?: { path: string; mimeType: string; size?: number | null };
+	/** HLS tar のときに設定。attachment の代わりに /v/ ページへのリンクを吐く */
+	hlsView?: { viewUrl: string; title: string | null };
 }) {
 	const actorId = `${options.origin}/a/buckets/${options.bucket.id}`;
 	const entry = options.entry;
-	const encodedFilePath = encodeFilePath(options.file.path);
 	const encodedEntryPath = entry === undefined ? null : encodeURIComponent(entry.path);
 	const objectId = entry !== undefined
 		? `${options.origin}/a/files/${options.file.id}/${encodeURIComponent(':entries')}/${encodedEntryPath}`
@@ -114,7 +127,7 @@ function fileNote(options: {
 	const mimeType = entry !== undefined ? entry.mimeType : options.file.mimeType;
 	const size = entry !== undefined ? entry.size : options.file.size;
 
-	return {
+	const base = {
 		'@context': 'https://www.w3.org/ns/activitystreams',
 		id: objectId,
 		type: 'Note',
@@ -122,6 +135,23 @@ function fileNote(options: {
 		to: [publicAddress],
 		cc: [`${actorId}/followers`],
 		published: parseEaidx(options.file.id).date.toISOString(),
+	};
+
+	if (options.hlsView) {
+		// HLS tar は tar 自体を添付しても再生できないため、attachment は付けず
+		// /v/ ページへのリンクを吐いて受信側（Misskey 等）のリンクプレビュー
+		// （OGP の twitter:player → /e/ 埋め込みプレイヤー）に任せる。
+		const title = options.hlsView.title ?? name;
+		return {
+			...base,
+			name: title,
+			url: options.hlsView.viewUrl,
+			content: `<p><a href="${escapeHtml(options.hlsView.viewUrl)}">${escapeHtml(title)}</a></p>`,
+		};
+	}
+
+	return {
+		...base,
 		attachment: [{
 			type: documentTypeForMime(mimeType),
 			name,
@@ -130,14 +160,6 @@ function fileNote(options: {
 			...(typeof size === 'number' ? { size } : {}),
 		}],
 	};
-}
-
-async function getPublicFile(db: ReturnType<typeof getDb>, fileId: string) {
-	const file = await db.select().from(files).where(eq(files.id, fileId)).get();
-	if (!file || !file.isClosed || file.visibility !== 'public' || !file.isListed || file.isModerationForcedPrivate) throw apiError(404, 'FILE_NOT_FOUND');
-	const bucket = await db.select().from(buckets).where(eq(buckets.id, file.bucketId)).get();
-	if (!bucket) throw apiError(404, 'BUCKET_NOT_FOUND');
-	return { file, bucket };
 }
 
 async function getBucket(db: ReturnType<typeof getDb>, bucketId: string) {
@@ -266,7 +288,14 @@ app.get('/a/files/:fileId', async (c) => {
 	if (!acceptsActivityJson(c.req.raw)) {
 		return redirectToFilePage(c, fileViewUrl(originFromRequest(c.req.raw), bucket.name, file.path));
 	}
-	return activityJson(c, fileNote({ origin: originFromRequest(c.req.raw), bucket, file }));
+	const origin = originFromRequest(c.req.raw);
+	const hlsMetadata = file.mimeType === HLS_TAR_MIME ? await getHlsTarMetadata(c.env, db, file) : null;
+	return activityJson(c, fileNote({
+		origin,
+		bucket,
+		file,
+		hlsView: hlsMetadata ? { viewUrl: fileViewUrl(origin, bucket.name, file.path), title: hlsMetadata.title } : undefined,
+	}));
 });
 
 export const activityPubRoutes = app;

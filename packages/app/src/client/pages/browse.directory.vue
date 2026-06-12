@@ -26,7 +26,7 @@ import { registerDownloadedOpfsFile } from '@/store/download-cleanup';
 import { formatBytes } from '@/utils/byte-size';
 import { archiveEntryDownloadUrl } from '@/utils/archive-entry-url';
 import type { DistributiveOmit } from '../../shared/type-hack';
-import { HLS_TAR_MIME } from '../../shared/hls';
+import { HLS_POSTER_NAME, HLS_TAR_MIME } from '../../shared/hls';
 
 const props = defineProps<{
 	bucketName: string;
@@ -1046,7 +1046,15 @@ function toDisplayEntry(e: DirectoryEntry): DisplayEntry {
 		};
 	}
 	const mime = e.isTargz ? 'application/gzip' : e.isTar ? 'application/x-tar' : (e.mimeType ?? '');
-	const previewUrl = isImageMime(mime) && e.visibility === 'public' && e.isModerationForcedPrivate !== true && e.fileId ? `/d/${e.fileId}` : undefined;
+	const canPreview = e.visibility === 'public' && e.isModerationForcedPrivate !== true && e.fileId !== undefined;
+	const previewUrl = canPreview && e.fileId !== undefined
+		? isImageMime(mime)
+			? `/d/${e.fileId}`
+			// HLS tar はルート直置きの poster.jpg を決め打ちで指す(無ければ404 → @error でアイコンに戻す)
+			: isHlsTarMime(e.mimeType)
+				? archiveEntryDownloadUrl(e.fileId, HLS_POSTER_NAME)
+				: undefined
+		: undefined;
 	return {
 		key: `file:${e.name}`,
 		name: e.name,
@@ -1441,6 +1449,7 @@ watch([isPartiallySelected, isAllSelected], async () => {
                   height="300"
                   loading="lazy"
                   decoding="async"
+                  @error="entry.previewUrl = undefined"
                 >
                 <div v-else :class="$style.gridCardIcon">
                   <Folder v-if="entry.isDir" :size="42" :stroke-width="1.8" aria-hidden="true" />

@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { AlertDialog } from '@vuetify/v0';
-import { Clapperboard, Download } from '@lucide/vue';
+import { Clapperboard } from '@lucide/vue';
 import HlsVideoPreview from '@/components/HlsVideoPreview.vue';
 import AdSlot from '@/components/AdSlot.vue';
 import PreviewInterstitialAd from '@/components/PreviewInterstitialAd.vue';
+import FileActionBar from '@/components/FileActionBar.vue';
 import { authHeaders } from '@/store/auth';
 import { archiveEntryStreamUrl } from '@/utils/archive-entry-url';
+import { hlsPosterEntryPath, parseHlsAttributeList, parseHlsSessionData } from '../../shared/hls';
 import type { DownloadTransformWorkerMessage, DownloadTransformWorkerRequestInput, DownloadTransformProgress } from '@/workers/download-transform.worker';
 import { getOpfsTempFile, removeOpfsTempFile } from '@/workers/opfs-temp';
 import { completeDownloadStatus, failDownloadStatus, startDownloadStatus, updateDownloadStatus } from '@/store/download-status';
@@ -15,13 +17,25 @@ import { registerDownloadedOpfsFile } from '@/store/download-cleanup';
 const props = defineProps<{
 	fileId: string;
 	filename: string;
+	bucketName?: string;
+	filePath?: string;
+	bucketId?: string | null;
+	isOwner?: boolean;
+	isModerationForcedPrivate?: boolean;
+	hideManagement?: boolean;
 	token?: string | null;
 	showAds?: boolean;
 	ownerCanDisableFileAds?: boolean;
 }>();
 
+const emit = defineEmits<{
+	(e: 'update:isModerationForcedPrivate', value: boolean): void;
+}>();
+
 const masterUrl = ref('');
 const masterPath = ref('');
+const hlsTitle = ref('');
+const posterUrl = ref('');
 const error = ref('');
 const previewAdCompleted = ref(false);
 const downloadError = ref('');
@@ -42,6 +56,8 @@ const videoFilename = computed(() => {
 	return `${dot > 0 ? leaf.slice(0, dot) : leaf}.mp4`;
 });
 const selectedDownloadUrl = computed(() => selectedVariantUrl.value || masterUrl.value);
+const actionFilePath = computed(() => props.filePath ?? props.filename);
+const actionBucketName = computed(() => props.bucketName ?? '');
 
 type HlsVariant = {
 	readonly url: string;
@@ -150,6 +166,8 @@ async function confirmVideoDownload(): Promise<void> {
 async function loadMasterPlaylist(): Promise<void> {
 	masterUrl.value = '';
 	masterPath.value = '';
+	hlsTitle.value = '';
+	posterUrl.value = '';
 	error.value = '';
 	variants.value = [];
 	selectedVariantUrl.value = '';
@@ -176,6 +194,12 @@ async function loadMasterPlaylist(): Promise<void> {
 		const masterText = await fetchText(masterUrl.value);
 		variants.value = parseMasterPlaylistVariants(masterUrl.value, masterText);
 		selectedVariantUrl.value = variants.value[0]?.url ?? '';
+		const sessionMeta = parseHlsSessionData(masterText);
+		hlsTitle.value = sessionMeta.title ?? '';
+		const posterPath = hlsPosterEntryPath(master.path);
+		if (entries.some(entry => entry.path === posterPath)) {
+			posterUrl.value = archiveEntryStreamUrl(props.fileId, posterPath, props.token);
+		}
 	} catch (err) {
 		error.value = err instanceof Error ? err.message : String(err);
 	}
@@ -195,18 +219,9 @@ function parseMasterPlaylistVariants(baseUrl: string, text: string): HlsVariant[
 		if (!line.startsWith('#EXT-X-STREAM-INF:')) continue;
 		const uri = lines.slice(i + 1).find(candidate => !candidate.startsWith('#'));
 		if (!uri) continue;
-		const attrs = parseAttributeList(line.slice('#EXT-X-STREAM-INF:'.length));
+		const attrs = parseHlsAttributeList(line.slice('#EXT-X-STREAM-INF:'.length));
 		const url = new URL(uri, new URL(baseUrl, location.origin)).toString();
 		result.push({ url, label: variantLabel(attrs, result.length + 1) });
-	}
-	return result;
-}
-
-function parseAttributeList(input: string): Record<string, string> {
-	const result: Record<string, string> = {};
-	const matches = input.matchAll(/([A-Z0-9-]+)=("[^"]*"|[^,]*)/g);
-	for (const match of matches) {
-		result[match[1]!] = match[2]!.replace(/^"|"$/g, '');
 	}
 	return result;
 }
@@ -236,16 +251,24 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="card file-actions" :class="$style.actions">
-    <a :href="downloadUrl()" :download="filename" class="btn btn-primary">
-      <Download :size="16" :stroke-width="2" aria-hidden="true" />
-      ダウンロード
-    </a>
+  <FileActionBar
+    :class="$style.actions"
+    :bucket-name="actionBucketName"
+    :file-path="actionFilePath"
+    :file-id="fileId"
+    :bucket-id="bucketId ?? null"
+    :download-url="downloadUrl()"
+    :download-filename="filename"
+    :is-owner="isOwner"
+    :is-moderation-forced-private="isModerationForcedPrivate"
+    :hide-management="hideManagement"
+    @update:is-moderation-forced-private="emit('update:isModerationForcedPrivate', $event)"
+  >
     <button type="button" class="btn btn-secondary" :disabled="downloadProgress != null || !selectedDownloadUrl" @click="openDownloadDialog">
       <Clapperboard :size="16" :stroke-width="2" aria-hidden="true" />
-      動画としてダウンロード
+      MP4ダウンロード
     </button>
-  </div>
+  </FileActionBar>
 
   <AlertDialog.Root v-model="downloadDialogOpen">
     <AlertDialog.Content :class="$style.downloadDialog">
@@ -286,12 +309,11 @@ onBeforeUnmount(() => {
   <section class="card" :class="$style.root">
     <div :class="$style.header">
       <div>
-        <h2 :class="$style.title">ストリーミング再生</h2>
-        <p v-if="masterPath" :class="$style.path">{{ masterPath }}</p>
+        <h2 :class="$style.title">{{ hlsTitle || 'ストリーミング再生' }}</h2>
       </div>
     </div>
     <div v-if="error" class="alert alert-error">{{ error }}</div>
-    <HlsVideoPreview v-else-if="masterUrl" :src="masterUrl" :token="token" />
+    <HlsVideoPreview v-else-if="masterUrl" :src="masterUrl" :token="token" :poster="posterUrl || null" />
     <div v-else class="page-loading">
       <span class="spinner"></span>読み込み中...
     </div>

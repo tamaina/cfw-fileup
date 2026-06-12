@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, type Component } from 'vue';
+import { ref, shallowRef, computed, onMounted, onUnmounted, watch, type Component } from 'vue';
 import type { FileVisibility } from '../../shared/file-visibility';
 import { Button, Dialog, Popover } from '@vuetify/v0';
 import { EllipsisVertical, File, FileArchive, FileAudio, FileCode, FileImage, FileText, FileVideo, Folder, FolderOpen, GripVertical, Pencil } from '@lucide/vue';
@@ -13,9 +13,10 @@ import FileVisibilitySettingsDialog from '@/components/FileVisibilitySettingsDia
 import FileVisibilitySettingsSummary from '@/components/FileVisibilitySettingsSummary.vue';
 import MediaConversionSettingsDialog from '@/components/MediaConversionSettingsDialog.vue';
 import MediaConversionSettingsSummary from '@/components/MediaConversionSettingsSummary.vue';
+import HlsSettingsDialog from '@/components/HlsSettingsDialog.vue';
 import { MAX_FILE_PATH_LENGTH } from '../../shared/const';
 import { isValidFilePath } from '../../shared/name-validation';
-import { UploadTree, type PlannedUploadEntry, type SelectedUploadEntry, type UploadDirectory, type UploadEntry, type UploadConversionPlan } from '@/utils/upload-tree';
+import { UploadTree, type HlsEntryUploadSettings, type PlannedUploadEntry, type SelectedUploadEntry, type UploadDirectory, type UploadEntry, type UploadConversionPlan } from '@/utils/upload-tree';
 import { enqueueStreamingUploadJob, failUploadEntries, finishUploadEntries, pushUploadEntry, uploadWorkerJobs } from '@/store/upload-worker';
 import { buildUploadConflictDirectoryPlan, findUploadConflictsInDirectory, getEffectiveUploadEntries, isPathUnderMissingDirectory } from '@/utils/upload-paths';
 import { takeShareTargetPayload } from '../../shared/share-target-store';
@@ -50,6 +51,14 @@ const uploadPrefix = ref('');
 const archiveMode = ref<ArchiveMode>('individual');
 const archiveModeTouched = ref(false);
 const mediaConversionDialogOpen = ref(false);
+const hlsSettingsDialogOpen = ref(false);
+const hlsSettingsTarget = ref<SelectedUploadEntry | null>(null);
+/**
+ * HLS 変換エントリごとのタイトル/ポスター設定。パスは移動で変わるため File をキーにする。
+ * 深い ref だと取り出した settings が reactive Proxy になり、worker への postMessage
+ * (structured clone)で DataCloneError になるため shallowRef にする(更新は Map 差し替え)。
+ */
+const hlsEntrySettings = shallowRef(new Map<File, HlsEntryUploadSettings>());
 const canEncodeWebp = ref(true);
 const canEncodeAvif = ref(true);
 const avifVariants = ref<MediaImageAvifVariant[]>([{ chromaSubsampling: '444', bitDepth: 8 }]);
@@ -145,6 +154,7 @@ function createConversionPlan(entry: SelectedUploadEntry): UploadConversionPlan 
 				: replacePathExtension(entry.path, outputType),
 			outputType,
 			settings: settings.video,
+			hls: isHlsVideoOutput(outputType) ? hlsEntrySettings.value.get(entry.file) : undefined,
 		};
 	}
 	return undefined;
@@ -228,13 +238,14 @@ function selectedEntryToResolved(entry: PlannedUploadEntry): UploadResolvedEntry
 	};
 }
 
-function plannedEntryToWorkerEntry(entry: PlannedUploadEntry): UploadWorkerFileEntry & { index: number; conversionKind: 'image' | 'video'; originalPath: string } {
+function plannedEntryToWorkerEntry(entry: PlannedUploadEntry): UploadWorkerFileEntry & { index: number; conversionKind: 'image' | 'video'; originalPath: string; hls?: HlsEntryUploadSettings } {
 	return {
 		index: entry.originalIndex,
 		conversionKind: entry.conversionPlan?.kind ?? 'image',
 		originalPath: entry.originalPath,
 		path: entry.path,
 		file: entry.sourceEntry.file,
+		hls: entry.conversionPlan?.kind === 'video' ? entry.conversionPlan.hls : undefined,
 	};
 }
 
@@ -763,6 +774,28 @@ function clearSelectedTree(): void {
 function updateArchiveMode(mode: ArchiveMode): void {
 	archiveModeTouched.value = true;
 	archiveMode.value = mode;
+}
+
+function canEditHlsSettings(entry: SelectedUploadEntry): boolean {
+	const planned = plannedEntryByOriginalPath.value.get(entry.path);
+	return planned != null && isHlsPlannedEntry(planned);
+}
+
+function openHlsSettings(entry: SelectedUploadEntry): void {
+	hlsSettingsTarget.value = entry;
+	hlsSettingsDialogOpen.value = true;
+}
+
+function updateHlsSettings(settings: HlsEntryUploadSettings): void {
+	const target = hlsSettingsTarget.value;
+	if (!target) return;
+	const map = new Map(hlsEntrySettings.value);
+	if (settings.title === undefined && settings.poster === undefined) {
+		map.delete(target.file);
+	} else {
+		map.set(target.file, settings);
+	}
+	hlsEntrySettings.value = map;
 }
 
 async function removeSelectedEntry(path: string): Promise<void> {
@@ -1465,6 +1498,9 @@ onMounted(async () => {
 	                  </Popover.Activator>
                   <Popover.Content class="action-menu">
                     <div class="action-menu-inner">
+                      <Button.Root v-if="canEditHlsSettings(item.entry)" class="btn btn-ghost w-full" @click="openHlsSettings(item.entry)">
+                        <Button.Content>HLS設定</Button.Content>
+                      </Button.Root>
                       <Button.Root class="btn btn-ghost-danger w-full" @click="removeSelectedEntry(item.entry.path)">
                         <Button.Content>削除</Button.Content>
                       </Button.Root>
@@ -1631,6 +1667,14 @@ onMounted(async () => {
           </div>
         </Dialog.Content>
       </Dialog.Root>
+
+      <HlsSettingsDialog
+        v-model:open="hlsSettingsDialogOpen"
+        :file="hlsSettingsTarget?.file ?? null"
+        :entry-name="hlsSettingsTarget?.name ?? ''"
+        :model-value="hlsSettingsTarget ? hlsEntrySettings.get(hlsSettingsTarget.file) : undefined"
+        @update:model-value="updateHlsSettings"
+      />
 
       <MediaConversionSettingsDialog
         v-model:open="mediaConversionDialogOpen"

@@ -828,9 +828,15 @@ onUnmounted(revokeInnerObjectUrl);
         v-if="isHlsTar && fileId && !isEntryFile && !authStore.user && !needsPassphrase"
         :file-id="fileId"
         :filename="baseFilePath"
+        :bucket-name="bucketName"
+        :file-path="baseFilePath"
+        :bucket-id="fileBucketId"
+        :is-owner="fileIsOwner"
+        :is-moderation-forced-private="fileIsModerationForcedPrivate"
         :token="autoToken"
         :owner-can-disable-file-ads="ownerCanDisableFileAds"
         :show-ads="true"
+        @update:is-moderation-forced-private="fileIsModerationForcedPrivateChanged"
       />
 
       <!-- アーカイブ内ファイルビュー (ログイン有無問わず) -->
@@ -871,9 +877,15 @@ onUnmounted(revokeInnerObjectUrl);
             v-if="isHlsTar && fileId"
             :file-id="fileId"
             :filename="baseFilePath"
+            :bucket-name="bucketName"
+            :file-path="baseFilePath"
+            :bucket-id="fileBucketId"
+            :is-owner="fileIsOwner"
+            :is-moderation-forced-private="fileIsModerationForcedPrivate"
             :token="autoToken"
             :owner-can-disable-file-ads="ownerCanDisableFileAds"
             :show-ads="true"
+            @update:is-moderation-forced-private="fileIsModerationForcedPrivateChanged"
           />
 	          <BrowseDirectory v-else-if="isTargz || isTar" :bucketName="bucketName" :filePath="baseFilePath" :isTargz="isTargz" :isTar="isTar" :entryPath="entryPath ?? ''" :token="autoToken ?? undefined" :fileId="fileId ?? undefined" :ownerCanDisableFileAds="ownerCanDisableFileAds" />
 	          <BrowseFile

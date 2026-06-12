@@ -21,6 +21,7 @@ import {
 	type VideoCodec,
 	WebMOutputFormat,
 } from 'mediabunny';
+import { HLS_POSTER_NAME } from '../../shared/hls';
 
 type BrowserImageResizerSupportWithAvif = Awaited<ReturnType<typeof getBrowserImageResizerSupportWithAvif>>;
 
@@ -441,14 +442,26 @@ export function hlsOutputDirectory(path: string): string {
 	return dot > slash ? path.slice(0, dot) : path;
 }
 
-/** HLS 変換時のマスタープレイリストのパス */
-export function hlsMasterPlaylistPath(path: string): string {
-	return `${hlsOutputDirectory(path)}/${HLS_MASTER_PLAYLIST_NAME}`;
-}
-
 /** HLS 変換結果を単体アップロード/保存するときの tar パス */
 export function hlsTarArchivePath(path: string): string {
 	return `${hlsOutputDirectory(path)}.tar`;
+}
+
+/** HLS のポスター画像を所定のサイズ・形式（1280x720 contain / JPEG）の poster.jpg に整える */
+export async function createHlsPosterFile(input: Blob): Promise<File> {
+	const result = await resizeAndConvertImage({
+		input,
+		inputMime: input.type,
+		outputMime: 'image/jpeg',
+		width: 1280,
+		height: 720,
+		fit: 'contain',
+		quality: 0.8,
+		exif: 'drop',
+		animation: 'first-frame',
+		colorMetadata: 'canvas-sdr',
+	});
+	return new File([result.blob], HLS_POSTER_NAME, { type: 'image/jpeg', lastModified: Date.now() });
 }
 
 export async function convertImageFile(file: File, settings: MediaImageConversionSettings): Promise<File> {

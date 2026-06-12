@@ -17,6 +17,13 @@ export interface SelectedUploadEntry extends UploadTreeEntryBase {
 
 export type UploadEntry = SelectedUploadEntry;
 
+/** HLS 変換するエントリごとのカスタム設定（tar/m3u8 へ埋め込まれる） */
+export interface HlsEntryUploadSettings {
+	readonly title?: string;
+	/** リサイズ済みポスター画像（poster.jpg として tar に追加される） */
+	readonly poster?: File;
+}
+
 export type UploadConversionPlan =
 	| {
 		readonly kind: 'image';
@@ -29,6 +36,7 @@ export type UploadConversionPlan =
 		readonly outputPath: string;
 		readonly outputType: MediaVideoOutputMime;
 		readonly settings: MediaVideoConversionSettings;
+		readonly hls?: HlsEntryUploadSettings;
 	};
 
 export interface PlannedUploadEntry extends UploadTreeEntryBase {
