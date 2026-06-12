@@ -40,9 +40,11 @@ export class HlsVideoPlayback {
 	readonly #onError?: (message: string, cause: unknown) => void;
 	readonly #onUnsupported?: () => void;
 	#hls: Hls | null = null;
+	#nativeErrorController: AbortController | null = null;
 	#destroyed = false;
 	#recoveredMediaError = false;
 	#handlingFatalError = false;
+	#nativeFallbackTried = false;
 
 	constructor(options: HlsVideoPlaybackOptions) {
 		this.#video = options.video;
@@ -77,6 +79,8 @@ export class HlsVideoPlayback {
 		this.#destroyed = true;
 		this.#hls?.destroy();
 		this.#hls = null;
+		this.#nativeErrorController?.abort();
+		this.#nativeErrorController = null;
 		clearVideoSource(this.#video);
 	}
 
@@ -118,7 +122,18 @@ export class HlsVideoPlayback {
 	}
 
 	async #loadNativeHls(): Promise<boolean> {
+		if (this.#nativeFallbackTried) return false;
+		this.#nativeFallbackTried = true;
 		if (!canPlayNativeHls(this.#video)) return false;
+		this.#nativeErrorController?.abort();
+		this.#nativeErrorController = new AbortController();
+		this.#video.addEventListener('error', () => {
+			if (this.#destroyed) return;
+			this.#onError?.('HLS の再生に失敗しました (nativeHlsError)', this.#video.error);
+		}, {
+			once: true,
+			signal: this.#nativeErrorController.signal,
+		});
 		this.#video.src = this.#transformUrl(this.#src);
 		this.#video.load();
 		this.#onReady?.();
