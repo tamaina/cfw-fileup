@@ -62,13 +62,13 @@ export class HlsVideoPlayback {
 
 	async load(): Promise<void> {
 		try {
+			if (await this.#loadNativeHls()) return;
 			const { default: HlsClass } = await import('hls.js');
 			if (this.#destroyed) return;
 			if (HlsClass.isSupported()) {
 				this.#loadWithHls(HlsClass);
 				return;
 			}
-			if (await this.#loadNativeHls()) return;
 			this.#onUnsupported?.();
 		} catch (err) {
 			console.warn('hls.js player setup failed', err);

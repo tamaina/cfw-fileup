@@ -26,7 +26,10 @@ function withToken(url: string): string {
 	if (!props.token) return url;
 	const parsed = new URL(url, location.origin);
 	if (!parsed.searchParams.has('token')) parsed.searchParams.set('token', props.token);
-	return parsed.origin === location.origin ? `${parsed.pathname}${parsed.search}` : parsed.toString();
+	if (parsed.protocol === location.protocol && parsed.host === location.host) {
+		return `${parsed.pathname}${parsed.search}`;
+	}
+	return parsed.toString();
 }
 
 function teardown(): void {
