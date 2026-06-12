@@ -47,6 +47,21 @@ function closeAppNav() {
 };
 
 const isReady = ref(false);
+const navMediaConversionJob = computed(() => {
+	const runningJob = mediaConversionJobs.value.find(job => job.status === 'running');
+	if (runningJob) return runningJob;
+	const uploadJob = latestUploadJob.value;
+	if (!uploadJob) return null;
+	return mediaConversionJobs.value.find(job => job.uploadJobId === uploadJob.id && job.status === 'done') ?? null;
+});
+const navMediaConversionPercent = computed(() => {
+	const job = navMediaConversionJob.value;
+	if (!job) return 0;
+	if (job.status === 'done') return 100;
+	if (job.totalFiles <= 0) return 0;
+	const currentFileProgress = job.progress ?? 0;
+	return Math.min(100, Math.round((job.fileIndex + currentFileProgress) / job.totalFiles * 100));
+});
 const navUploadPercent = computed(() => {
 	const job = latestUploadJob.value;
 	if (job?.status === 'done') return 100;
@@ -64,7 +79,10 @@ const navUploadText = computed(() => {
 	if (!job) return '';
 	if (job.status === 'done') return `完了: ${job.completedPath ?? job.filename}`;
 	if (job.status === 'error') return `エラー: ${job.filename || job.prefix || 'アップロード'}`;
-	return job.filename || 'アップロード準備中';
+	if (job.filename) return job.filename;
+	const mediaJob = navMediaConversionJob.value;
+	if (mediaJob?.status === 'running') return `メディア変換 ${navMediaConversionPercent.value}%`;
+	return 'アップロード準備中';
 });
 const navDownloadPhaseText = computed(() => {
 	const status = downloadStatus.value;
@@ -317,7 +335,8 @@ async function showUploadNotification(options: {
       </div>
       <div :class="$style.statusStrip">
         <div v-if="authStore.user" :class="$style.statusRow">
-          <span v-if="latestUploadJob" :class="$style.uploadProgress" aria-hidden="true">
+          <span v-if="latestUploadJob || navMediaConversionJob" :class="$style.uploadProgress" aria-hidden="true">
+            <span v-if="navMediaConversionJob" :class="$style.mediaUploadProgressFill" :style="{ width: `${navMediaConversionPercent}%` }" />
             <span :class="$style.uploadProgressFill" :style="{ width: `${navUploadPercent}%` }" />
           </span>
           <NirA to="/uploader" :class="$style.statusAction" aria-label="ファイルアップロード">
@@ -624,10 +643,25 @@ async function showUploadNotification(options: {
 }
 
 .uploadProgressFill {
+  position: absolute;
+  left: 0;
+  top: 0;
   display: block;
   height: 100%;
   background: var(--color-primary);
   transition: width 0.2s ease;
+  z-index: 2;
+}
+
+.mediaUploadProgressFill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: block;
+  height: 100%;
+  background: var(--color-danger);
+  transition: width 0.2s ease;
+  z-index: 1;
 }
 
 .downloadProgressFill {
