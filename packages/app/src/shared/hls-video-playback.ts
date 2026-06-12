@@ -45,6 +45,7 @@ export class HlsVideoPlayback {
 	#recoveredMediaError = false;
 	#handlingFatalError = false;
 	#nativeFallbackTried = false;
+	#errorReported = false;
 
 	constructor(options: HlsVideoPlaybackOptions) {
 		this.#video = options.video;
@@ -144,6 +145,10 @@ export class HlsVideoPlayback {
 	#handleHlsError(HlsClass: typeof Hls, data: ErrorData): void {
 		if (!data.fatal || this.#destroyed) return;
 		console.warn('hls.js fatal playback error', data);
+		if (data.details === HlsClass.ErrorDetails.MEDIA_SOURCE_REQUIRES_RESET) {
+			this.#recoveredMediaError = true;
+			return;
+		}
 		if (data.type === HlsClass.ErrorTypes.MEDIA_ERROR && !this.#recoveredMediaError) {
 			this.#recoveredMediaError = true;
 			this.#hls?.recoverMediaError();
@@ -153,16 +158,12 @@ export class HlsVideoPlayback {
 		this.#handlingFatalError = true;
 		this.#hls?.destroy();
 		this.#hls = null;
-		void this.#loadNativeHls().then((recovered) => {
-			if (this.#destroyed || recovered) return;
-			this.#reportPlaybackError(data);
-		}).catch((err: unknown) => {
-			if (this.#destroyed) return;
-			this.#reportPlaybackError(data, err);
-		});
+		this.#reportPlaybackError(data);
 	}
 
 	#reportPlaybackError(data: ErrorData, nativeFallbackError?: unknown): void {
+		if (this.#errorReported) return;
+		this.#errorReported = true;
 		this.#onError?.(`HLS の再生に失敗しました (${data.details})`, nativeFallbackError === undefined ? data : {
 			hlsError: data,
 			nativeFallbackError,
