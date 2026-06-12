@@ -26,7 +26,7 @@ import type { ZipExtractWorkerMessage } from '@/workers/zip-extract.worker';
 import type { MediaConversionWorkerRequest } from '@/workers/media-conversion.worker';
 import type { UploadResolvedEntry, UploadWorkerFileEntry } from '@/workers/upload-worker-types';
 import { navigateTo } from '@/navigate';
-import { browserUploadAutoOpen, browserUploadNonResumeLimitBytes, browserUploadPartSizeBytes } from '@/store/browser-upload-settings';
+import { browserUploadAutoOpen, browserUploadNonResumeLimitBytes, browserUploadPartSizeBytes, requestBrowserUploadNotificationsOnFirstUpload } from '@/store/browser-upload-settings';
 import { checkMediaVideoInputSupport, cloneMediaConversionSettings, defaultMediaConversionSettings, hlsTarArchivePath, isHlsVideoOutput, normalizeMediaImageConversionSettingsForBrowserSupport, replacePathExtension, supportedAudioEncodeVariants, supportedVideoEncodeVariants, type MediaAudioEncodeVariant, type MediaImageAvifVariant, type MediaVideoEncodeVariant, type MediaVideoInputSupport } from '@/utils/media-conversion';
 import { runMediaConversionWorker } from '@/store/media-conversion-worker';
 
@@ -1147,6 +1147,9 @@ async function startUpload(): Promise<void> {
 		return;
 	}
 	quotaWarningConfirmed.value = false;
+	await requestBrowserUploadNotificationsOnFirstUpload().catch((err) => {
+		console.warn('Failed to request upload notification permission:', err);
+	});
 	await executeUpload();
 }
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, defineComponent, h, watch } from 'vue';
+import { ref, computed, defineComponent, h, onMounted, onUnmounted, watch } from 'vue';
 import { Button, Dialog, Popover, useTheme } from '@vuetify/v0';
 import { CircleFadingArrowUp, Download, Moon, Sun, Upload, User } from '@lucide/vue';
 import { mainRouter } from './router';
@@ -7,9 +7,16 @@ import { fetchCurrentUser, authStore, clearAuth } from './store/auth';
 import { appName, loadAppMeta } from './store/app-meta';
 import { navigateFn } from './navigate';
 import NirA from './components/NirA.vue';
-import { connectUploadWorker, latestUploadJob } from './store/upload-worker';
+import { activeUploadJobs, connectUploadWorker, latestUploadJob, uploadWorkerJobs } from './store/upload-worker';
 import { downloadStatus, downloadStatusPercent } from './store/download-status';
-import { latestMediaConversionErrorJob } from './store/media-conversion-worker';
+import { latestMediaConversionErrorJob, mediaConversionJobs } from './store/media-conversion-worker';
+import { canSendBrowserUploadNotifications } from './store/browser-upload-settings';
+import { formatBytes } from './utils/byte-size';
+import type { UploadJobSnapshot } from './workers/upload-worker-types';
+
+type UploadNotificationOptions = NotificationOptions & {
+	renotify?: boolean;
+};
 
 navigateFn.value = (path) => mainRouter.pushByPath(path);
 
@@ -24,6 +31,16 @@ const mediaConversionErrorDialogJob = computed(() => {
 	return job;
 });
 const mediaConversionErrorDialogOpen = computed(() => mediaConversionErrorDialogJob.value != null);
+const hasActiveBackgroundJob = computed(() =>
+	activeUploadJobs.value.length > 0
+	|| mediaConversionJobs.value.some(job => job.status === 'running')
+);
+const uploadNotificationStates = new Map<string, {
+	status: UploadJobSnapshot['status'];
+	lastPercentBucket: number;
+	lastNotifiedAt: number;
+	finalNotified: boolean;
+}>();
 
 function closeAppNav() {
   appNavOpen.value = false;
@@ -71,6 +88,31 @@ watch(() => authStore.user, (user) => {
 	if (user) connectUploadWorker();
 });
 
+watch(uploadWorkerJobs, jobs => {
+	if (!canSendBrowserUploadNotifications()) return;
+	const liveIds = new Set(jobs.map(job => job.id));
+	for (const job of jobs) {
+		notifyUploadJobUpdate(job);
+	}
+	for (const id of uploadNotificationStates.keys()) {
+		if (!liveIds.has(id)) uploadNotificationStates.delete(id);
+	}
+}, { deep: true });
+
+function handleBeforeUnload(event: BeforeUnloadEvent): void {
+	if (!hasActiveBackgroundJob.value) return;
+	event.preventDefault();
+	event.returnValue = '';
+}
+
+onMounted(() => {
+	window.addEventListener('beforeunload', handleBeforeUnload);
+});
+
+onUnmounted(() => {
+	window.removeEventListener('beforeunload', handleBeforeUnload);
+});
+
 const CurrentPage = computed(() => {
 	const resolved = mainRouter.currentRef.value;
 	if (!resolved) return null;
@@ -99,6 +141,112 @@ function toggleTheme(): void {
 function closeMediaConversionErrorDialog(): void {
 	const job = mediaConversionErrorDialogJob.value;
 	if (job) dismissedMediaConversionErrorJobId.value = job.id;
+}
+
+function notifyUploadJobUpdate(job: UploadJobSnapshot): void {
+	let state = uploadNotificationStates.get(job.id);
+	if (!state) {
+		state = {
+			status: job.status,
+			lastPercentBucket: -1,
+			lastNotifiedAt: 0,
+			finalNotified: false,
+		};
+		uploadNotificationStates.set(job.id, state);
+	}
+
+	if (job.status === 'running') {
+		const percent = uploadJobPercent(job);
+		const percentBucket = Math.floor(percent / 10);
+		const now = Date.now();
+		const shouldNotify = state.status !== 'running'
+			|| percentBucket > state.lastPercentBucket
+			|| now - state.lastNotifiedAt >= 30_000;
+		if (shouldNotify) {
+			state.lastPercentBucket = percentBucket;
+			state.lastNotifiedAt = now;
+			void showUploadNotification({
+				title: `アップロード中: ${uploadJobLabel(job)}`,
+				body: `${percent}%・${formatBytes(job.uploadedBytes)} / ${formatBytes(job.totalBytes)}`,
+				tag: uploadNotificationTag(job.id),
+				url: '/my/uploadings?tab=browser',
+				silent: true,
+			});
+		}
+	} else if (job.status === 'done' && !state.finalNotified) {
+		state.finalNotified = true;
+		state.lastPercentBucket = 10;
+		state.lastNotifiedAt = Date.now();
+		void showUploadNotification({
+			title: 'アップロード完了',
+			body: job.completedPath ? `${job.bucketName}/${job.completedPath}` : uploadJobLabel(job),
+			tag: uploadNotificationTag(job.id),
+			url: job.completedPath ? `/v/${job.bucketName}/${job.completedPath}` : '/my/uploadings?tab=browser',
+		});
+	} else if (job.status === 'error' && !state.finalNotified) {
+		state.finalNotified = true;
+		state.lastNotifiedAt = Date.now();
+		void showUploadNotification({
+			title: 'アップロード失敗',
+			body: job.error ? `${uploadJobLabel(job)}: ${job.error}` : uploadJobLabel(job),
+			tag: uploadNotificationTag(job.id),
+			url: '/my/uploadings?tab=browser',
+		});
+	}
+
+	state.status = job.status;
+}
+
+function uploadNotificationTag(jobId: string): string {
+	return `upload:${jobId}`;
+}
+
+function uploadJobPercent(job: UploadJobSnapshot): number {
+	if (job.status === 'done') return 100;
+	if (job.totalBytes <= 0) return 0;
+	return Math.min(100, Math.round(job.uploadedBytes / job.totalBytes * 100));
+}
+
+function uploadJobLabel(job: UploadJobSnapshot): string {
+	return job.filename || job.completedPath || job.prefix || 'アップロード';
+}
+
+async function showUploadNotification(options: {
+	title: string;
+	body: string;
+	tag: string;
+	url: string;
+	silent?: boolean;
+}): Promise<void> {
+	try {
+		if (!canSendBrowserUploadNotifications()) return;
+		const notificationOptions: UploadNotificationOptions = {
+			body: options.body,
+			badge: '/badge.png',
+			icon: '/icon.any-192.png',
+			tag: options.tag,
+			renotify: true,
+			silent: options.silent,
+			data: { url: options.url },
+		};
+
+		if ('serviceWorker' in navigator) {
+			const registration = await navigator.serviceWorker.ready.catch(() => null);
+			if (registration) {
+				await registration.showNotification(options.title, notificationOptions);
+				return;
+			}
+		}
+
+		const notification = new Notification(options.title, notificationOptions);
+		notification.onclick = () => {
+			window.focus();
+			mainRouter.pushByPath(options.url);
+			notification.close();
+		};
+	} catch (err) {
+		console.warn('Failed to show upload notification:', err);
+	}
 }
 </script>
 

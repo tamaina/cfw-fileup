@@ -20,6 +20,13 @@ sw.addEventListener('fetch', (event) => {
 	event.respondWith(handleShareTarget(event.request));
 });
 
+sw.addEventListener('notificationclick', (event) => {
+	event.notification.close();
+	const data = event.notification.data as { url?: string } | undefined;
+	const targetUrl = data?.url ?? '/my/uploadings?tab=browser';
+	event.waitUntil(openOrFocusClient(targetUrl));
+});
+
 async function handleShareTarget(request: Request): Promise<Response> {
 	const id = crypto.randomUUID();
 	const formData = await request.formData();
@@ -45,6 +52,19 @@ function toShareTargetFileEntry(file: File): ShareTargetFileEntry {
 		type: file.type,
 		lastModified: file.lastModified,
 	};
+}
+
+async function openOrFocusClient(path: string): Promise<void> {
+	const targetUrl = new URL(path, sw.location.origin).href;
+	const clientList = await sw.clients.matchAll({ type: 'window', includeUncontrolled: true });
+	for (const client of clientList) {
+		if ('focus' in client) {
+			await client.focus();
+			if ('navigate' in client) await client.navigate(targetUrl);
+			return;
+		}
+	}
+	await sw.clients.openWindow(targetUrl);
 }
 
 export {};

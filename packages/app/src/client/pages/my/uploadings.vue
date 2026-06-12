@@ -15,10 +15,14 @@ import { cancelMediaConversionWorker, mediaConversionJobs, type MediaConversionJ
 import { formatBytes } from '@/utils/byte-size';
 import {
 	browserUploadAutoOpen,
+	browserUploadNotificationPermission,
+	browserUploadNotificationsEnabled,
 	browserUploadNonResumeLimitBytes,
 	browserUploadPartSizeBytes,
+	isBrowserUploadNotificationSupported,
 	MIN_BROWSER_UPLOAD_SETTING_BYTES,
 	setBrowserUploadAutoOpen,
+	setBrowserUploadNotificationsEnabled,
 	setBrowserUploadNonResumeLimitBytes,
 	setBrowserUploadPartSizeBytes,
 } from '@/store/browser-upload-settings';
@@ -42,6 +46,7 @@ const loadingMore = ref(false);
 const error = ref('');
 const deleteErrors = ref<Record<string, string>>({});
 const activeTab = ref<'server' | 'browser' | 'settings'>('server');
+const notificationSaving = ref(false);
 
 const deleteDialog = ref(false);
 const deleteTarget = ref<UploadEntry | null>(null);
@@ -56,6 +61,18 @@ const uploadSizeSettingSchema = v.pipe(
 const autoOpenSetting = computed<'true' | 'false'>({
 	get: () => browserUploadAutoOpen.value ? 'true' : 'false',
 	set: value => setBrowserUploadAutoOpen(value === 'true'),
+});
+const notificationSetting = computed<'true' | 'false'>({
+	get: () => browserUploadNotificationsEnabled.value ? 'true' : 'false',
+	set: value => {
+		void updateNotificationSetting(value === 'true');
+	},
+});
+const notificationSettingDescription = computed(() => {
+	if (!isBrowserUploadNotificationSupported()) return 'このブラウザはOS通知に対応していません。';
+	if (browserUploadNotificationPermission.value === 'denied') return 'ブラウザ設定から通知を許可してください。';
+	if (browserUploadNotificationPermission.value === 'default') return '有効にするとブラウザの通知許可を求めます。';
+	return 'アップロード中の進捗と完了/失敗をOS通知で知らせます。';
 });
 const partSizeSetting = computed<number | null>({
 	get: () => browserUploadPartSizeBytes.value,
@@ -112,6 +129,15 @@ function mediaConversionStatusLabel(job: MediaConversionJobSnapshot): string {
 function cancelMediaConversion(job: MediaConversionJobSnapshot): void {
 	if (job.status !== 'running') return;
 	cancelMediaConversionWorker(job.id);
+}
+
+async function updateNotificationSetting(value: boolean): Promise<void> {
+	notificationSaving.value = true;
+	try {
+		await setBrowserUploadNotificationsEnabled(value);
+	} finally {
+		notificationSaving.value = false;
+	}
 }
 
 async function load(cursor: string | null = null): Promise<void> {
@@ -309,6 +335,16 @@ onMounted(() => {
           :option-labels="{ true: '有効', false: '無効' }"
         >
           アップロード画面を開いたままの場合、完了したファイルへ移動します。
+        </SettingItem>
+        <SettingItem
+          v-model="notificationSetting"
+          :schema="booleanSettingSchema"
+          title="OS通知"
+          :saving="notificationSaving"
+          :show-save-button="false"
+          :option-labels="{ true: '有効', false: '無効' }"
+        >
+          {{ notificationSettingDescription }}
         </SettingItem>
         <ByteSizeSettingItem
           v-model="partSizeSetting"
