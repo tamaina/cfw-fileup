@@ -6,6 +6,7 @@ import {
 	checkMovieVideoEncoderBitDepthSupport,
 	convertMovieToHls,
 	type BrowserMovieResizeOptions,
+	type BrowserMovieAudioOptions,
 	type BrowserMovieConversionSupportResult,
 	type MovieHlsAsset,
 } from '@browser-mc/browser-movie-converter';
@@ -38,6 +39,7 @@ export type MediaImageAvifVariant = {
 export const HLS_PLAYLIST_MIME = 'application/vnd.apple.mpegurl';
 export const HLS_MASTER_PLAYLIST_NAME = 'master.m3u8';
 export type MediaVideoOutputMime = 'video/mp4' | 'video/webm' | typeof HLS_PLAYLIST_MIME;
+export type MediaAudioCodecSetting = AudioCodec | 'preserve';
 export type { AudioCodec, MovieHlsAsset, VideoCodec };
 
 export interface MediaImageConversionSettings {
@@ -68,7 +70,7 @@ export interface MediaVideoConversionSettings {
 	enabled: boolean;
 	outputMime: MediaVideoOutputMime;
 	videoCodec: VideoCodec;
-	audioCodec: AudioCodec;
+	audioCodec: MediaAudioCodecSetting;
 	videoBitrate: number;
 	audioBitrate: number;
 	maxWidth: number | null;
@@ -153,11 +155,11 @@ export const mediaVideoCodecOptions = {
 } as const satisfies Record<MediaVideoOutputMime, readonly VideoCodec[]>;
 
 export const mediaAudioCodecOptions = {
-	'video/mp4': ['aac', 'mp3'] satisfies AudioCodec[],
-	'video/webm': ['opus', 'vorbis'] satisfies AudioCodec[],
+	'video/mp4': ['preserve', 'aac', 'mp3'] satisfies MediaAudioCodecSetting[],
+	'video/webm': ['preserve', 'opus', 'vorbis'] satisfies MediaAudioCodecSetting[],
 	// opus は MPEG-TS に格納できないため、選ぶとセグメントは CMAF になる
-	[HLS_PLAYLIST_MIME]: ['aac', 'mp3', 'opus'] satisfies AudioCodec[],
-} as const satisfies Record<MediaVideoOutputMime, readonly AudioCodec[]>;
+	[HLS_PLAYLIST_MIME]: ['preserve', 'aac', 'mp3', 'opus'] satisfies MediaAudioCodecSetting[],
+} as const satisfies Record<MediaVideoOutputMime, readonly MediaAudioCodecSetting[]>;
 
 export function defaultVideoCodecForOutput(outputMime: MediaVideoOutputMime): VideoCodec {
 	return outputMime === 'video/webm' ? 'vp9' : 'avc';
@@ -176,7 +178,7 @@ export function normalizeVideoConversionSettings(settings: MediaVideoConversionS
 	const videoCodec = selectableVideoCodecs.includes(settings.videoCodec)
 		? settings.videoCodec
 		: defaultVideoCodecForOutput(settings.outputMime);
-	const audioCodec = (mediaAudioCodecOptions[settings.outputMime] as readonly AudioCodec[]).includes(settings.audioCodec)
+	const audioCodec = (mediaAudioCodecOptions[settings.outputMime] as readonly MediaAudioCodecSetting[]).includes(settings.audioCodec)
 		? settings.audioCodec
 		: defaultAudioCodecForOutput(settings.outputMime);
 	// 後方互換: バリアント未設定なら単一設定から1行生成する
@@ -440,6 +442,14 @@ function videoResizeOptions(settings: Pick<MediaVideoConversionSettings, 'maxWid
 	};
 }
 
+function audioConversionOptions(settings: Pick<MediaVideoConversionSettings, 'audioCodec' | 'audioBitrate'>): BrowserMovieAudioOptions {
+	if (settings.audioCodec === 'preserve') return {};
+	return {
+		codec: settings.audioCodec,
+		bitrate: settings.audioBitrate,
+	};
+}
+
 /** HLS 変換の出力ディレクトリ（入力パスの拡張子を除いたもの） */
 export function hlsOutputDirectory(path: string): string {
 	const dot = path.lastIndexOf('.');
@@ -534,10 +544,7 @@ export async function* convertVideoFileToHls(file: File, settings: MediaVideoCon
 				}),
 				colorMetadata: variant.colorMetadata,
 			})),
-			audio: {
-				codec: normalizedSettings.audioCodec,
-				bitrate: normalizedSettings.audioBitrate,
-			},
+			audio: audioConversionOptions(normalizedSettings),
 			targetDuration: normalizedSettings.hlsSegmentDuration,
 			colorMetadata: normalizedSettings.colorMetadata ?? 'preserve',
 			forceTranscode: true,
@@ -580,10 +587,7 @@ export async function convertVideoFile(file: File, settings: MediaVideoConversio
 				codec: normalizedSettings.videoCodec,
 				bitrate: normalizedSettings.videoBitrate,
 			},
-			audio: {
-				codec: normalizedSettings.audioCodec,
-				bitrate: normalizedSettings.audioBitrate,
-			},
+			audio: audioConversionOptions(normalizedSettings),
 			resize: videoResizeOptions(normalizedSettings),
 			forceTranscode: true,
 			colorMetadata: normalizedSettings.colorMetadata ?? 'preserve',

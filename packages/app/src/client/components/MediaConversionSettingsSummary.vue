@@ -45,6 +45,10 @@ const videoRawBitDepthLabel = computed(() => {
 });
 const videoRawChromaSubsamplingLabel = computed(() => chromaSubsamplingLabel(props.settings.video.rawChromaSubsampling ?? 'preserve'));
 const hlsSegmentDurationLabel = computed(() => `${props.settings.video.hlsSegmentDuration ?? 2}秒`);
+const audioCodecLabel = computed(() => {
+	if (props.settings.video.audioCodec === 'preserve') return '音声維持';
+	return `${props.settings.video.audioCodec.toUpperCase()} ${formatKbps(props.settings.video.audioBitrate)}`;
+});
 const videoMaxSizeLabel = computed(() => {
 	const { maxWidth, maxHeight } = props.settings.video;
 	if (maxWidth == null && maxHeight == null) return '自動サイズ';
@@ -84,7 +88,7 @@ function chromaSubsamplingLabel(chromaSubsampling: MediaVideoRawChromaSubsamplin
           </span>
         </template>
         <span v-else :class="$style.item"><Clapperboard :size="14" :stroke-width="2" aria-hidden="true" />{{ settings.video.videoCodec.toUpperCase() }} {{ formatMbps(settings.video.videoBitrate) }}</span>
-        <span :class="$style.item"><AudioLines :size="14" :stroke-width="2" aria-hidden="true" />{{ settings.video.audioCodec.toUpperCase() }} {{ formatKbps(settings.video.audioBitrate) }}</span>
+        <span :class="$style.item"><AudioLines :size="14" :stroke-width="2" aria-hidden="true" />{{ audioCodecLabel }}</span>
         <span v-if="isHlsVideo" :class="$style.item"><Timer :size="14" :stroke-width="2" aria-hidden="true" />{{ hlsSegmentDurationLabel }}</span>
         <span v-if="!isHlsVideo" :class="$style.item"><SwatchBook :size="14" :stroke-width="2" aria-hidden="true" />{{ videoColorMetadataLabel }}</span>
         <span v-if="!isHlsVideo" :class="$style.item"><Palette :size="14" :stroke-width="2" aria-hidden="true" />{{ videoRawBitDepthLabel }}</span>

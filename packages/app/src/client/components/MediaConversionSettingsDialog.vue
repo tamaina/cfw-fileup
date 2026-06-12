@@ -3,7 +3,6 @@ import { computed, ref, watch } from 'vue';
 import { Dialog } from '@vuetify/v0';
 import { AudioLines, BadgeInfo, Clapperboard, FileType, Film, Gauge, MoveHorizontal, MoveVertical, Palette, ScanLine, Sparkles, SwatchBook, Timer } from '@lucide/vue';
 import {
-	type AudioCodec,
 	defaultAudioCodecForOutput,
 	defaultVideoCodecForOutput,
 	HLS_PLAYLIST_MIME,
@@ -16,6 +15,7 @@ import {
 	type MediaImageAvifChromaSubsampling,
 	type MediaImageAvifVariant,
 	type MediaAudioEncodeVariant,
+	type MediaAudioCodecSetting,
 	type MediaConversionSettings,
 	type MediaVideoEncodeVariant,
 	type MediaVideoRawBitDepth,
@@ -167,7 +167,7 @@ const videoOutputMime = computed({
 				videoCodec: (mediaVideoCodecOptions[normalizedOutputMime] as readonly VideoCodec[]).includes(currentVideoCodec)
 					? currentVideoCodec
 					: defaultVideoCodecForOutput(normalizedOutputMime),
-				audioCodec: (mediaAudioCodecOptions[normalizedOutputMime] as readonly AudioCodec[]).includes(currentAudioCodec)
+				audioCodec: (mediaAudioCodecOptions[normalizedOutputMime] as readonly MediaAudioCodecSetting[]).includes(currentAudioCodec)
 					? currentAudioCodec
 					: defaultAudioCodecForOutput(normalizedOutputMime),
 			},
@@ -186,6 +186,7 @@ const audioCodec = computed({
 		draftSettings.value = { ...draftSettings.value, video: { ...draftSettings.value.video, audioCodec } };
 	},
 });
+const isAudioCodecPreserved = computed(() => audioCodec.value === 'preserve');
 const videoBitrate = computed({
 	get: () => draftSettings.value.video.videoBitrate / 1_000_000,
 	set: videoMbps => {
@@ -242,9 +243,9 @@ const selectableVideoCodecs = computed(() => {
 	return supportedCodecs.length > 0 ? supportedCodecs : codecs;
 });
 const selectableAudioCodecs = computed(() => {
-	const codecs = mediaAudioCodecOptions[draftSettings.value.video.outputMime] as readonly AudioCodec[];
+	const codecs = mediaAudioCodecOptions[draftSettings.value.video.outputMime] as readonly MediaAudioCodecSetting[];
 	if (props.audioEncodeVariants.length === 0) return codecs;
-	const supportedCodecs = codecs.filter(codec => props.audioEncodeVariants.some(variant => variant.audioCodec === codec));
+	const supportedCodecs = codecs.filter(codec => codec === 'preserve' || props.audioEncodeVariants.some(variant => variant.audioCodec === codec));
 	return supportedCodecs.length > 0 ? supportedCodecs : codecs;
 });
 const isHlsDraftOutput = computed(() => isHlsVideoOutput(draftSettings.value.video.outputMime));
@@ -470,6 +471,11 @@ function rawChromaSubsamplingLabel(chromaSubsampling: MediaVideoRawChromaSubsamp
 	return '4:4:4';
 }
 
+function audioCodecLabel(codec: MediaAudioCodecSetting): string {
+	if (codec === 'preserve') return '維持';
+	return codec.toUpperCase();
+}
+
 function nullableNumber(event: Event): number | null {
 	const value = (event.target as HTMLInputElement).value;
 	return value === '' ? null : Number(value);
@@ -583,14 +589,14 @@ function nullableNumber(event: Event): number | null {
             <label class="form-group">
               <span class="form-label" :class="$style.label"><AudioLines :size="14" :stroke-width="2" />音声コーデック</span>
               <select v-model="audioCodec" class="form-input" :disabled="!canEditVideoSettings">
-                <option v-for="codec in selectableAudioCodecs" :key="codec" :value="codec">{{ codec.toUpperCase() }}</option>
+                <option v-for="codec in selectableAudioCodecs" :key="codec" :value="codec">{{ audioCodecLabel(codec) }}</option>
               </select>
             </label>
             <label v-if="!isHlsDraftOutput" class="form-group">
               <span class="form-label" :class="$style.label"><Gauge :size="14" :stroke-width="2" />映像ビットレート (Mbps)</span>
               <input v-model.number="videoBitrate" class="form-input" type="number" min="0.1" step="0.1" :disabled="!canEditVideoSettings">
             </label>
-            <label class="form-group">
+            <label v-if="!isAudioCodecPreserved" class="form-group">
               <span class="form-label" :class="$style.label"><Gauge :size="14" :stroke-width="2" />音声ビットレート (Kbps)</span>
               <input v-model.number="audioBitrate" class="form-input" type="number" min="32" step="16" :disabled="!canEditVideoSettings">
             </label>
