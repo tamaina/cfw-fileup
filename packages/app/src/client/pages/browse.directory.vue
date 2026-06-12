@@ -432,6 +432,7 @@ async function startDirectoryArchiveDownload(format: 'tar' | 'zip'): Promise<voi
 		await cleanupOpfsFile((err as Error & { opfsName?: string }).opfsName);
 		downloadTransformWorker?.terminate();
 		downloadTransformWorker = null;
+		console.error('Directory file transform download failed', err, { fileId: props.fileId, filePath: props.filePath });
 		const message = err instanceof Error ? err.message : String(err);
 		failDownloadStatus(statusId, message);
 		archiveDownloadError.value = message;
@@ -467,6 +468,7 @@ async function startEntryArchiveDownload(entry: DisplayEntry): Promise<void> {
 		await cleanupOpfsFile((err as Error & { opfsName?: string }).opfsName);
 		archiveDownloadWorker?.terminate();
 		archiveDownloadWorker = null;
+		console.error('Entry archive download failed', err, { entryPath: entry.fullPath });
 		const message = err instanceof Error ? err.message : String(err);
 		failDownloadStatus(statusId, message);
 		archiveDownloadError.value = message;
@@ -500,6 +502,7 @@ async function startArchiveToZipDownload(): Promise<void> {
 		await cleanupOpfsFile((err as Error & { opfsName?: string }).opfsName);
 		archiveDownloadWorker?.terminate();
 		archiveDownloadWorker = null;
+		console.error('Archive to ZIP download failed', err, { fileId: props.fileId, filePath: props.filePath });
 		const message = err instanceof Error ? err.message : String(err);
 		failDownloadStatus(statusId, message);
 		archiveDownloadError.value = message;
@@ -534,6 +537,7 @@ async function startFullArchiveDownload(decompress: boolean): Promise<void> {
 		await cleanupOpfsFile((err as Error & { opfsName?: string }).opfsName);
 		archiveDownloadWorker?.terminate();
 		archiveDownloadWorker = null;
+		console.error('Full archive download failed', err, { fileId: props.fileId, filePath: props.filePath, decompress });
 		const message = err instanceof Error ? err.message : String(err);
 		failDownloadStatus(statusId, message);
 		archiveDownloadError.value = message;

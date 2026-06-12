@@ -168,6 +168,11 @@ function runMediaConversionForItems(targetItems: readonly MediaItem[]): Promise<
 			if (!item) return;
 			await handleSingleConvertedEntry(item, entry).catch((err) => {
 				item.status = 'error';
+				console.error('Converted media item handling failed', err, {
+					fileName: item.file.name,
+					fileType: item.file.type,
+					fileSize: item.file.size,
+				});
 				item.error = err instanceof Error ? err.message : String(err);
 			});
 		},
@@ -222,6 +227,7 @@ async function convertAll(): Promise<void> {
 		}
 		await runMediaConversionForItems(targetItems);
 	} catch (err) {
+		console.error('Media compression failed', err);
 		selectionError.value = err instanceof Error ? err.message : String(err);
 	} finally {
 		isConverting.value = false;

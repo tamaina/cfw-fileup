@@ -73,6 +73,7 @@ async function setup(): Promise<void> {
 	} catch (err) {
 		if (sequence !== setupSequence) return;
 		loading.value = false;
+		console.error('HLS video preview setup failed', err, { src: props.src });
 		error.value = err instanceof Error ? err.message : String(err);
 	}
 }

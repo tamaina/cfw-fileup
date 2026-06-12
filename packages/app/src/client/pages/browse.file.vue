@@ -200,6 +200,7 @@ async function startDecompressedDownload(): Promise<void> {
 		await cleanupTempFile((err as Error & { opfsName?: string }).opfsName);
 		downloadTransformWorker?.terminate();
 		downloadTransformWorker = null;
+		console.error('Transformed file download failed', err, { fileId: props.fileId, filePath: props.filePath });
 		const message = err instanceof Error ? err.message : String(err);
 		failDownloadStatus(statusId, message);
 		downloadError.value = message;

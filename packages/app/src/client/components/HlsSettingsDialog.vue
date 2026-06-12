@@ -68,6 +68,7 @@ async function captureFrame(): Promise<void> {
 		});
 		setPoster(await createHlsPosterFile(blob));
 	} catch (err) {
+		console.error('HLS poster frame capture failed', err, { entryName: props.entryName });
 		posterError.value = err instanceof Error ? err.message : String(err);
 	} finally {
 		posterProcessing.value = false;
@@ -84,6 +85,12 @@ async function handleImageInputChange(event: Event): Promise<void> {
 	try {
 		setPoster(await createHlsPosterFile(file));
 	} catch (err) {
+		console.error('HLS poster image conversion failed', err, {
+			entryName: props.entryName,
+			fileName: file.name,
+			fileType: file.type,
+			fileSize: file.size,
+		});
 		posterError.value = err instanceof Error ? err.message : String(err);
 	} finally {
 		posterProcessing.value = false;

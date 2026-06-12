@@ -304,6 +304,11 @@ export async function checkMediaVideoInputSupport(file: File): Promise<MediaVide
 				?? 'この動画は現在のブラウザでは変換できません。',
 		};
 	} catch (error) {
+		console.error('Video input support check failed', error, {
+			fileName: file.name,
+			fileType: file.type,
+			fileSize: file.size,
+		});
 		return {
 			supported: false,
 			reason: error instanceof Error ? error.message : String(error),
@@ -490,12 +495,11 @@ export async function convertImageFile(file: File, settings: MediaImageConversio
 		const name = replacePathExtension(file.name, result.mime);
 		return new File([result.blob], name, { type: result.mime, lastModified: file.lastModified });
 	} catch (error) {
-		console.error('Image encoding failed', {
+		console.error('Image encoding failed', error, {
 			fileName: file.name,
 			fileType: file.type,
 			fileSize: file.size,
 			settings,
-			error,
 		});
 		throw error;
 	}
@@ -542,12 +546,11 @@ export async function* convertVideoFileToHls(file: File, settings: MediaVideoCon
 			yield asset;
 		}
 	} catch (error) {
-		console.error('HLS encoding failed', {
+		console.error('HLS encoding failed', error, {
 			fileName: file.name,
 			fileType: file.type,
 			fileSize: file.size,
 			settings: normalizedSettings,
-			error,
 		});
 		throw error;
 	}
@@ -595,12 +598,11 @@ export async function convertVideoFile(file: File, settings: MediaVideoConversio
 		const name = replacePathExtension(file.name, normalizedSettings.outputMime);
 		return new File([target.buffer], name, { type: normalizedSettings.outputMime, lastModified: file.lastModified });
 	} catch (error) {
-		console.error('Video encoding failed', {
+		console.error('Video encoding failed', error, {
 			fileName: file.name,
 			fileType: file.type,
 			fileSize: file.size,
 			settings: normalizedSettings,
-			error,
 		});
 		throw error;
 	}

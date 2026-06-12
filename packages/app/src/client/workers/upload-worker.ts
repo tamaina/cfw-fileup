@@ -135,6 +135,7 @@ function startStreamingJob(job: StreamingJob): void {
 			updateJob(job.id, { status: 'done', uploadedBytes: result.totalBytes, totalBytes: result.totalBytes, completedPath: result.completedPath });
 		} catch (err) {
 			job.queue.close();
+			console.error('Streaming upload job failed', err, { jobId: job.id });
 			updateJob(job.id, { status: 'error', error: err instanceof Error ? err.message : String(err) });
 		} finally {
 			streamingJobs.delete(job.id);

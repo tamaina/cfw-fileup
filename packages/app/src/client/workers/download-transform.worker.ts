@@ -54,6 +54,11 @@ async function handleRequest(request: DownloadTransformWorkerRequest): Promise<v
 		}
 		post({ type: 'done', id: request.id, opfsName, filename: request.filename, mimeType: request.mode === 'download' ? request.mimeType : 'video/mp4' });
 	} catch (err) {
+		console.error('Download transform worker failed', err, {
+			mode: request.mode,
+			filename: request.filename,
+			opfsName,
+		});
 		post({ type: 'error', id: request.id, error: err instanceof Error ? err.message : String(err), opfsName });
 	}
 }

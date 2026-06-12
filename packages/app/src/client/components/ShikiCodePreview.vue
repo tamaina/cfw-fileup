@@ -51,6 +51,7 @@ watch(
 				theme: 'github-dark',
 			});
 		} catch (err) {
+			console.error('Code highlighting failed', err, { lang: props.lang });
 			error.value = err instanceof Error ? err.message : String(err);
 		} finally {
 			loading.value = false;

@@ -237,6 +237,7 @@ async function refreshInnerObjectUrl(): Promise<void> {
 		innerObjectUrl.value = URL.createObjectURL(blob);
 	} catch (error) {
 		revokeInnerObjectUrl();
+		console.error('Inner archive preview failed', error, { bucketName: props.bucketName, filePath: props.filePath, innerPath: innerMeta.value?.path });
 		innerDownloadError.value = error instanceof Error ? error.message : String(error);
 	}
 }
@@ -256,6 +257,7 @@ async function downloadInnerEntry(event: MouseEvent): Promise<void> {
 		a.click();
 		a.remove();
 	} catch (error) {
+		console.error('Inner archive entry download failed', error, { bucketName: props.bucketName, filePath: props.filePath, innerPath: innerMeta.value?.path });
 		innerDownloadError.value = error instanceof Error ? error.message : String(error);
 	}
 }

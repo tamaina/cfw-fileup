@@ -521,6 +521,7 @@ async function selectFiles(files: FileList | null): Promise<void> {
 	try {
 		await addSelectedTreeWithZipPrompts(await UploadTree.from(files));
 	} catch (err) {
+		console.error('File selection failed', err);
 		selectionError.value = err instanceof Error ? err.message : String(err);
 	}
 }
@@ -532,6 +533,7 @@ async function handleDrop(event: DragEvent): Promise<void> {
 	try {
 		await addSelectedTreeWithZipPrompts(await UploadTree.from(data));
 	} catch (err) {
+		console.error('Dropped file selection failed', err);
 		selectionError.value = err instanceof Error ? err.message : String(err);
 	}
 }
@@ -618,6 +620,7 @@ async function consumeShareTargetPayload(): Promise<void> {
 		}));
 		await addSelectedTreeWithZipPrompts(await UploadTree.from({ entries }));
 	} catch (err) {
+		console.error('Share target payload handling failed', err, { shareTargetId });
 		selectionError.value = err instanceof Error ? err.message : String(err);
 	}
 }
@@ -1164,6 +1167,7 @@ async function executeUpload(): Promise<void> {
 	try {
 		plannedEntries = getEffectivePlannedEntries();
 	} catch (err) {
+		console.error('Upload planning failed', err);
 		uploadError.value = err instanceof Error ? err.message : String(err);
 		return;
 	}
@@ -1245,11 +1249,13 @@ async function executeUpload(): Promise<void> {
 			if (!shouldConvertMediaEntry(entry)) pushUploadEntry(jobId, selectedEntryToResolved(entry));
 		}
 		void runMediaConversionPipeline(jobId, plannedEntries).catch((err) => {
+			console.error('Upload media conversion pipeline failed', err, { jobId });
 			const message = err instanceof Error ? err.message : String(err);
 			uploadError.value = message;
 			failUploadEntries(jobId, message);
 		});
 	} catch (err) {
+		console.error('Upload start failed', err);
 		uploadError.value = err instanceof Error ? err.message : String(err);
 	}
 }

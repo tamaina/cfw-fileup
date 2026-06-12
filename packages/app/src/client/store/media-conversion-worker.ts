@@ -121,6 +121,7 @@ export function runMediaConversionWorker(request: MediaConversionWorkerRequest, 
 			activeReject = null;
 			activeRequestId = null;
 			currentWorker.terminate();
+			console.error('Media conversion worker runtime error', event);
 			updateJob(request.id, { status: 'error', error: event.message });
 			reject(new Error(event.message));
 		};

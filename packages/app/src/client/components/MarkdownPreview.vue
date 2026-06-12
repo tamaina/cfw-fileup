@@ -55,6 +55,7 @@ watch(
 			}
 			source.value = await res.text();
 		} catch (err) {
+			console.error('Markdown preview failed', err, { url, filename: props.filename });
 			error.value = err instanceof Error ? err.message : String(err);
 		} finally {
 			loading.value = false;

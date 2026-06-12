@@ -64,6 +64,13 @@ async function handleRequest(request: MediaConversionWorkerRequest): Promise<voi
 					},
 				});
 			}).catch((err) => {
+				console.error('Media conversion failed; falling back to original file', err, {
+					fileName: entry.file.name,
+					fileType: entry.file.type,
+					fileSize: entry.file.size,
+					path: entry.path,
+					conversionKind: entry.conversionKind,
+				});
 				post({
 					type: 'fallback-entry',
 					id: request.id,
@@ -94,6 +101,7 @@ async function handleRequest(request: MediaConversionWorkerRequest): Promise<voi
 		}
 		post({ type: 'done', id: request.id });
 	} catch (err) {
+		console.error('Media conversion worker failed', err, { requestId: request.id });
 		post({ type: 'error', id: request.id, error: err instanceof Error ? err.message : String(err) });
 	}
 }
@@ -194,6 +202,13 @@ async function convertHlsEntry(entry: MediaConversionWorkerFileEntry, request: M
 	} catch (err) {
 		await Promise.allSettled(writes);
 		await Promise.all(opfsNames.map(deleteFromOpfs));
+		console.error('HLS media conversion failed; falling back to original file', err, {
+			fileName: entry.file.name,
+			fileType: entry.file.type,
+			fileSize: entry.file.size,
+			path: entry.path,
+			conversionKind: entry.conversionKind,
+		});
 		post({
 			type: 'fallback-entry',
 			id: request.id,

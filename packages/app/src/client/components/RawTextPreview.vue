@@ -31,6 +31,7 @@ watch(
 			source.value = preview.text;
 			truncated.value = preview.truncated;
 		} catch (err) {
+			console.error('Raw text preview failed', err, { url, filename: props.filename });
 			error.value = err instanceof Error ? err.message : String(err);
 		} finally {
 			loading.value = false;

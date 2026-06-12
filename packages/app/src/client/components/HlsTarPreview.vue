@@ -147,6 +147,10 @@ async function downloadAsMp4(): Promise<void> {
 		await cleanupTempFile((err as Error & { opfsName?: string }).opfsName);
 		downloadTransformWorker?.terminate();
 		downloadTransformWorker = null;
+		console.error('HLS MP4 download failed', err, {
+			fileId: props.fileId,
+			selectedDownloadUrl: selectedDownloadUrl.value,
+		});
 		const message = err instanceof Error ? err.message : String(err);
 		failDownloadStatus(statusId, message);
 		downloadError.value = message;
@@ -201,6 +205,7 @@ async function loadMasterPlaylist(): Promise<void> {
 			posterUrl.value = archiveEntryStreamUrl(props.fileId, posterPath, props.token);
 		}
 	} catch (err) {
+		console.error('HLS playlist preview failed', err, { fileId: props.fileId });
 		error.value = err instanceof Error ? err.message : String(err);
 	}
 }

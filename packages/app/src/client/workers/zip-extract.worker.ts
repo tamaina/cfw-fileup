@@ -28,6 +28,11 @@ async function handleRequest(request: ZipExtractWorkerRequest): Promise<void> {
 			post({ type: 'invalid-password', id: request.id });
 			return;
 		}
+		console.error('ZIP extraction worker failed', err, {
+			fileName: request.file.name,
+			fileType: request.file.type,
+			fileSize: request.file.size,
+		});
 		post({ type: 'error', id: request.id, error: err instanceof Error ? err.message : String(err) });
 	}
 }

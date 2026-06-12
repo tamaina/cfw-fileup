@@ -88,6 +88,11 @@ async function handleRequest(request: ArchiveDownloadWorkerRequest): Promise<voi
 			return;
 		}
 	} catch (err) {
+		console.error('Archive download worker failed', err, {
+			mode: request.mode,
+			filename: request.filename,
+			opfsName,
+		});
 		post({ type: 'error', id: request.id, error: err instanceof Error ? err.message : String(err), opfsName });
 	}
 }
