@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onBeforeUnmount } from 'vue';
+import { ref, watch, onMounted, onBeforeUnmount } from 'vue';
 import { authStore } from '@/store/auth';
 import { HlsVideoPlayback } from '../../shared/hls-video-playback';
 
@@ -15,6 +15,12 @@ const error = ref('');
 const loading = ref(true);
 let playback: HlsVideoPlayback | null = null;
 let setupSequence = 0;
+let playbackKey: string | null = null;
+let setupKeyInProgress: string | null = null;
+
+function currentPlaybackKey(): string {
+	return JSON.stringify([props.src, props.token ?? null]);
+}
 
 function withToken(url: string): string {
 	if (!props.token) return url;
@@ -26,6 +32,7 @@ function withToken(url: string): string {
 function teardown(): void {
 	playback?.destroy();
 	playback = null;
+	playbackKey = null;
 }
 
 function showPlaybackError(message: string, cause: unknown): void {
@@ -35,12 +42,32 @@ function showPlaybackError(message: string, cause: unknown): void {
 }
 
 async function setup(): Promise<void> {
+	const key = currentPlaybackKey();
+	if (key === playbackKey || key === setupKeyInProgress) {
+		console.error('HLS video preview setup skipped', {
+			key,
+			playbackKey,
+			setupKeyInProgress,
+			src: props.src,
+		});
+		return;
+	}
 	const sequence = ++setupSequence;
+	setupKeyInProgress = key;
+	console.error('HLS video preview setup started', {
+		sequence,
+		key,
+		src: props.src,
+		hasToken: props.token != null,
+	});
 	teardown();
 	error.value = '';
 	loading.value = true;
 	const video = videoElement.value;
-	if (!video || !props.src) return;
+	if (!video || !props.src) {
+		setupKeyInProgress = null;
+		return;
+	}
 	try {
 		const nextPlayback = new HlsVideoPlayback({
 			video,
@@ -62,20 +89,28 @@ async function setup(): Promise<void> {
 			return;
 		}
 		playback = nextPlayback;
+		playbackKey = key;
+		console.error('HLS video preview setup completed', {
+			sequence,
+			key,
+			src: props.src,
+		});
 	} catch (err) {
 		if (sequence !== setupSequence) return;
 		loading.value = false;
 		console.error('HLS video preview setup failed', err, { src: props.src });
 		error.value = err instanceof Error ? err.message : String(err);
+	} finally {
+		if (setupKeyInProgress === key) setupKeyInProgress = null;
 	}
 }
 
-watch(() => [props.src, props.token], () => {
+watch([() => props.src, () => props.token], () => {
 	void setup();
 });
 
-watch(videoElement, (element) => {
-	if (element) void setup();
+onMounted(() => {
+	void setup();
 });
 
 onBeforeUnmount(() => {

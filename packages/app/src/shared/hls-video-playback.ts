@@ -1,6 +1,8 @@
 import type Hls from 'hls.js';
 import type { ErrorData, HlsConfig } from 'hls.js';
 
+const MAX_PLAYBACK_ATTEMPTS = 10;
+
 export interface HlsVideoPlaybackOptions {
 	video: HTMLVideoElement;
 	src: string;
@@ -42,10 +44,10 @@ export class HlsVideoPlayback {
 	#hls: Hls | null = null;
 	#nativeErrorController: AbortController | null = null;
 	#destroyed = false;
-	#recoveredMediaError = false;
 	#handlingFatalError = false;
 	#nativeFallbackTried = false;
 	#errorReported = false;
+	#playbackAttemptCount = 0;
 
 	constructor(options: HlsVideoPlaybackOptions) {
 		this.#video = options.video;
@@ -123,13 +125,22 @@ export class HlsVideoPlayback {
 	}
 
 	async #loadNativeHls(): Promise<boolean> {
-		if (this.#nativeFallbackTried) return false;
+		if (!this.#consumeAttempt('native fallback')) return false;
+		if (this.#nativeFallbackTried) {
+			console.error('HLS native fallback skipped: already tried', { src: this.#src });
+			return false;
+		}
 		this.#nativeFallbackTried = true;
-		if (!canPlayNativeHls(this.#video)) return false;
+		console.error('HLS native fallback requested', { src: this.#src });
+		if (!canPlayNativeHls(this.#video)) {
+			console.error('HLS native fallback unavailable', { src: this.#src });
+			return false;
+		}
 		this.#nativeErrorController?.abort();
 		this.#nativeErrorController = new AbortController();
 		this.#video.addEventListener('error', () => {
 			if (this.#destroyed) return;
+			console.error('HLS native fallback failed', this.#video.error);
 			this.#onError?.('HLS の再生に失敗しました (nativeHlsError)', this.#video.error);
 		}, {
 			once: true,
@@ -144,14 +155,53 @@ export class HlsVideoPlayback {
 
 	#handleHlsError(HlsClass: typeof Hls, data: ErrorData): void {
 		if (!data.fatal || this.#destroyed) return;
-		console.warn('hls.js fatal playback error', data);
+		console.error('hls.js fatal playback error', {
+			attempt: this.#playbackAttemptCount,
+			maxAttempts: MAX_PLAYBACK_ATTEMPTS,
+			details: data.details,
+			type: data.type,
+			error: data,
+		});
 		if (data.details === HlsClass.ErrorDetails.MEDIA_SOURCE_REQUIRES_RESET) {
-			this.#recoveredMediaError = true;
+			this.#noteMediaSourceReset(data);
 			return;
 		}
-		if (data.type === HlsClass.ErrorTypes.MEDIA_ERROR && !this.#recoveredMediaError) {
-			this.#recoveredMediaError = true;
-			this.#hls?.recoverMediaError();
+		if (data.type === HlsClass.ErrorTypes.MEDIA_ERROR && this.#recoverMediaError(data)) {
+			return;
+		}
+		if (this.#handlingFatalError) return;
+		this.#failHlsPlayback(data);
+	}
+
+	#noteMediaSourceReset(data: ErrorData): void {
+		if (!this.#consumeAttempt('MediaSource reset', data)) {
+			this.#failHlsPlayback(data, false);
+			return;
+		}
+		console.error('hls.js MediaSource reset accepted', {
+			attempt: this.#playbackAttemptCount,
+			maxAttempts: MAX_PLAYBACK_ATTEMPTS,
+			error: data,
+		});
+	}
+
+	#recoverMediaError(data: ErrorData): boolean {
+		if (!this.#consumeAttempt('manual media recovery', data)) {
+			this.#failHlsPlayback(data, false);
+			return true;
+		}
+		console.error('hls.js manual media recovery requested', {
+			attempt: this.#playbackAttemptCount,
+			maxAttempts: MAX_PLAYBACK_ATTEMPTS,
+			error: data,
+		});
+		this.#hls?.recoverMediaError();
+		return true;
+	}
+
+	#failHlsPlayback(data: ErrorData, countAttempt = true): void {
+		if (countAttempt && !this.#consumeAttempt('fail playback', data)) {
+			this.#reportPlaybackError(data);
 			return;
 		}
 		if (this.#handlingFatalError) return;
@@ -168,5 +218,25 @@ export class HlsVideoPlayback {
 			hlsError: data,
 			nativeFallbackError,
 		});
+	}
+
+	#consumeAttempt(action: string, cause?: unknown): boolean {
+		this.#playbackAttemptCount++;
+		console.error('HLS playback attempt', {
+			action,
+			attempt: this.#playbackAttemptCount,
+			maxAttempts: MAX_PLAYBACK_ATTEMPTS,
+			src: this.#src,
+			cause,
+		});
+		if (this.#playbackAttemptCount <= MAX_PLAYBACK_ATTEMPTS) return true;
+		console.error('HLS playback attempt limit exceeded', {
+			action,
+			attempt: this.#playbackAttemptCount,
+			maxAttempts: MAX_PLAYBACK_ATTEMPTS,
+			src: this.#src,
+			cause,
+		});
+		return false;
 	}
 }
