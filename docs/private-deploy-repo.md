@@ -25,7 +25,18 @@ secret 値は private repo にも commit せず、Cloudflare Workers secrets に
   "assets": {
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": true
+    "run_worker_first": [
+      "/api/*",
+      "/api.json",
+      "/api-doc",
+      "/upload/*",
+      "/v/*",
+      "/d/*",
+      "/e/*",
+      "/a/*",
+      "/ping",
+      "/id"
+    ]
   },
   "compatibility_date": "2026-05-11",
   "vars": {
