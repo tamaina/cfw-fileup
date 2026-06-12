@@ -271,7 +271,7 @@ function getUploadPaths(entries: readonly PlannedUploadEntry[] | null = plannedT
 function getFallbackUploadPaths(entries: readonly PlannedUploadEntry[]): string[] {
 	if (archiveMode.value === 'tar' || archiveMode.value === 'targz') return [];
 	return entries
-		.filter(entry => entry.conversionPlan != null)
+		.filter(entry => entry.conversionPlan != null && !isHlsPlannedEntry(entry))
 		.map(entry =>
 			archiveMode.value === 'gz' && !isHlsPlannedEntry(entry)
 				? `${uploadPrefix.value}${entry.originalPath}.gz`

@@ -202,7 +202,7 @@ async function convertHlsEntry(entry: MediaConversionWorkerFileEntry, request: M
 	} catch (err) {
 		await Promise.allSettled(writes);
 		await Promise.all(opfsNames.map(deleteFromOpfs));
-		console.error('HLS media conversion failed; falling back to original file', err, {
+		console.error('HLS media conversion failed', err, {
 			fileName: entry.file.name,
 			fileType: entry.file.type,
 			fileSize: entry.file.size,
@@ -210,10 +210,9 @@ async function convertHlsEntry(entry: MediaConversionWorkerFileEntry, request: M
 			conversionKind: entry.conversionKind,
 		});
 		post({
-			type: 'fallback-entry',
+			type: 'error',
 			id: request.id,
-			entry: originalEntryToResolved(entry),
-			error: err instanceof Error ? err.message : String(err),
+			error: errorMessage(err),
 		});
 	}
 }
@@ -304,4 +303,11 @@ async function deleteFromOpfs(name: string): Promise<void> {
 
 function post(message: MediaConversionWorkerMessage): void {
 	self.postMessage(message);
+}
+
+function errorMessage(error: unknown): string {
+	if (error instanceof Error) {
+		return error.name && error.name !== 'Error' ? `${error.name}: ${error.message}` : error.message;
+	}
+	return String(error);
 }

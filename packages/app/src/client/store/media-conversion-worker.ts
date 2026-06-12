@@ -1,4 +1,4 @@
-import { readonly, ref } from 'vue';
+import { computed, readonly, ref } from 'vue';
 import type {
 	MediaConversionProgress,
 	MediaConversionWorkerMessage,
@@ -42,6 +42,14 @@ const activeWorkers = new Map<string, {
 }>();
 
 export const mediaConversionJobs = readonly(jobs);
+export const latestMediaConversionErrorJob = computed(() => jobs.value.find(job => job.status === 'error' && job.error) ?? null);
+
+export function formatMediaConversionErrorMessage(error: string): string {
+	if (error === 'OperationError: Encoding error.' || error === 'Encoding error.') {
+		return '動画または音声の変換設定が、このファイルでは利用できない可能性があります。動画コーデック、音声コーデック、ビットレートなどの設定を見直してから再試行してください。';
+	}
+	return error;
+}
 
 export function cancelMediaConversionWorker(requestId: string): void {
 	const activeWorker = activeWorkers.get(requestId);
@@ -110,15 +118,17 @@ export function runMediaConversionWorker(request: MediaConversionWorkerRequest, 
 				}, reject);
 				return;
 			}
-			updateJob(request.id, { status: 'error', error: message.error });
-			reject(new Error(message.error));
+			const error = formatMediaConversionErrorMessage(message.error);
+			updateJob(request.id, { status: 'error', error });
+			reject(new Error(error));
 		};
 		currentWorker.onerror = (event) => {
 			activeWorkers.delete(request.id);
 			currentWorker.terminate();
 			console.error('Media conversion worker runtime error', event);
-			updateJob(request.id, { status: 'error', error: event.message });
-			reject(new Error(event.message));
+			const error = formatMediaConversionErrorMessage(event.message);
+			updateJob(request.id, { status: 'error', error });
+			reject(new Error(error));
 		};
 		currentWorker.postMessage(request);
 	});

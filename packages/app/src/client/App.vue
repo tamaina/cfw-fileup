@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, defineComponent, h, watch } from 'vue';
-import { Button, Popover, useTheme } from '@vuetify/v0';
+import { Button, Dialog, Popover, useTheme } from '@vuetify/v0';
 import { CircleFadingArrowUp, Download, Moon, Sun, Upload, User } from '@lucide/vue';
 import { mainRouter } from './router';
 import { fetchCurrentUser, authStore, clearAuth } from './store/auth';
@@ -9,6 +9,7 @@ import { navigateFn } from './navigate';
 import NirA from './components/NirA.vue';
 import { connectUploadWorker, latestUploadJob } from './store/upload-worker';
 import { downloadStatus, downloadStatusPercent } from './store/download-status';
+import { latestMediaConversionErrorJob } from './store/media-conversion-worker';
 
 navigateFn.value = (path) => mainRouter.pushByPath(path);
 
@@ -16,6 +17,13 @@ const theme = useTheme();
 const isDark = theme.isDark;
 
 const appNavOpen = ref(false);
+const dismissedMediaConversionErrorJobId = ref<string | null>(null);
+const mediaConversionErrorDialogJob = computed(() => {
+	const job = latestMediaConversionErrorJob.value;
+	if (!job || job.id === dismissedMediaConversionErrorJobId.value) return null;
+	return job;
+});
+const mediaConversionErrorDialogOpen = computed(() => mediaConversionErrorDialogJob.value != null);
 
 function closeAppNav() {
   appNavOpen.value = false;
@@ -86,6 +94,11 @@ function logout(): void {
 
 function toggleTheme(): void {
 	theme.cycle(['light', 'dark']);
+}
+
+function closeMediaConversionErrorDialog(): void {
+	const job = mediaConversionErrorDialogJob.value;
+	if (job) dismissedMediaConversionErrorJobId.value = job.id;
 }
 </script>
 
@@ -200,6 +213,21 @@ function toggleTheme(): void {
       </div>
       <component :is="CurrentPage" v-else-if="CurrentPage" />
     </main>
+
+    <Dialog.Root :model-value="mediaConversionErrorDialogOpen" @update:model-value="value => { if (!value) closeMediaConversionErrorDialog(); }">
+      <Dialog.Content :class="$style.errorDialog">
+        <div :class="$style.errorDialogInner">
+          <div :class="$style.errorDialogHeader">
+            <Dialog.Title :class="$style.errorDialogTitle">メディア変換に失敗しました</Dialog.Title>
+            <button type="button" class="btn btn-ghost btn-sm" @click="closeMediaConversionErrorDialog">閉じる</button>
+          </div>
+          <p :class="$style.errorDialogDescription">{{ mediaConversionErrorDialogJob?.error }}</p>
+          <div :class="$style.errorDialogMeta">
+            <span>{{ mediaConversionErrorDialogJob?.filename || mediaConversionErrorDialogJob?.title }}</span>
+          </div>
+        </div>
+      </Dialog.Content>
+    </Dialog.Root>
   </div>
 </template>
 
@@ -494,6 +522,56 @@ function toggleTheme(): void {
   :global(.form-input) {
     min-height: 36px;
   }
+}
+
+.errorDialog {
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: none;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  padding: 0;
+  width: min(440px, calc(100vw - 32px));
+  max-height: 90vh;
+  overflow: auto;
+
+  &::backdrop {
+    background: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(2px);
+  }
+}
+
+.errorDialogInner {
+  display: grid;
+  gap: 12px;
+  padding: 20px;
+}
+
+.errorDialogHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.errorDialogTitle {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.errorDialogDescription {
+  margin: 0;
+  color: var(--color-text);
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.errorDialogMeta {
+  min-width: 0;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 640px) {
