@@ -141,11 +141,10 @@ function fileNote(options: {
 		// HLS tar は tar 自体を添付しても再生できないため、attachment は付けず
 		// /v/ ページへのリンクを吐いて受信側（Misskey 等）のリンクプレビュー
 		// （OGP の twitter:player → /e/ 埋め込みプレイヤー）に任せる。
+		// name/url も付けると Misskey ではタイトルと URL が本文と重複して表示される。
 		const title = options.hlsView.title ?? name;
 		return {
 			...base,
-			name: title,
-			url: options.hlsView.viewUrl,
 			content: `<p><a href="${escapeHtml(options.hlsView.viewUrl)}">${escapeHtml(title)}</a></p>`,
 		};
 	}

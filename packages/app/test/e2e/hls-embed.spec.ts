@@ -147,9 +147,9 @@ test.describe('HLS metadata embedding', () => {
 		const note = await res.json() as { type: string; name?: string; url?: string; content?: string; attachment?: unknown };
 		expect(note.type).toBe('Note');
 		expect(note.attachment).toBeUndefined();
-		expect(note.name).toBe(CUSTOM_TITLE);
+		expect(note.name).toBeUndefined();
 		const viewUrl = `${ORIGIN}/v/${bucketName}/${filePath}`;
-		expect(note.url).toBe(viewUrl);
+		expect(note.url).toBeUndefined();
 		expect(note.content).toContain(`<a href="${viewUrl}">`);
 		expect(note.content).toContain(CUSTOM_TITLE);
 	});
