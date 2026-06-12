@@ -62,7 +62,7 @@ app.put('/upload/:fileId', async (c) => {
 
 	await c.env.R2.put(file.r2Key, c.req.raw.body ?? new Uint8Array(0), {
 		httpMetadata: {
-			contentType: c.req.header('Content-Type') || undefined,
+			contentType: c.req.header('Content-Type') ?? undefined,
 		},
 	});
 

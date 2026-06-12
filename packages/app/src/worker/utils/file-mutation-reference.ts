@@ -50,7 +50,7 @@ export async function toFileMutationReferences(db: ReturnType<typeof getDb>, fil
 }
 
 export async function toFileMutationReference(db: ReturnType<typeof getDb>, file: ArchiveFile): Promise<FileReference> {
-	const [reference] = await toFileMutationReferences(db, [file]);
-	if (reference === undefined) throw new Error('Failed to create file mutation reference');
+	const reference = (await toFileMutationReferences(db, [file])).at(0);
+	if (!reference) throw new Error('Failed to create file mutation reference');
 	return reference;
 }

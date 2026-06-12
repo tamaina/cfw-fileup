@@ -1,4 +1,3 @@
-import { eq } from 'drizzle-orm';
 import { appSettings } from '../scheme/index';
 import { getDb } from './db';
 import { getAppSettingCached, setAppSettingCache } from './app-settings-cache';

@@ -81,7 +81,8 @@ app.get('/meta', async (c) => {
 			.where(inArray(appSettings.key, metaSettingKeys));
 		const settings = new Map(settingRows.map(setting => [setting.key, setting.value]));
 
-		const appName = settings.get('app_name')?.trim() || DEFAULT_APP_NAME;
+		const appNameSetting = settings.get('app_name')?.trim();
+		const appName = appNameSetting === '' || appNameSetting == null ? DEFAULT_APP_NAME : appNameSetting;
 		const mode = settings.get('registration_mode') ?? 'passphrase';
 		const googleRequired = settings.get('google_required') === 'true';
 		const googleAuthEnabled = isGoogleAuthConfigured(c.env);
@@ -107,8 +108,11 @@ app.get('/meta', async (c) => {
 			googleRequired,
 			indieAuthEnabled: true,
 			cryptoPaymentsEnabled,
-			billingResidencyStatement: settings.get('billing_residency_statement')?.trim() || DEFAULT_BILLING_RESIDENCY_STATEMENT,
-			reownProjectId: c.env.REOWN_PROJECT_ID ?? '',
+			billingResidencyStatement: (() => {
+				const statement = settings.get('billing_residency_statement')?.trim();
+				return statement === '' || statement == null ? DEFAULT_BILLING_RESIDENCY_STATEMENT : statement;
+			})(),
+			reownProjectId: c.env.REOWN_PROJECT_ID,
 			walletConnectChainIds: walletConnectChains
 				.map(chain => chain.chainId)
 				.filter(chainId => getPaymentChainRpcUrl(c.env, chainId) !== null),

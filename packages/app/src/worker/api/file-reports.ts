@@ -87,7 +87,7 @@ app.post(
 			fileId: body.fileId,
 			reporterUserId: reporterUser?.id ?? null,
 			reporterName: body.reporterName,
-			reporterEmail: body.reporterEmail ?? null,
+			reporterEmail: body.reporterEmail,
 			reasonId: body.reasonId,
 			relationshipId: body.relationshipId,
 			contact: body.contact ?? null,

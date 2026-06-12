@@ -62,7 +62,7 @@ async function streamToUint8Array(stream: ReadableStream<Uint8Array<ArrayBuffer>
 	const chunks: Uint8Array[] = [];
 	const reader = stream.getReader();
 	try {
-		while (true) {
+		for (;;) {
 			const { done, value } = await reader.read();
 			if (done) break;
 			chunks.push(value);
@@ -1099,8 +1099,9 @@ describe('GET /d/:fileId/%3Aentries/:entryPath (tar.gz individual file)', () => 
 		}, env);
 		expect(res.status).toBe(200);
 		expect(res.body).not.toBeNull();
+		if (res.body == null) throw new Error('Expected response body');
 
-		const decompressed = await streamToUint8Array(res.body!.pipeThrough(createBgzfDecompressor()));
+		const decompressed = await streamToUint8Array(res.body.pipeThrough(createBgzfDecompressor()));
 		expect(decompressed).toEqual(concatUint8Arrays([firstPart, middlePart, lastPart]));
 	});
 });

@@ -20,7 +20,9 @@ async function signupWithToken(username = 'user1') {
 function bytesToBase64Url(bytes: Uint8Array): string {
 	let binary = '';
 	for (let i = 0; i < bytes.length; i++) {
-		binary += String.fromCharCode(bytes[i]!);
+		const byte = bytes.at(i);
+		if (byte == null) throw new Error('Expected byte to exist');
+		binary += String.fromCharCode(byte);
 	}
 	return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }

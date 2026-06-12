@@ -93,9 +93,10 @@ export async function createBillingTaxSnapshot(env: Env, input: {
 	currencyCode: string;
 }): Promise<BillingTaxSnapshot> {
 	const settings = await getSettingMap(env);
-	const taxName = settings.get('billing_tax_name') || '消費税';
-	const taxRate = settings.get('billing_tax_rate') || '0.1';
-	const statementText = settings.get('billing_residency_statement')?.trim() || DEFAULT_BILLING_RESIDENCY_STATEMENT;
+	const taxName = settings.get('billing_tax_name') ?? '消費税';
+	const taxRate = settings.get('billing_tax_rate') ?? '0.1';
+	const trimmedStatementText = settings.get('billing_residency_statement')?.trim();
+	const statementText = trimmedStatementText === '' || trimmedStatementText == null ? DEFAULT_BILLING_RESIDENCY_STATEMENT : trimmedStatementText;
 	const statement = await getOrCreateActiveResidencyStatement(env, input.country, statementText);
 	const tax = calculateIncludedTaxBaseUnits(input.amountBaseUnits, taxRate);
 	return {
@@ -112,8 +113,8 @@ export async function createBillingTaxSnapshot(env: Env, input: {
 export async function getBillingReceiptSeller(env: Env): Promise<BillingReceiptSeller> {
 	const settings = await getSettingMap(env);
 	return {
-		name: settings.get('billing_seller_name') || settings.get('app_name') || DEFAULT_APP_NAME,
-		address: settings.get('billing_seller_address') || '',
-		invoiceRegistrationNumber: settings.get('billing_invoice_registration_number') || '',
+		name: settings.get('billing_seller_name') ?? settings.get('app_name') ?? DEFAULT_APP_NAME,
+		address: settings.get('billing_seller_address') ?? '',
+		invoiceRegistrationNumber: settings.get('billing_invoice_registration_number') ?? '',
 	};
 }

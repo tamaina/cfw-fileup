@@ -113,17 +113,19 @@ export function addPaymentDuration(baseMs: number, value: number, unit: PaymentD
 
 export function calculatePaymentQuote(input: PaymentQuoteInput): PaymentQuote {
 	const baseAmount = BigInt(input.targetPlanPrice.amountBaseUnits);
-	const currentPlans = input.currentPlans ?? (input.currentPlan ? [input.currentPlan] : []);
-	const primaryCurrentPlan = input.currentPlan ?? currentPlans[0] ?? null;
+	const currentPlans = input.currentPlans ?? (input.currentPlan != null ? [input.currentPlan] : []);
+	const primaryCurrentPlan = input.currentPlan ?? currentPlans.at(0) ?? null;
 	const samePlan = primaryCurrentPlan?.id === input.targetPlanId;
 	const downgrade = primaryCurrentPlan != null && !samePlan && input.targetPlanSortOrder < primaryCurrentPlan.sortOrder;
 	const currentPlanStartsAt = primaryCurrentPlan?.startsAt ?? input.quoteCreatedAt;
-	const effectiveBaseAt = (samePlan || downgrade) && primaryCurrentPlan
-		? primaryCurrentPlan.expiresAt
-		: Math.max(input.quoteCreatedAt, currentPlanStartsAt);
+	const effectiveBaseAt = primaryCurrentPlan == null
+		? Math.max(input.quoteCreatedAt, currentPlanStartsAt)
+		: samePlan || downgrade
+			? primaryCurrentPlan.expiresAt
+			: Math.max(input.quoteCreatedAt, currentPlanStartsAt);
 	const effectiveExpiresAt = addPaymentDuration(effectiveBaseAt, input.targetPlanPrice.durationDays, input.targetPlanPrice.durationUnit);
 
-	if (!primaryCurrentPlan || samePlan || downgrade) {
+	if (primaryCurrentPlan == null || samePlan || downgrade) {
 		return {
 			quoteCreatedAt: input.quoteCreatedAt,
 			quoteExpiresAt: input.quoteCreatedAt + input.quoteTtlMs,
@@ -133,7 +135,7 @@ export function calculatePaymentQuote(input: PaymentQuoteInput): PaymentQuote {
 			discountAssignmentIds: [],
 			effectiveStartsAt: effectiveBaseAt,
 			effectiveExpiresAt,
-			currentPlan: primaryCurrentPlan && !samePlan ? toPaymentQuoteCurrentPlan(primaryCurrentPlan) : null,
+			currentPlan: primaryCurrentPlan != null && !samePlan ? toPaymentQuoteCurrentPlan(primaryCurrentPlan) : null,
 		};
 	}
 
@@ -223,8 +225,8 @@ export function evaluateDealDisplayEligibility(
 		const amountB = BigInt(b[0]);
 		return amountA < amountB ? 1 : amountA > amountB ? -1 : 0;
 	});
-	const [referenceAmountBaseUnits, reference] = references[0] ?? [null, null];
-	if (!referenceAmountBaseUnits || !reference) {
+	const [referenceAmountBaseUnits, reference] = references.at(0) ?? [null, null];
+	if (referenceAmountBaseUnits === null) {
 		const hasHigherPrice = enabledPeriods.some(period => BigInt(period.amountBaseUnits) > currentAmount);
 		return toDealDisplayEvaluation(false, hasHigherPrice ? 'sold_less_than_two_weeks' : 'reference_not_higher', null, checkedFrom, checkedTo, 0, totalSoldMs, null);
 	}

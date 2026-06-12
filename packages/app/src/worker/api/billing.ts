@@ -171,26 +171,26 @@ async function createPaymentOfferQuote(env: Env, userId: string, offer: {
 		.orderBy(asc(userPlanAssignments.startsAt), desc(plans.sortOrder), desc(userPlanAssignments.expiresAt));
 	const activeAssignment = assignmentRows
 		.filter(assignment => assignment.startsAt <= quoteCreatedAt && assignment.expiresAt > quoteCreatedAt)
-		.sort((a, b) => b.planSortOrder - a.planSortOrder || b.expiresAt - a.expiresAt)[0] ?? null;
-	const activeUpgradeBase = activeAssignment && offer.planSortOrder > activeAssignment.planSortOrder
-		? activeAssignment
-		: null;
+		.sort((a, b) => b.planSortOrder - a.planSortOrder || b.expiresAt - a.expiresAt).at(0) ?? null;
+	const activeUpgradeBase = activeAssignment == null || offer.planSortOrder <= activeAssignment.planSortOrder
+		? null
+		: activeAssignment;
 	const futureUpgradeBase = assignmentRows
 		.filter(assignment => assignment.startsAt > quoteCreatedAt && assignment.planSortOrder < offer.planSortOrder)
-		.sort((a, b) => a.startsAt - b.startsAt || a.planSortOrder - b.planSortOrder || b.expiresAt - a.expiresAt)[0] ?? null;
+		.sort((a, b) => a.startsAt - b.startsAt || a.planSortOrder - b.planSortOrder || b.expiresAt - a.expiresAt).at(0) ?? null;
 	const futureSamePlanTail = assignmentRows
 		.filter(assignment => assignment.planId === offer.planId && assignment.startsAt > quoteCreatedAt)
-		.sort((a, b) => b.expiresAt - a.expiresAt || b.startsAt - a.startsAt)[0] ?? null;
+		.sort((a, b) => b.expiresAt - a.expiresAt || b.startsAt - a.startsAt).at(0) ?? null;
 	const higherPlanTail = assignmentRows
 		.filter(assignment => assignment.planSortOrder > offer.planSortOrder)
-		.sort((a, b) => b.expiresAt - a.expiresAt || b.startsAt - a.startsAt)[0] ?? null;
-	const scheduleTail = [futureSamePlanTail, higherPlanTail]
-		.filter(assignment => assignment != null)
-		.sort((a, b) => b.expiresAt - a.expiresAt || b.startsAt - a.startsAt)[0] ?? null;
+		.sort((a, b) => b.expiresAt - a.expiresAt || b.startsAt - a.startsAt).at(0) ?? null;
+	const scheduleCandidates = [futureSamePlanTail, higherPlanTail].filter(assignment => assignment !== null);
+	const scheduleTail = scheduleCandidates
+		.sort((a, b) => b.expiresAt - a.expiresAt || b.startsAt - a.startsAt).at(0) ?? null;
 	const referenceAssignment = activeUpgradeBase ?? futureUpgradeBase ?? scheduleTail ?? activeAssignment;
-	const referencePlan = referenceAssignment
-		? await toPaymentQuoteCurrentPlan(env, offer, referenceAssignment, quoteCreatedAt)
-		: null;
+	const referencePlan = referenceAssignment == null
+		? null
+		: await toPaymentQuoteCurrentPlan(env, offer, referenceAssignment, quoteCreatedAt);
 	const upgradeBaseAt = referencePlan && referencePlan.id !== offer.planId && referencePlan.sortOrder < offer.planSortOrder
 		? Math.max(quoteCreatedAt, referencePlan.startsAt ?? quoteCreatedAt)
 		: null;
@@ -288,12 +288,12 @@ async function getReferencePlanPrice(env: Env, assetId: string, planId: string, 
 		));
 	const activePrices = currentPlanPrices.filter(price => price.startsAt <= quoteCreatedAt && (price.expiresAt == null || price.expiresAt > quoteCreatedAt));
 	const price = (activePrices.length > 0 ? activePrices : currentPlanPrices)
-		.sort((a, b) => b.startsAt - a.startsAt || b.createdAt - a.createdAt)[0];
-	return price ? {
+		.sort((a, b) => b.startsAt - a.startsAt || b.createdAt - a.createdAt).at(0);
+	return price == null ? null : {
 		amountBaseUnits: price.amountBaseUnits,
 		durationDays: price.durationDays,
 		durationUnit: price.durationUnit,
-	} : null;
+	};
 }
 
 async function listEnabledOffers(env: Env, userId: string, quoteCreatedAt = Date.now()) {
@@ -649,7 +649,7 @@ app.post(
 			.where(and(eq(cryptoPaymentOrders.id, body.orderId), eq(cryptoPaymentOrders.userId, user.id)))
 			.get();
 		const order = await confirmCryptoPaymentOrder(c.env, user.id, body.orderId, body.txHash, getContextWaitUntil(c));
-		if (before?.status !== 'paid' && order.status === 'paid') await recordModerationEvent(c, 'crypto_payment_order_confirmed', { orderId: order.id, chainId: order.chainId, txHash: order.txHash }, user.id, user.tokenId);
+		if (before.status !== 'paid' && order.status === 'paid') await recordModerationEvent(c, 'crypto_payment_order_confirmed', { orderId: order.id, chainId: order.chainId, txHash: order.txHash }, user.id, user.tokenId);
 		return c.json(order, 200);
 	}, getResponseDefWithAuth('/api/billing/confirm-crypto-order')),
 );
@@ -662,7 +662,7 @@ app.post(
 		const user = c.get('user');
 		const body = c.req.valid('json');
 		const { before, order } = await checkCryptoPaymentOrderWithPreviousStatus(c.env, user.id, body.orderId, getContextWaitUntil(c));
-		if (before?.status !== 'paid' && order.status === 'paid') await recordModerationEvent(c, 'crypto_payment_order_confirmed', { orderId: order.id, chainId: order.chainId, txHash: order.txHash }, user.id, user.tokenId);
+		if (before.status !== 'paid' && order.status === 'paid') await recordModerationEvent(c, 'crypto_payment_order_confirmed', { orderId: order.id, chainId: order.chainId, txHash: order.txHash }, user.id, user.tokenId);
 		return c.json(order, 200);
 	}, getResponseDefWithAuth('/api/billing/check-crypto-order')),
 );

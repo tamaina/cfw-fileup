@@ -989,7 +989,7 @@ app.post(
 			canUseDownloadCount: body.canUseDownloadCount ?? false,
 			showAds: body.showAds ?? true,
 			canDisableFileAds: body.canDisableFileAds ?? false,
-			isEnabled: body.isEnabled ?? true,
+			isEnabled: body.isEnabled,
 			sortOrder,
 			createdAt: now,
 			updatedAt: now,
@@ -1032,7 +1032,7 @@ app.post(
 			canUseDownloadCount: body.canUseDownloadCount ?? false,
 			showAds: body.showAds ?? true,
 			canDisableFileAds: body.canDisableFileAds ?? false,
-			isEnabled: body.isEnabled ?? true,
+			isEnabled: body.isEnabled,
 			sortOrder,
 			createdAt: existing.createdAt,
 			updatedAt: Date.now(),
@@ -1068,7 +1068,7 @@ app.post(
 	'/assign-user-plan',
 	describeRoute(omitResAndReq(apiDef['/api/admin/assign-user-plan'])),
 	validator('json', apiDef['/api/admin/assign-user-plan'].req),
-	describeResponse(async (c: JsonCtx<'/api/admin/assign-user-plan', Env>) => {
+	describeResponse(async () => {
 		throw apiError(400, 'MANUAL_PLAN_ASSIGNMENT_NOT_SUPPORTED');
 	}, getResponseDefWithAuth('/api/admin/assign-user-plan')),
 );

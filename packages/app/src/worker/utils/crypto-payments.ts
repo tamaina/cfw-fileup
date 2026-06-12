@@ -27,5 +27,5 @@ export async function canAcceptCryptoPayments(env: Env): Promise<boolean> {
 			or(isNull(paymentAssetPlanPrices.expiresAt), gt(paymentAssetPlanPrices.expiresAt, Date.now())),
 		));
 
-	return offerChains.some(chain => rpcUrls[String(chain.chainId)] != null);
+	return offerChains.some(chain => String(chain.chainId) in rpcUrls);
 }

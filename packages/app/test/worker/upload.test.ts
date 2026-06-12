@@ -48,7 +48,8 @@ describe('PUT /upload/:fileId', () => {
 
 		const object = await env.R2.get(fileId);
 		expect(object).not.toBeNull();
-		expect(new Uint8Array(await object!.arrayBuffer())).toEqual(data);
+		if (object == null) throw new Error('Expected uploaded object to exist');
+		expect(new Uint8Array(await object.arrayBuffer())).toEqual(data);
 
 		const row = await env.DB.prepare('SELECT upload_id FROM files WHERE id = ?').bind(fileId).first<{ upload_id: string | null }>();
 		expect(row?.upload_id).toBeNull();

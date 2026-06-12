@@ -907,7 +907,8 @@ describe('Crypto payment administration', () => {
 		const offers = await offersRes.json() as Array<{ id: string; deploymentId: string; quote: { discountBaseUnits: string; payableAmountBaseUnits: string; quoteCreatedAt: number; effectiveStartsAt: number; effectiveExpiresAt: number; currentPlan: { id: string } | null } }>;
 		const offer = offers.find(item => item.id === priceId && item.deploymentId === deploymentId);
 		expect(offer).toBeTruthy();
-		return offer!.quote;
+		if (offer == null) throw new Error('Expected offer to exist');
+		return offer.quote;
 	}
 
 	async function createOrderBody(userToken: string, priceId: string, deploymentId: string, payerWalletId: string) {
@@ -956,7 +957,7 @@ describe('Crypto payment administration', () => {
 
 	test('creating a replacement plan price uses immutable price rows as history', async () => {
 		const { adminToken } = await setupAdminAndUser();
-		const { plan, asset, price } = await createCryptoOffer(adminToken);
+		const { plan, asset } = await createCryptoOffer(adminToken);
 		const expiresAt = Date.now() + 1_000;
 
 		const expireRes = await app.request('/api/admin/expire-payment-asset-plan-price', {
@@ -1437,11 +1438,12 @@ describe('Crypto payment administration', () => {
 		expect(offers.filter(offer => offer.id === price.id).map(offer => offer.tokenSymbol).sort()).toEqual(['USDC', 'USDT']);
 		const usdtOffer = offers.find(offer => offer.deploymentId === usdtDeployment.id);
 		expect(usdtOffer).toEqual(expect.objectContaining({ assetSymbol: 'USD', tokenSymbol: 'USDT' }));
+		if (usdtOffer == null) throw new Error('Expected USDT offer to exist');
 
 		const orderRes = await app.request('/api/billing/create-crypto-order', {
 			method: 'POST',
 			headers: authHeaders(userToken),
-			body: JSON.stringify(createOrderBodyWithQuote(price.id, usdtDeployment.id, wallet.id, usdtOffer!.quote)),
+			body: JSON.stringify(createOrderBodyWithQuote(price.id, usdtDeployment.id, wallet.id, usdtOffer.quote)),
 		}, env);
 		expect(orderRes.status).toBe(200);
 		const order = await orderRes.json() as { tokenSymbol: string; deploymentId: string; contractAddress: string };
@@ -1564,7 +1566,7 @@ describe('Crypto payment administration', () => {
 
 	test('payment offers preview same-plan extension and upgrade discount', async () => {
 		const { adminToken, userToken, userId } = await setupAdminAndUser();
-		const { plan, asset, deployment, price } = await createCryptoOffer(adminToken);
+		const { asset, deployment, price } = await createCryptoOffer(adminToken);
 		await enableCryptoPayments();
 		const wallet = await createLinkedWallet(userId);
 		const assignmentExpiresAt = Date.now() + 30 * 86_400_000;
@@ -1623,6 +1625,7 @@ describe('Crypto payment administration', () => {
 		expect(BigInt(upgradeOffer?.quote.discountBaseUnits ?? '0')).toBeGreaterThan(0n);
 		expect(BigInt(upgradeOffer?.quote.payableAmountBaseUnits ?? '90000000')).toBeLessThan(90_000_000n);
 		expect(upgradeOffer?.quote.currentPlan).toEqual(expect.objectContaining({ id: plan.id }));
+		if (upgradeOffer == null) throw new Error('Expected upgrade offer to exist');
 
 		const invalidQuoteRes = await app.request('/api/billing/create-crypto-order', {
 			method: 'POST',
@@ -1632,7 +1635,7 @@ describe('Crypto payment administration', () => {
 				deploymentId: deployment.id,
 				payerWalletId: wallet.id,
 				quotedAmountBaseUnits: '90000000',
-				quoteCreatedAt: upgradeOffer!.quote.quoteCreatedAt,
+				quoteCreatedAt: upgradeOffer.quote.quoteCreatedAt,
 			}),
 		}, env);
 		expect(invalidQuoteRes.status).toBe(400);
@@ -1642,7 +1645,7 @@ describe('Crypto payment administration', () => {
 		const orderRes = await app.request('/api/billing/create-crypto-order', {
 			method: 'POST',
 			headers: authHeaders(userToken),
-			body: JSON.stringify(createOrderBodyWithQuote(upgradePrice.id, deployment.id, wallet.id, upgradeOffer!.quote)),
+			body: JSON.stringify(createOrderBodyWithQuote(upgradePrice.id, deployment.id, wallet.id, upgradeOffer.quote)),
 		}, env);
 		expect(orderRes.status).toBe(200);
 		const order = await orderRes.json() as {
@@ -1657,7 +1660,7 @@ describe('Crypto payment administration', () => {
 		expect(order.planName).toBe('Crypto Max');
 		expect(order.quoteBaseAmountBaseUnits).toBe('90000000');
 		expect(BigInt(order.quoteDiscountBaseUnits)).toBeGreaterThan(0n);
-		expect(order.quoteEffectiveExpiresAt).toBe(upgradeOffer!.quote.effectiveExpiresAt);
+		expect(order.quoteEffectiveExpiresAt).toBe(upgradeOffer.quote.effectiveExpiresAt);
 		expect(order.quoteCurrentPlanId).toBe(plan.id);
 	});
 
@@ -1781,7 +1784,7 @@ describe('Crypto payment administration', () => {
 
 	test('payment offers schedule lower sortOrder plan after current higher plan expires', async () => {
 		const { adminToken, userToken, userId } = await setupAdminAndUser();
-		const { plan, asset, deployment, price } = await createCryptoOffer(adminToken);
+		const { plan, asset, deployment } = await createCryptoOffer(adminToken);
 		await enableCryptoPayments();
 		const wallet = await createLinkedWallet(userId);
 
@@ -1840,7 +1843,7 @@ describe('Crypto payment administration', () => {
 
 	test('payment offers discount upgrades from a future scheduled downgrade', async () => {
 		const { adminToken, userToken, userId } = await setupAdminAndUser();
-		const { plan, asset, deployment, price } = await createCryptoOffer(adminToken);
+		const { plan, asset, deployment } = await createCryptoOffer(adminToken);
 		await enableCryptoPayments();
 
 		const updateBasePlanRes = await app.request('/api/admin/update-plan', {
@@ -1986,7 +1989,7 @@ describe('Crypto payment administration', () => {
 
 	test('payment offers do not discount first purchase or expired subscriptions', async () => {
 		const { adminToken, userToken, userId } = await setupAdminAndUser();
-		const { plan, asset, deployment, price } = await createCryptoOffer(adminToken);
+		const { plan, asset, price } = await createCryptoOffer(adminToken);
 		await enableCryptoPayments();
 
 		const firstOffersRes = await app.request('/api/billing/list-crypto-offers', {
@@ -2036,7 +2039,7 @@ describe('Crypto payment administration', () => {
 
 	test('disabled plans remain assignable but hidden from user payment offers', async () => {
 		const { adminToken, userToken, userId } = await setupAdminAndUser();
-		const { plan, asset, deployment, price } = await createCryptoOffer(adminToken);
+		const { asset, deployment, price } = await createCryptoOffer(adminToken);
 		await enableCryptoPayments();
 		const wallet = await createLinkedWallet(userId);
 
@@ -2075,7 +2078,7 @@ describe('Crypto payment administration', () => {
 
 	test('disabled payment assets hide offers and reject order creation', async () => {
 		const { adminToken, userToken, userId } = await setupAdminAndUser();
-		const { plan, asset, deployment, price } = await createCryptoOffer(adminToken);
+		const { asset, deployment, price } = await createCryptoOffer(adminToken);
 		await enableCryptoPayments();
 		const wallet = await createLinkedWallet(userId);
 

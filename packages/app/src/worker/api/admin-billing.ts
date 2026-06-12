@@ -550,7 +550,6 @@ app.post(
 		};
 		await db.insert(paymentAssetDeployments).values(deployment);
 		const response = await getDeploymentResponse(c.env, deployment.id);
-		if (!response) throw apiError(404, 'PAYMENT_ASSET_DEPLOYMENT_NOT_FOUND');
 		await recordModerationAuditLog(c, 'admin_payment_deployment_created', { data: deploymentAuditData(response) });
 		return c.json(response, 200);
 	}, getResponseDefWithAuth('/api/admin/create-payment-asset-deployment')),
@@ -596,7 +595,6 @@ app.post(
 		};
 		await db.update(paymentAssetDeployments).set(updated).where(eq(paymentAssetDeployments.id, body.deploymentId));
 		const response = await getDeploymentResponse(c.env, body.deploymentId);
-		if (!response) throw apiError(404, 'PAYMENT_ASSET_DEPLOYMENT_NOT_FOUND');
 		await recordModerationAuditLog(c, 'admin_payment_deployment_updated', { data: deploymentAuditData(response) });
 		return c.json(response, 200);
 	}, getResponseDefWithAuth('/api/admin/update-payment-asset-deployment')),
@@ -633,7 +631,6 @@ app.post(
 			throw e;
 		}
 		const response = await getPriceResponse(c.env, price.id);
-		if (!response) throw apiError(404, 'PAYMENT_PRICE_NOT_FOUND');
 		await recordModerationAuditLog(c, 'admin_payment_price_created', { data: priceAuditData(response) });
 		return c.json(response, 200);
 	}, getResponseDefWithAuth('/api/admin/create-payment-asset-plan-price')),
@@ -653,7 +650,6 @@ app.post(
 		if (expiresAt <= existing.startsAt) throw apiError(400, 'PAYMENT_PRICE_ORDER_INVALID');
 		await db.update(paymentAssetPlanPrices).set({ expiresAt, updatedAt: now }).where(eq(paymentAssetPlanPrices.id, body.priceId));
 		const response = await getPriceResponse(c.env, body.priceId);
-		if (!response) throw apiError(404, 'PAYMENT_PRICE_NOT_FOUND');
 		await recordModerationAuditLog(c, 'admin_payment_price_updated', { data: priceAuditData(response) });
 		return c.json(response, 200);
 	}, getResponseDefWithAuth('/api/admin/expire-payment-asset-plan-price')),
@@ -667,7 +663,6 @@ app.post(
 		const db = getDb(c.env);
 		const body = c.req.valid('json');
 		const existing = await getPriceResponse(c.env, body.priceId);
-		if (!existing) throw apiError(404, 'PAYMENT_PRICE_NOT_FOUND');
 		await db.delete(paymentAssetPlanPrices).where(eq(paymentAssetPlanPrices.id, body.priceId));
 		await recordModerationAuditLog(c, 'admin_payment_price_deleted', { data: priceAuditData(existing) });
 		return c.json({ ok: true }, 200);
