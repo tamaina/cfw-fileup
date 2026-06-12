@@ -1,7 +1,10 @@
 /**
  * /e/:fileId 埋め込みプレイヤーのエントリポイント。
- * Vue/SPA に依存しない軽量構成。設定は Worker が #embed-config に注入する。
+ * Vue/SPA に依存しない軽量構成。fileId から HLS tar の中身を解決する。
  */
+
+import { archiveEntryStreamUrl } from '../shared/archive-entry-url';
+import { hlsPosterEntryPath, parseHlsSessionData } from '../shared/hls';
 
 interface EmbedConfig {
 	fileId: string;
@@ -10,21 +13,9 @@ interface EmbedConfig {
 	title: string | null;
 }
 
-function readConfig(): EmbedConfig | null {
-	const element = document.getElementById('embed-config');
-	if (!element?.textContent) return null;
-	try {
-		const parsed = JSON.parse(element.textContent) as Partial<EmbedConfig>;
-		if (typeof parsed.fileId !== 'string' || typeof parsed.masterUrl !== 'string') return null;
-		return {
-			fileId: parsed.fileId,
-			masterUrl: parsed.masterUrl,
-			posterUrl: typeof parsed.posterUrl === 'string' ? parsed.posterUrl : null,
-			title: typeof parsed.title === 'string' ? parsed.title : null,
-		};
-	} catch {
-		return null;
-	}
+function readFileId(): string | null {
+	const match = /^\/e\/([^/?#]+)/.exec(location.pathname);
+	return match ? decodeURIComponent(match[1]) : null;
 }
 
 function readAutoplay(): boolean {
@@ -60,9 +51,41 @@ async function playAutoplay(video: HTMLVideoElement, autoplay: boolean): Promise
 	}
 }
 
+async function loadConfig(): Promise<EmbedConfig | null> {
+	const fileId = readFileId();
+	if (!fileId) return null;
+
+	const listRes = await fetch(`/d/${encodeURIComponent(fileId)}?list`);
+	if (!listRes.ok) return null;
+	const entries = await listRes.json() as Array<{ path: string; mimeType: string }>;
+	const master = entries.find(entry => entry.path.split('/').pop() === 'master.m3u8')
+		?? entries.find(entry => entry.path.toLowerCase().endsWith('.m3u8'));
+	if (!master) return null;
+
+	const masterUrl = archiveEntryStreamUrl(fileId, master.path);
+	let title: string | null = null;
+	let posterUrl: string | null = null;
+	try {
+		const masterRes = await fetch(masterUrl);
+		if (masterRes.ok) {
+			const meta = parseHlsSessionData(await masterRes.text());
+			title = meta.title;
+		}
+	} catch {
+		// メタ情報が読めなくても、プレイリスト URL があれば再生は試せる。
+	}
+
+	const posterPath = hlsPosterEntryPath(master.path);
+	if (entries.some(entry => entry.path === posterPath)) {
+		posterUrl = archiveEntryStreamUrl(fileId, posterPath);
+	}
+
+	return { fileId, masterUrl, posterUrl, title };
+}
+
 async function main(): Promise<void> {
-	const config = readConfig();
 	const video = document.getElementById('video') as HTMLVideoElement | null;
+	const config = await loadConfig();
 	if (!config || !video) {
 		showError('動画の情報を読み込めませんでした。');
 		return;

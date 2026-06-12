@@ -171,7 +171,7 @@ test.describe('HLS metadata embedding', () => {
 		]));
 	});
 
-	test('embed page /e/:fileId serves player HTML with injected config', async ({ request, adminUser }) => {
+	test('embed page /e/:fileId serves the embed SPA shell', async ({ request, adminUser }) => {
 		const { fileId } = await uploadHlsTar(request, adminUser.token, true);
 
 		const res = await request.get(`/e/${fileId}`);
@@ -183,16 +183,10 @@ test.describe('HLS metadata embedding', () => {
 		const html = await res.text();
 		const configMatch = /<script type="application\/json" id="embed-config">(.*?)<\/script>/s.exec(html);
 		expect(configMatch).not.toBeNull();
-		// eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-		const config = JSON.parse(configMatch![1]) as { fileId: string; masterUrl: string; posterUrl: string | null; title: string | null; autoplay?: boolean };
-		expect(config.fileId).toBe(fileId);
-		expect(config.masterUrl).toBe(`/d/${fileId}/%3Aentries/master.m3u8`);
-		expect(config.posterUrl).toBe(`/d/${fileId}/%3Aentries/poster.jpg`);
-		expect(config.title).toBe(CUSTOM_TITLE);
-		expect(config.autoplay).toBeUndefined();
+		expect(configMatch?.[1]).toBe('{}');
 	});
 
-	test('embed page /e/:fileId keeps autoplay=1 out of injected config', async ({ request, adminUser }) => {
+	test('embed page /e/:fileId keeps autoplay=1 in the URL only', async ({ request, adminUser }) => {
 		const { fileId } = await uploadHlsTar(request, adminUser.token, true);
 
 		const res = await request.get(`/e/${fileId}?autoplay=1`);
@@ -201,9 +195,7 @@ test.describe('HLS metadata embedding', () => {
 		const html = await res.text();
 		const configMatch = /<script type="application\/json" id="embed-config">(.*?)<\/script>/s.exec(html);
 		expect(configMatch).not.toBeNull();
-		// eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-		const config = JSON.parse(configMatch![1]) as { autoplay?: boolean };
-		expect(config.autoplay).toBeUndefined();
+		expect(configMatch?.[1]).toBe('{}');
 	});
 
 	test('root poster.jpg entry URL serves the poster for directory thumbnails', async ({ request, adminUser }) => {
@@ -283,7 +275,7 @@ test.describe('HLS metadata embedding', () => {
 		await expect(dialog.getByPlaceholder('動画のタイトル')).toHaveValue('テスト動画');
 	});
 
-	test('embed page 404s for non-HLS files and missing files', async ({ request, adminUser }) => {
+	test('embed page serves the SPA shell for non-HLS files and missing files', async ({ request, adminUser }) => {
 		const headers = { Authorization: `Bearer ${adminUser.token}` };
 		const bucketName = `e2e_hlsmeta_plain_${Date.now().toString(36)}`;
 		const bucketRes = await request.post('/api/buckets/create', { headers, data: { bucketName } });
@@ -295,7 +287,7 @@ test.describe('HLS metadata embedding', () => {
 		const closeRes = await request.post('/api/files/create/close', { headers, data: { fileId, visibility: 'public', isListed: true } });
 		expect(closeRes.ok()).toBe(true);
 
-		expect((await request.get(`/e/${fileId}`)).status()).toBe(404);
-		expect((await request.get('/e/nonexistent')).status()).toBe(404);
+		expect((await request.get(`/e/${fileId}`)).status()).toBe(200);
+		expect((await request.get('/e/nonexistent')).status()).toBe(200);
 	});
 });
