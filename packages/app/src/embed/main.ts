@@ -28,10 +28,21 @@ function readAutoplay(): boolean {
 function showError(message: string): void {
 	const video = document.getElementById('video');
 	video?.remove();
+	document.querySelector('.embed-error')?.remove();
 	const paragraph = document.createElement('p');
 	paragraph.className = 'embed-error';
 	paragraph.textContent = message;
 	document.body.append(paragraph);
+}
+
+function canPlayNativeHls(video: HTMLVideoElement): boolean {
+	return video.canPlayType('application/vnd.apple.mpegurl') !== '';
+}
+
+async function playNativeHls(video: HTMLVideoElement, src: string, autoplay: boolean): Promise<void> {
+	video.src = src;
+	video.load();
+	await playAutoplay(video, autoplay);
 }
 
 function configureAutoplay(video: HTMLVideoElement, autoplay: boolean): void {
@@ -95,6 +106,12 @@ async function main(): Promise<void> {
 	const autoplay = readAutoplay();
 	configureAutoplay(video, autoplay);
 
+	const fallbackToNativeHls = async (): Promise<boolean> => {
+		if (!canPlayNativeHls(video)) return false;
+		await playNativeHls(video, config.masterUrl, autoplay);
+		return true;
+	};
+
 	// ManagedMediaSource 経由の hls.js 再生は Safari で不安定な場合がある。
 	// hls.js が非対応判定した環境だけ native HLS に fallback する。
 	try {
@@ -103,10 +120,26 @@ async function main(): Promise<void> {
 			const hls = new Hls({
 				preferManagedMediaSource: false,
 			});
+			let recoveredMediaError = false;
+			let handlingFatalError = false;
 			hls.on(Hls.Events.ERROR, (_event, data) => {
 				if (!data.fatal) return;
+				console.warn('hls.js fatal playback error', data);
+				if (data.type === Hls.ErrorTypes.MEDIA_ERROR && !recoveredMediaError) {
+					recoveredMediaError = true;
+					hls.recoverMediaError();
+					return;
+				}
+				if (handlingFatalError) return;
+				handlingFatalError = true;
 				hls.destroy();
-				showError(`HLS の再生に失敗しました (${data.details})`);
+				void fallbackToNativeHls().then((recovered) => {
+					if (recovered) return;
+					showError(`HLS の再生に失敗しました (${data.details})`);
+				}).catch((err: unknown) => {
+					console.warn('Native HLS fallback failed', err);
+					showError(`HLS の再生に失敗しました (${data.details})`);
+				});
 			});
 			hls.on(Hls.Events.MANIFEST_PARSED, () => {
 				void playAutoplay(video, autoplay);
@@ -115,18 +148,11 @@ async function main(): Promise<void> {
 			hls.attachMedia(video);
 			return;
 		}
-		if (video.canPlayType('application/vnd.apple.mpegurl')) {
-			video.src = config.masterUrl;
-			await playAutoplay(video, autoplay);
-			return;
-		}
+		if (await fallbackToNativeHls()) return;
 		showError('このブラウザは HLS の再生に対応していません。');
-	} catch {
-		if (video.canPlayType('application/vnd.apple.mpegurl')) {
-			video.src = config.masterUrl;
-			await playAutoplay(video, autoplay);
-			return;
-		}
+	} catch (err) {
+		console.warn('hls.js player setup failed', err);
+		if (await fallbackToNativeHls()) return;
 		showError('プレイヤーの読み込みに失敗しました。');
 	}
 }
