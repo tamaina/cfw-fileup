@@ -5,6 +5,7 @@
 
 import { archiveEntryStreamUrl } from '../shared/archive-entry-url';
 import { hlsPosterEntryPath, parseHlsSessionData } from '../shared/hls';
+import { HlsVideoPlayback } from '../shared/hls-video-playback';
 
 interface EmbedConfig {
 	fileId: string;
@@ -40,31 +41,12 @@ function showPlaybackError(message: string, cause: unknown): void {
 	showError(message);
 }
 
-function canPlayNativeHls(video: HTMLVideoElement): boolean {
-	return video.canPlayType('application/vnd.apple.mpegurl') !== '';
-}
-
-async function playNativeHls(video: HTMLVideoElement, src: string, autoplay: boolean): Promise<void> {
-	video.src = src;
-	video.load();
-	await playAutoplay(video, autoplay);
-}
-
 function configureAutoplay(video: HTMLVideoElement, autoplay: boolean): void {
 	if (!autoplay) return;
 	video.autoplay = true;
 	video.muted = true;
 	video.defaultMuted = true;
 	video.playsInline = true;
-}
-
-async function playAutoplay(video: HTMLVideoElement, autoplay: boolean): Promise<void> {
-	if (!autoplay) return;
-	try {
-		await video.play();
-	} catch {
-		// ブラウザの自動再生ポリシーで拒否された場合は、controls から手動再生できる状態にする。
-	}
 }
 
 async function loadConfig(): Promise<EmbedConfig | null> {
@@ -111,57 +93,16 @@ async function main(): Promise<void> {
 	const autoplay = readAutoplay();
 	configureAutoplay(video, autoplay);
 
-	const fallbackToNativeHls = async (): Promise<boolean> => {
-		if (!canPlayNativeHls(video)) return false;
-		await playNativeHls(video, config.masterUrl, autoplay);
-		return true;
-	};
-
-	// ManagedMediaSource 経由の hls.js 再生は Safari で不安定な場合がある。
-	// hls.js が非対応判定した環境だけ native HLS に fallback する。
-	try {
-		const { default: Hls } = await import('hls.js');
-		if (Hls.isSupported()) {
-			const hls = new Hls({
-				preferManagedMediaSource: false,
-			});
-			let recoveredMediaError = false;
-			let handlingFatalError = false;
-			hls.on(Hls.Events.ERROR, (_event, data) => {
-				if (!data.fatal) return;
-				console.warn('hls.js fatal playback error', data);
-				if (data.type === Hls.ErrorTypes.MEDIA_ERROR && !recoveredMediaError) {
-					recoveredMediaError = true;
-					hls.recoverMediaError();
-					return;
-				}
-				if (handlingFatalError) return;
-				handlingFatalError = true;
-				hls.destroy();
-				void fallbackToNativeHls().then((recovered) => {
-					if (recovered) return;
-					showPlaybackError(`HLS の再生に失敗しました (${data.details})`, data);
-				}).catch((err: unknown) => {
-					showPlaybackError(`HLS の再生に失敗しました (${data.details})`, {
-						hlsError: data,
-						nativeFallbackError: err,
-					});
-				});
-			});
-			hls.on(Hls.Events.MANIFEST_PARSED, () => {
-				void playAutoplay(video, autoplay);
-			});
-			hls.loadSource(config.masterUrl);
-			hls.attachMedia(video);
-			return;
-		}
-		if (await fallbackToNativeHls()) return;
-		showError('このブラウザは HLS の再生に対応していません。');
-	} catch (err) {
-		console.warn('hls.js player setup failed', err);
-		if (await fallbackToNativeHls()) return;
-		showError('プレイヤーの読み込みに失敗しました。');
-	}
+	const playback = new HlsVideoPlayback({
+		video,
+		src: config.masterUrl,
+		autoplay,
+		onError: showPlaybackError,
+		onUnsupported: () => {
+			showError('このブラウザは HLS の再生に対応していません。');
+		},
+	});
+	await playback.load();
 }
 
 void main();

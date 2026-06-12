@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onBeforeUnmount } from 'vue';
-import type Hls from 'hls.js';
 import { authStore } from '@/store/auth';
+import { HlsVideoPlayback } from '../../shared/hls-video-playback';
 
 const props = defineProps<{
 	/** プレイリスト(.m3u8)のURL。相対パス解決のためスラッシュは温存されていること */
@@ -13,7 +13,7 @@ const props = defineProps<{
 const videoElement = ref<HTMLVideoElement | null>(null);
 const error = ref('');
 const loading = ref(true);
-let hls: Hls | null = null;
+let playback: HlsVideoPlayback | null = null;
 let setupSequence = 0;
 
 function withToken(url: string): string {
@@ -24,17 +24,13 @@ function withToken(url: string): string {
 }
 
 function teardown(): void {
-	hls?.destroy();
-	hls = null;
-	const video = videoElement.value;
-	if (video) {
-		video.removeAttribute('src');
-		video.load();
-	}
+	playback?.destroy();
+	playback = null;
 }
 
 function showPlaybackError(message: string, cause: unknown): void {
 	console.error(message, cause);
+	loading.value = false;
 	error.value = message;
 }
 
@@ -46,53 +42,26 @@ async function setup(): Promise<void> {
 	const video = videoElement.value;
 	if (!video || !props.src) return;
 	try {
-		const { default: HlsClass } = await import('hls.js');
-		if (sequence !== setupSequence) return;
-		if (HlsClass.isSupported()) {
-			hls = new HlsClass({
-				// ManagedMediaSource 経由の hls.js 再生は Safari で不安定な場合がある。
-				// hls.js が非対応判定した環境だけ native HLS に fallback する。
-				preferManagedMediaSource: false,
-				xhrSetup: (xhr, url) => {
-					// 相対解決されたセグメントURLには token が付かないため、ここで付与する
-					xhr.open('GET', withToken(url), true);
-					if (authStore.token) {
-						xhr.setRequestHeader('Authorization', `Bearer ${authStore.token}`);
-					}
-				},
-				fetchSetup: (context, initParams) => {
-					const headers = new Headers(initParams.headers);
-					if (authStore.token) {
-						headers.set('Authorization', `Bearer ${authStore.token}`);
-					}
-					return new Request(withToken(context.url), {
-						...initParams,
-						headers,
-					});
-				},
-			});
-			hls.on(HlsClass.Events.MANIFEST_PARSED, () => {
+		const nextPlayback = new HlsVideoPlayback({
+			video,
+			src: props.src,
+			transformUrl: withToken,
+			getRequestHeaders: () => authStore.token ? { Authorization: `Bearer ${authStore.token}` } : undefined,
+			onReady: () => {
 				loading.value = false;
-			});
-			hls.on(HlsClass.Events.ERROR, (_event, data) => {
-				if (!data.fatal) return;
+			},
+			onError: showPlaybackError,
+			onUnsupported: () => {
 				loading.value = false;
-				showPlaybackError(`HLS の再生に失敗しました (${data.details})`, data);
-				teardown();
-			});
-			hls.loadSource(withToken(props.src));
-			hls.attachMedia(video);
+				error.value = 'このブラウザは HLS の再生に対応していません。';
+			},
+		});
+		await nextPlayback.load();
+		if (sequence !== setupSequence) {
+			nextPlayback.destroy();
 			return;
 		}
-		if (video.canPlayType('application/vnd.apple.mpegurl')) {
-			// ネイティブHLS (MSE非対応のSafariなど)。セグメントに token は付与できないため、
-			// 非公開ファイルでは再生できないことがある。
-			video.src = withToken(props.src);
-			loading.value = false;
-			return;
-		}
-		loading.value = false;
-		error.value = 'このブラウザは HLS の再生に対応していません。';
+		playback = nextPlayback;
 	} catch (err) {
 		if (sequence !== setupSequence) return;
 		loading.value = false;
