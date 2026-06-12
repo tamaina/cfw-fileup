@@ -95,13 +95,13 @@ async function main(): Promise<void> {
 	const autoplay = readAutoplay();
 	configureAutoplay(video, autoplay);
 
-	// Safari でも ManagedMediaSource 経由で hls.js を使える環境では hls.js を優先する。
+	// ManagedMediaSource 経由の hls.js 再生は Safari で不安定な場合がある。
 	// hls.js が非対応判定した環境だけ native HLS に fallback する。
 	try {
 		const { default: Hls } = await import('hls.js');
 		if (Hls.isSupported()) {
 			const hls = new Hls({
-				preferManagedMediaSource: true,
+				preferManagedMediaSource: false,
 			});
 			hls.on(Hls.Events.ERROR, (_event, data) => {
 				if (!data.fatal) return;

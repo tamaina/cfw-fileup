@@ -45,9 +45,9 @@ async function setup(): Promise<void> {
 		if (sequence !== setupSequence) return;
 		if (HlsClass.isSupported()) {
 			hls = new HlsClass({
-				// Safari 17+ では ManagedMediaSource 経由で hls.js を使えることがある。
+				// ManagedMediaSource 経由の hls.js 再生は Safari で不安定な場合がある。
 				// hls.js が非対応判定した環境だけ native HLS に fallback する。
-				preferManagedMediaSource: true,
+				preferManagedMediaSource: false,
 				xhrSetup: (xhr, url) => {
 					// 相対解決されたセグメントURLには token が付かないため、ここで付与する
 					xhr.open('GET', withToken(url), true);
