@@ -35,6 +35,11 @@ function showError(message: string): void {
 	document.body.append(paragraph);
 }
 
+function showPlaybackError(message: string, cause: unknown): void {
+	console.error(message, cause);
+	showError(message);
+}
+
 function canPlayNativeHls(video: HTMLVideoElement): boolean {
 	return video.canPlayType('application/vnd.apple.mpegurl') !== '';
 }
@@ -135,10 +140,12 @@ async function main(): Promise<void> {
 				hls.destroy();
 				void fallbackToNativeHls().then((recovered) => {
 					if (recovered) return;
-					showError(`HLS の再生に失敗しました (${data.details})`);
+					showPlaybackError(`HLS の再生に失敗しました (${data.details})`, data);
 				}).catch((err: unknown) => {
-					console.warn('Native HLS fallback failed', err);
-					showError(`HLS の再生に失敗しました (${data.details})`);
+					showPlaybackError(`HLS の再生に失敗しました (${data.details})`, {
+						hlsError: data,
+						nativeFallbackError: err,
+					});
 				});
 			});
 			hls.on(Hls.Events.MANIFEST_PARSED, () => {

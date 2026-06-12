@@ -33,6 +33,11 @@ function teardown(): void {
 	}
 }
 
+function showPlaybackError(message: string, cause: unknown): void {
+	console.error(message, cause);
+	error.value = message;
+}
+
 async function setup(): Promise<void> {
 	const sequence = ++setupSequence;
 	teardown();
@@ -72,7 +77,7 @@ async function setup(): Promise<void> {
 			hls.on(HlsClass.Events.ERROR, (_event, data) => {
 				if (!data.fatal) return;
 				loading.value = false;
-				error.value = `HLS の再生に失敗しました (${data.details})`;
+				showPlaybackError(`HLS の再生に失敗しました (${data.details})`, data);
 				teardown();
 			});
 			hls.loadSource(withToken(props.src));
