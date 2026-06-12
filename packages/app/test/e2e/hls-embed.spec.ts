@@ -167,11 +167,26 @@ test.describe('HLS metadata embedding', () => {
 		const configMatch = /<script type="application\/json" id="embed-config">(.*?)<\/script>/s.exec(html);
 		expect(configMatch).not.toBeNull();
 		// eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-		const config = JSON.parse(configMatch![1]) as { fileId: string; masterUrl: string; posterUrl: string | null; title: string | null };
+		const config = JSON.parse(configMatch![1]) as { fileId: string; masterUrl: string; posterUrl: string | null; title: string | null; autoplay?: boolean };
 		expect(config.fileId).toBe(fileId);
 		expect(config.masterUrl).toBe(`/d/${fileId}/%3Aentries/master.m3u8`);
 		expect(config.posterUrl).toBe(`/d/${fileId}/%3Aentries/poster.jpg`);
 		expect(config.title).toBe(CUSTOM_TITLE);
+		expect(config.autoplay).toBeUndefined();
+	});
+
+	test('embed page /e/:fileId keeps autoplay=1 out of injected config', async ({ request, adminUser }) => {
+		const { fileId } = await uploadHlsTar(request, adminUser.token, true);
+
+		const res = await request.get(`/e/${fileId}?autoplay=1`);
+		expect(res.status()).toBe(200);
+
+		const html = await res.text();
+		const configMatch = /<script type="application\/json" id="embed-config">(.*?)<\/script>/s.exec(html);
+		expect(configMatch).not.toBeNull();
+		// eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+		const config = JSON.parse(configMatch![1]) as { autoplay?: boolean };
+		expect(config.autoplay).toBeUndefined();
 	});
 
 	test('root poster.jpg entry URL serves the poster for directory thumbnails', async ({ request, adminUser }) => {

@@ -27,6 +27,13 @@ function readConfig(): EmbedConfig | null {
 	}
 }
 
+function readAutoplay(): boolean {
+	const params = new URLSearchParams(location.search);
+	const values = [...params.getAll('autoplay'), ...params.getAll('auto_play')];
+	if (values.length === 0) return false;
+	return values.some(value => !['0', 'false', 'no', 'off'].includes(value.trim().toLowerCase()));
+}
+
 function showError(message: string): void {
 	const video = document.getElementById('video');
 	video?.remove();
@@ -34,6 +41,23 @@ function showError(message: string): void {
 	paragraph.className = 'embed-error';
 	paragraph.textContent = message;
 	document.body.append(paragraph);
+}
+
+function configureAutoplay(video: HTMLVideoElement, autoplay: boolean): void {
+	if (!autoplay) return;
+	video.autoplay = true;
+	video.muted = true;
+	video.defaultMuted = true;
+	video.playsInline = true;
+}
+
+async function playAutoplay(video: HTMLVideoElement, autoplay: boolean): Promise<void> {
+	if (!autoplay) return;
+	try {
+		await video.play();
+	} catch {
+		// ブラウザの自動再生ポリシーで拒否された場合は、controls から手動再生できる状態にする。
+	}
 }
 
 async function main(): Promise<void> {
@@ -45,10 +69,13 @@ async function main(): Promise<void> {
 	}
 	if (config.title) document.title = config.title;
 	if (config.posterUrl) video.poster = config.posterUrl;
+	const autoplay = readAutoplay();
+	configureAutoplay(video, autoplay);
 
 	// ネイティブHLS対応 (iOS/macOS Safari) を優先し、それ以外は hls.js を使う
 	if (video.canPlayType('application/vnd.apple.mpegurl')) {
 		video.src = config.masterUrl;
+		await playAutoplay(video, autoplay);
 		return;
 	}
 	try {
@@ -62,6 +89,9 @@ async function main(): Promise<void> {
 			if (!data.fatal) return;
 			hls.destroy();
 			showError(`HLS の再生に失敗しました (${data.details})`);
+		});
+		hls.on(Hls.Events.MANIFEST_PARSED, () => {
+			void playAutoplay(video, autoplay);
 		});
 		hls.loadSource(config.masterUrl);
 		hls.attachMedia(video);
