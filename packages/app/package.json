@@ -50,7 +50,7 @@
     "bgzf": "workspace:*",
     "dompurify": "^3.4.9",
     "exifreader": "^4.41.0",
-    "hls.js": "^1.6.16",
+    "hls.js": "1.7.0-beta.1",
     "hono-openapi": "^1.3.0",
     "ipaddr.js": "^2.4.0",
     "magic-bytes.js": "^1.13.0",
