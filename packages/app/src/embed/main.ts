@@ -72,30 +72,38 @@ async function main(): Promise<void> {
 	const autoplay = readAutoplay();
 	configureAutoplay(video, autoplay);
 
-	// ネイティブHLS対応 (iOS/macOS Safari) を優先し、それ以外は hls.js を使う
-	if (video.canPlayType('application/vnd.apple.mpegurl')) {
-		video.src = config.masterUrl;
-		await playAutoplay(video, autoplay);
-		return;
-	}
+	// Safari でも ManagedMediaSource 経由で hls.js を使える環境では hls.js を優先する。
+	// hls.js が非対応判定した環境だけ native HLS に fallback する。
 	try {
 		const { default: Hls } = await import('hls.js');
-		if (!Hls.isSupported()) {
-			showError('このブラウザは HLS の再生に対応していません。');
+		if (Hls.isSupported()) {
+			const hls = new Hls({
+				preferManagedMediaSource: true,
+			});
+			hls.on(Hls.Events.ERROR, (_event, data) => {
+				if (!data.fatal) return;
+				hls.destroy();
+				showError(`HLS の再生に失敗しました (${data.details})`);
+			});
+			hls.on(Hls.Events.MANIFEST_PARSED, () => {
+				void playAutoplay(video, autoplay);
+			});
+			hls.loadSource(config.masterUrl);
+			hls.attachMedia(video);
 			return;
 		}
-		const hls = new Hls();
-		hls.on(Hls.Events.ERROR, (_event, data) => {
-			if (!data.fatal) return;
-			hls.destroy();
-			showError(`HLS の再生に失敗しました (${data.details})`);
-		});
-		hls.on(Hls.Events.MANIFEST_PARSED, () => {
-			void playAutoplay(video, autoplay);
-		});
-		hls.loadSource(config.masterUrl);
-		hls.attachMedia(video);
+		if (video.canPlayType('application/vnd.apple.mpegurl')) {
+			video.src = config.masterUrl;
+			await playAutoplay(video, autoplay);
+			return;
+		}
+		showError('このブラウザは HLS の再生に対応していません。');
 	} catch {
+		if (video.canPlayType('application/vnd.apple.mpegurl')) {
+			video.src = config.masterUrl;
+			await playAutoplay(video, autoplay);
+			return;
+		}
 		showError('プレイヤーの読み込みに失敗しました。');
 	}
 }

@@ -26,6 +26,11 @@ function withToken(url: string): string {
 function teardown(): void {
 	hls?.destroy();
 	hls = null;
+	const video = videoElement.value;
+	if (video) {
+		video.removeAttribute('src');
+		video.load();
+	}
 }
 
 async function setup(): Promise<void> {
@@ -40,12 +45,25 @@ async function setup(): Promise<void> {
 		if (sequence !== setupSequence) return;
 		if (HlsClass.isSupported()) {
 			hls = new HlsClass({
+				// Safari 17+ では ManagedMediaSource 経由で hls.js を使えることがある。
+				// hls.js が非対応判定した環境だけ native HLS に fallback する。
+				preferManagedMediaSource: true,
 				xhrSetup: (xhr, url) => {
 					// 相対解決されたセグメントURLには token が付かないため、ここで付与する
 					xhr.open('GET', withToken(url), true);
 					if (authStore.token) {
 						xhr.setRequestHeader('Authorization', `Bearer ${authStore.token}`);
 					}
+				},
+				fetchSetup: (context, initParams) => {
+					const headers = new Headers(initParams.headers);
+					if (authStore.token) {
+						headers.set('Authorization', `Bearer ${authStore.token}`);
+					}
+					return new Request(withToken(context.url), {
+						...initParams,
+						headers,
+					});
 				},
 			});
 			hls.on(HlsClass.Events.MANIFEST_PARSED, () => {
