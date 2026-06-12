@@ -11,7 +11,7 @@ import { authStore } from '@/store/auth';
 import { apiPost } from '@/utils/api';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import { connectUploadWorker, uploadWorkerJobs } from '@/store/upload-worker';
-import { mediaConversionJobs, type MediaConversionJobSnapshot } from '@/store/media-conversion-worker';
+import { cancelMediaConversionWorker, mediaConversionJobs, type MediaConversionJobSnapshot } from '@/store/media-conversion-worker';
 import { formatBytes } from '@/utils/byte-size';
 import {
 	browserUploadAutoOpen,
@@ -109,6 +109,11 @@ function mediaConversionStatusLabel(job: MediaConversionJobSnapshot): string {
 	return job.phase === 'writing' ? '書き込み中' : '変換中';
 }
 
+function cancelMediaConversion(job: MediaConversionJobSnapshot): void {
+	if (job.status !== 'running') return;
+	cancelMediaConversionWorker(job.id);
+}
+
 async function load(cursor: string | null = null): Promise<void> {
 	const isMore = cursor !== null;
 	if (isMore) {
@@ -193,6 +198,7 @@ onMounted(() => {
                   <th class="col-right">ファイル数</th>
                   <th class="col-usage">進捗</th>
                   <th>更新日時</th>
+                  <th class="col-actions"></th>
                 </tr>
               </thead>
               <tbody>
@@ -220,6 +226,15 @@ onMounted(() => {
                     </div>
                   </td>
                   <td class="col-muted">{{ formatDate(job.updatedAt) }}</td>
+                  <td class="col-actions">
+                    <Button.Root
+                      v-if="job.status === 'running'"
+                      class="btn btn-ghost-danger btn-sm"
+                      @click="cancelMediaConversion(job)"
+                    >
+                      <Button.Content>キャンセル</Button.Content>
+                    </Button.Root>
+                  </td>
                 </tr>
               </tbody>
             </table>

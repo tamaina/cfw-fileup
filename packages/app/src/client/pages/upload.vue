@@ -1174,19 +1174,19 @@ async function executeUpload(): Promise<void> {
 
 	// Pre-upload existence check
 	const plannedPaths = getUploadPaths(plannedEntries);
-	const plannedPathSet = new Set(plannedPaths);
-	const fallbackPaths = getFallbackUploadPaths(plannedEntries).filter(path => !plannedPathSet.has(path));
-	const paths = [...plannedPaths, ...fallbackPaths];
-	if (!validateUploadPaths(paths)) return;
+	const fallbackPaths = getFallbackUploadPaths(plannedEntries);
+	const pathsForValidation = [...plannedPaths, ...fallbackPaths];
+	const pathsForConflictCheck = [...new Set(pathsForValidation)];
+	if (!validateUploadPaths(pathsForValidation)) return;
 	if (!validateArchiveMemberPaths(plannedEntries)) return;
 	if (plannedEntries.some(isHlsPlannedEntry) && archiveMode.value !== 'individual') {
 		uploadError.value = 'HLS 変換された動画は単一の tar として個別アップロードしてください。';
 		return;
 	}
-	if (paths.length > 0) {
+	if (pathsForConflictCheck.length > 0) {
 		const conflicts: string[] = [];
 		const missingDirectories = new Set<string>();
-		for (const { parentPath, targets } of buildUploadConflictDirectoryPlan(paths)) {
+		for (const { parentPath, targets } of buildUploadConflictDirectoryPlan(pathsForConflictCheck)) {
 			if (isPathUnderMissingDirectory(parentPath, missingDirectories)) continue;
 			const result = await apiPost('/api/files/ls', {
 				bucketName: selectedBucketName.value,

@@ -65,11 +65,35 @@ app.onError((err, c) => {
 		return c.json(createApiErrorResponse('INTERNAL_SERVER_ERROR'), err.status);
 	}
 
+	if (isFilesUniqueConstraintError(err)) {
+		return c.json(createApiErrorResponse('FILE_ALREADY_EXISTS'), 409);
+	}
+
 	return c.json(
 		createApiErrorResponse('INTERNAL_SERVER_ERROR'),
 		500,
 	);
 });
+
+function isFilesUniqueConstraintError(err: unknown): boolean {
+	const message = errorMessages(err).join('\n');
+	return message.includes('UNIQUE constraint failed')
+		&& (
+			message.includes('files.bucket_id, files.path')
+			|| message.includes('files.r2_key')
+		);
+}
+
+function errorMessages(err: unknown): string[] {
+	if (err instanceof Error) {
+		return [
+			err.message,
+			...errorMessages(err.cause),
+		];
+	}
+	if (err === undefined || err === null) return [];
+	return [String(err)];
+}
 
 app.route('/api', authRoutes);
 app.route('/api', metaRoutes);

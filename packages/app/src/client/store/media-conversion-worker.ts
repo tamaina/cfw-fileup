@@ -36,25 +36,28 @@ export interface MediaConversionWorkerOptions extends MediaConversionWorkerHandl
 }
 
 const jobs = ref<MediaConversionJobSnapshot[]>([]);
-let worker: Worker | null = null;
-let activeReject: ((reason?: unknown) => void) | null = null;
-let activeRequestId: string | null = null;
+const activeWorkers = new Map<string, {
+	worker: Worker;
+	reject: (reason?: unknown) => void;
+}>();
 
 export const mediaConversionJobs = readonly(jobs);
 
+export function cancelMediaConversionWorker(requestId: string): void {
+	const activeWorker = activeWorkers.get(requestId);
+	if (!activeWorker) return;
+	activeWorker.worker.terminate();
+	activeWorkers.delete(requestId);
+	updateJob(requestId, { status: 'cancelled', error: 'Media conversion was cancelled' });
+	activeWorker.reject(new Error('Media conversion was cancelled'));
+}
+
 export function terminateMediaConversionWorker(): void {
-	worker?.terminate();
-	worker = null;
-	if (activeRequestId) updateJob(activeRequestId, { status: 'cancelled', error: 'Media conversion was cancelled' });
-	activeRequestId = null;
-	activeReject?.(new Error('Media conversion was cancelled'));
-	activeReject = null;
+	for (const requestId of [...activeWorkers.keys()]) cancelMediaConversionWorker(requestId);
 }
 
 export function runMediaConversionWorker(request: MediaConversionWorkerRequest, options: MediaConversionWorkerOptions = {}): Promise<void> {
-	terminateMediaConversionWorker();
-	worker = new Worker(new URL('../workers/media-conversion.worker.ts', import.meta.url), { type: 'module' });
-	activeRequestId = request.id;
+	const worker = new Worker(new URL('../workers/media-conversion.worker.ts', import.meta.url), { type: 'module' });
 	upsertJob({
 		id: request.id,
 		status: 'running',
@@ -72,11 +75,7 @@ export function runMediaConversionWorker(request: MediaConversionWorkerRequest, 
 	return new Promise<void>((resolve, reject) => {
 		const pendingHandlers: Promise<void>[] = [];
 		const currentWorker = worker;
-		activeReject = reject;
-		if (!currentWorker) {
-			reject(new Error('Media conversion worker is not available'));
-			return;
-		}
+		activeWorkers.set(request.id, { worker: currentWorker, reject });
 
 		currentWorker.onmessage = (event: MessageEvent<MediaConversionWorkerMessage>) => {
 			const message = event.data;
@@ -103,9 +102,7 @@ export function runMediaConversionWorker(request: MediaConversionWorkerRequest, 
 				return;
 			}
 			currentWorker.terminate();
-			if (worker === currentWorker) worker = null;
-			activeReject = null;
-			activeRequestId = null;
+			activeWorkers.delete(request.id);
 			if (message.type === 'done') {
 				Promise.all(pendingHandlers).then(() => {
 					updateJob(request.id, { status: 'done', progress: 1 });
@@ -117,9 +114,7 @@ export function runMediaConversionWorker(request: MediaConversionWorkerRequest, 
 			reject(new Error(message.error));
 		};
 		currentWorker.onerror = (event) => {
-			if (worker === currentWorker) worker = null;
-			activeReject = null;
-			activeRequestId = null;
+			activeWorkers.delete(request.id);
 			currentWorker.terminate();
 			console.error('Media conversion worker runtime error', event);
 			updateJob(request.id, { status: 'error', error: event.message });
