@@ -32,7 +32,9 @@ const emit = defineEmits<{
 }>();
 
 function onVisibilityInput(event: Event): void {
-	emit('update:visibility', (event.target as HTMLInputElement).value as FileVisibility);
+	const visibility = (event.target as HTMLInputElement).value as FileVisibility;
+	emit('update:visibility', visibility);
+	if (visibility !== 'public') emit('update:isListed', false);
 }
 
 function onIsListedInput(event: Event): void {
@@ -95,8 +97,13 @@ function onDownloadCountVisibleInput(event: Event): void {
       >
     </div>
 
-    <label class="checkbox-label">
-      <input type="checkbox" :checked="isListed" @input="onIsListedInput">
+    <label class="checkbox-label" :class="visibility !== 'public' && $style.disabledOption">
+      <input
+        type="checkbox"
+        :checked="visibility === 'public' ? isListed : false"
+        :disabled="visibility !== 'public'"
+        @input="onIsListedInput"
+      >
       ファイル一覧とActivityPubに表示
     </label>
 

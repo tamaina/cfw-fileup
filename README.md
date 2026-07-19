@@ -12,6 +12,11 @@ You must add `PASSPHRASE` for first user signup.
 pnpm install
 ```
 
+## Local DB Migration
+```bash
+pnpm run --filter app db:migrate:local
+```
+
 ## Start dev server
 ```bash
 pnpm run --filter app dev
@@ -106,9 +111,4 @@ pnpm --filter app deploy:config ../../../cfw-fileup-deploy/wrangler.test.jsonc c
 
 ```bash
 pnpm --filter app deploy:config ../../../cfw-fileup-deploy/wrangler.test.jsonc
-```
-
-## Local DB Migration
-```bash
-pnpm run --filter app db:migrate:local
 ```
