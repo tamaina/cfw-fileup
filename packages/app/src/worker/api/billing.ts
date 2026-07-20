@@ -649,7 +649,7 @@ app.post(
 			.where(and(eq(cryptoPaymentOrders.id, body.orderId), eq(cryptoPaymentOrders.userId, user.id)))
 			.get();
 		const order = await confirmCryptoPaymentOrder(c.env, user.id, body.orderId, body.txHash, getContextWaitUntil(c));
-		if (before.status !== 'paid' && order.status === 'paid') await recordModerationEvent(c, 'crypto_payment_order_confirmed', { orderId: order.id, chainId: order.chainId, txHash: order.txHash }, user.id, user.tokenId);
+		if (before && before.status !== 'paid' && order.status === 'paid') await recordModerationEvent(c, 'crypto_payment_order_confirmed', { orderId: order.id, chainId: order.chainId, txHash: order.txHash }, user.id, user.tokenId);
 		return c.json(order, 200);
 	}, getResponseDefWithAuth('/api/billing/confirm-crypto-order')),
 );
