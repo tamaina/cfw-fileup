@@ -137,6 +137,20 @@ function toUserQuotaUpdate(quota: EffectiveQuotaConfig) {
 async function computeEffectiveQuotaForUser(env: Env, userId: string, now: number): Promise<EffectiveQuotaConfig> {
 	const db = getDb(env);
 
+	const userQuota = await db.select().from(userQuotas).where(eq(userQuotas.userId, userId)).get();
+
+	if (userQuota) {
+		return withMetadata({
+			maxBuckets: userQuota.maxBuckets,
+			maxBucketSizeBytes: userQuota.maxBucketSizeBytes,
+			maxFilesPerBucket: userQuota.maxFilesPerBucket,
+			maxDailyUploads: userQuota.maxDailyUploads,
+			canUseDownloadCount: userQuota.canUseDownloadCount,
+			showAds: userQuota.showAds,
+			canDisableFileAds: userQuota.canDisableFileAds,
+		}, now, null, 'custom');
+	}
+
 	const activePlan = await db
 		.select({
 			maxBuckets: plans.maxBuckets,
@@ -168,20 +182,6 @@ async function computeEffectiveQuotaForUser(env: Env, userId: string, now: numbe
 			showAds: activePlan.showAds,
 			canDisableFileAds: activePlan.canDisableFileAds,
 		}, now, activePlan.expiresAt, 'plan');
-	}
-
-	const userQuota = await db.select().from(userQuotas).where(eq(userQuotas.userId, userId)).get();
-
-	if (userQuota) {
-		return withMetadata({
-			maxBuckets: userQuota.maxBuckets,
-			maxBucketSizeBytes: userQuota.maxBucketSizeBytes,
-			maxFilesPerBucket: userQuota.maxFilesPerBucket,
-			maxDailyUploads: userQuota.maxDailyUploads,
-			canUseDownloadCount: userQuota.canUseDownloadCount,
-			showAds: userQuota.showAds,
-			canDisableFileAds: userQuota.canDisableFileAds,
-		}, now, null, 'custom');
 	}
 
 	return getGlobalEffectiveQuota(env, now);

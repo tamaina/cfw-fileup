@@ -329,8 +329,8 @@ async function recalculateEffectiveQuota(): Promise<void> {
         </div>
 
         <div v-else-if="activeTab === 'custom'" :class="$style.tabPanel">
-          <div v-if="activeUserPlan" class="alert alert-warning">
-            課金プラン適用中はカスタム値を保存しても現在のクォータ判定には反映されません。プランの失効または解除後に、このカスタム値が有効になります。
+          <div v-if="activeUserPlan" class="alert alert-info">
+            カスタムクォータは課金プランより優先されます。保存すると即座にクォータ判定に反映され、プランの制限値は上書きされます。
           </div>
           <div v-if="!editingCustomQuota" :class="[$style.panel, 'card']">
             <h3 :class="$style.panelTitle">カスタムクォータ未設定</h3>
