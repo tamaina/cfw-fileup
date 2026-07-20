@@ -2,7 +2,7 @@
   "name": "app",
   "type": "module",
   "scripts": {
-    "postinstall": "pnpm generate:viem-chain-assets && (playwright install chromium --with-deps || playwright install chromium)",
+    "postinstall": "pnpm generate:viem-chain-assets && (playwright install chromium --with-deps || playwright install chromium || echo 'Playwright browser install skipped (unsupported platform)')",
     "dev": "vite dev",
     "build": "vite build",
     "preview": "vite preview",
