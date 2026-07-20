@@ -57,6 +57,7 @@
     "marked": "^18.0.5",
     "mediabunny": "^1.46.0",
     "mrmime": "^2.0.1",
+    "multiformats": "^13.4.2",
     "range-parser": "^1.2.1",
     "shiki": "^4.2.0",
     "valibot": "^1.4.1",

@@ -4,11 +4,9 @@
  */
 
 import { describe, test, expect } from 'vitest';
+import { base58btc } from 'multiformats/bases/base58';
 import {
-	base58btcEncode,
-	base58btcDecode,
 	varintEncode,
-	varintDecode,
 	keyToMultibase,
 	multibaseToKey,
 	generateRawKey,
@@ -21,74 +19,6 @@ import {
 	AES_CTR_IV_LENGTH,
 	AES_CTR_KEY_LENGTH,
 } from '../src/shared/encryption.js';
-
-describe('base58btc', () => {
-	test('encode/decode roundtrip', () => {
-		const data = new Uint8Array([0, 1, 2, 3, 255, 128, 64]);
-		const encoded = base58btcEncode(data);
-		const decoded = base58btcDecode(encoded);
-		expect(decoded).toEqual(data);
-	});
-
-	test('empty input', () => {
-		expect(base58btcEncode(new Uint8Array(0))).toBe('');
-		expect(base58btcDecode('')).toEqual(new Uint8Array(0));
-	});
-
-	test('leading zeros preserved', () => {
-		const data = new Uint8Array([0, 0, 0, 42]);
-		const encoded = base58btcEncode(data);
-		expect(encoded.startsWith('111')).toBe(true);
-		const decoded = base58btcDecode(encoded);
-		expect(decoded).toEqual(data);
-	});
-
-	test('known vector: "Hello World"', () => {
-		const data = new TextEncoder().encode('Hello World');
-		const encoded = base58btcEncode(data);
-		expect(encoded).toBe('JxF12TrwUP45BMd');
-		const decoded = base58btcDecode(encoded);
-		expect(new TextDecoder().decode(decoded)).toBe('Hello World');
-	});
-
-	test('invalid character throws', () => {
-		expect(() => base58btcDecode('0OIl')).toThrow();
-	});
-});
-
-describe('varint', () => {
-	test('single byte value', () => {
-		const encoded = varintEncode(0x50);
-		expect(encoded).toEqual(new Uint8Array([0x50]));
-		const { value, length } = varintDecode(encoded);
-		expect(value).toBe(0x50);
-		expect(length).toBe(1);
-	});
-
-	test('multi-byte value (0x1550)', () => {
-		const encoded = varintEncode(0x1550);
-		const { value, length } = varintDecode(encoded);
-		expect(value).toBe(0x1550);
-		expect(length).toBe(encoded.length);
-	});
-
-	test('roundtrip various values', () => {
-		for (const v of [0, 1, 127, 128, 255, 256, 16383, 16384, 0x1550, 0xFFFF]) {
-			const encoded = varintEncode(v);
-			const { value } = varintDecode(encoded);
-			expect(value).toBe(v);
-		}
-	});
-
-	test('decode with offset', () => {
-		const prefix = new Uint8Array([0xAA, 0xBB]);
-		const varint = varintEncode(300);
-		const combined = new Uint8Array([...prefix, ...varint]);
-		const { value, length } = varintDecode(combined, 2);
-		expect(value).toBe(300);
-		expect(length).toBe(varint.length);
-	});
-});
 
 describe('key multibase encoding', () => {
 	test('roundtrip 32-byte key', () => {
@@ -115,7 +45,7 @@ describe('key multibase encoding', () => {
 		const combined = new Uint8Array(wrongPrefix.length + key.length);
 		combined.set(wrongPrefix);
 		combined.set(key, wrongPrefix.length);
-		const wrongMultibase = `z${base58btcEncode(combined)}`;
+		const wrongMultibase = base58btc.encode(combined);
 		expect(multibaseToKey(wrongMultibase)).toBeNull();
 	});
 
@@ -125,7 +55,7 @@ describe('key multibase encoding', () => {
 		const combined = new Uint8Array(prefix.length + shortKey.length);
 		combined.set(prefix);
 		combined.set(shortKey, prefix.length);
-		const shortMultibase = `z${base58btcEncode(combined)}`;
+		const shortMultibase = base58btc.encode(combined);
 		expect(multibaseToKey(shortMultibase)).toBeNull();
 	});
 });

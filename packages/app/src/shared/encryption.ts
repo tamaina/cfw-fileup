@@ -9,85 +9,7 @@
  */
 
 import { ENCRYPTION_KEY_MULTICODEC } from './const';
-
-// --- base58btc ---
-
-const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-const BASE58_MAP = new Map<string, number>();
-for (let i = 0; i < BASE58_ALPHABET.length; i++) {
-	BASE58_MAP.set(BASE58_ALPHABET[i]!, i);
-}
-
-/**
- * Encode bytes as a base58btc string.
- * NOTE: Uses 32-bit integer arithmetic internally. Safe for inputs up to ~1 KB
- * (e.g. 32-byte keys). For very large inputs (>1 KB), digit overflow may occur.
- */
-export function base58btcEncode(bytes: Uint8Array): string {
-	if (bytes.length === 0) return '';
-
-	// Count leading zeros
-	let leadingZeros = 0;
-	for (let i = 0; i < bytes.length; i++) {
-		if (bytes[i] !== 0) break;
-		leadingZeros++;
-	}
-
-	// Convert to big integer and repeatedly divide by 58
-	const digits: number[] = [];
-	for (let i = leadingZeros; i < bytes.length; i++) {
-		let carry = bytes[i]!;
-		for (let j = 0; j < digits.length; j++) {
-			carry += digits[j]! << 8;
-			digits[j] = carry % 58;
-			carry = (carry / 58) | 0;
-		}
-		while (carry > 0) {
-			digits.push(carry % 58);
-			carry = (carry / 58) | 0;
-		}
-	}
-
-	let result = '1'.repeat(leadingZeros);
-	for (let i = digits.length - 1; i >= 0; i--) {
-		result += BASE58_ALPHABET[digits[i]!];
-	}
-	return result;
-}
-
-export function base58btcDecode(str: string): Uint8Array<ArrayBuffer> {
-	if (str.length === 0) return new Uint8Array(0);
-
-	// Count leading '1's (representing zero bytes)
-	let leadingOnes = 0;
-	for (let i = 0; i < str.length; i++) {
-		if (str[i] !== '1') break;
-		leadingOnes++;
-	}
-
-	const bytes: number[] = [];
-	for (let i = leadingOnes; i < str.length; i++) {
-		const value = BASE58_MAP.get(str[i]!);
-		if (value === undefined) throw new Error(`Invalid base58 character: ${str[i]}`);
-		let carry = value;
-		for (let j = 0; j < bytes.length; j++) {
-			carry += bytes[j]! * 58;
-			bytes[j] = carry & 0xff;
-			carry >>= 8;
-		}
-		while (carry > 0) {
-			bytes.push(carry & 0xff);
-			carry >>= 8;
-		}
-	}
-
-	const result = new Uint8Array(leadingOnes + bytes.length);
-	// Leading zeros are already 0 in the Uint8Array
-	for (let i = 0; i < bytes.length; i++) {
-		result[leadingOnes + i] = bytes[bytes.length - 1 - i]!;
-	}
-	return result;
-}
+import { base58btc } from 'multiformats/bases/base58';
 
 // --- unsigned varint (protobuf/multicodec style) ---
 
@@ -131,7 +53,7 @@ export function keyToMultibase(rawKey: Uint8Array): string {
 	const combined = new Uint8Array(prefix.length + rawKey.length);
 	combined.set(prefix);
 	combined.set(rawKey, prefix.length);
-	return `z${base58btcEncode(combined)}`;
+	return base58btc.encode(combined);
 }
 
 /**
@@ -141,7 +63,7 @@ export function keyToMultibase(rawKey: Uint8Array): string {
 export function multibaseToKey(multibase: string): Uint8Array<ArrayBuffer> | null {
 	try {
 		if (!multibase.startsWith('z')) return null;
-		const decoded = base58btcDecode(multibase.slice(1));
+		const decoded = base58btc.decode(multibase);
 		const { value: codec, length: prefixLen } = varintDecode(decoded);
 		if (codec !== ENCRYPTION_KEY_MULTICODEC) return null;
 		const key = decoded.slice(prefixLen);
