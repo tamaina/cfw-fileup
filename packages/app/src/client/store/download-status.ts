@@ -77,6 +77,14 @@ export function failDownloadStatus(id: string, error: string): void {
 	});
 }
 
+/** ユーザーが保存ダイアログをキャンセルしたときなど、ダウンロードを中止して状態を削除する */
+export function cancelDownloadStatus(id: string): void {
+	if (currentDownloadStatus.value?.id === id) {
+		currentDownloadStatus.value = null;
+	}
+	downloadStatuses.value = downloadStatuses.value.filter(item => item.id !== id);
+}
+
 export function getDownloadStatusPercent(status: DownloadStatus): number {
 	return getDownloadProgressPercent(status.progress);
 }

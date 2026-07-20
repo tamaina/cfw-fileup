@@ -13,6 +13,8 @@ export type DownloadTransformWorkerRequest =
 		readonly transform: 'none' | 'decompress-gzip' | 'recompress-bgzf';
 		readonly encryptionKey?: string;
 		readonly authHeaders: Record<string, string>;
+		/** 指定すると OPFS の代わりにこのハンドルへ直接書き込む（構造化複製で渡される） */
+		readonly fileHandle?: FileSystemFileHandle;
 	} | {
 		readonly id: string;
 		readonly mode: 'hls-to-mp4';
@@ -20,6 +22,8 @@ export type DownloadTransformWorkerRequest =
 		readonly filename: string;
 		readonly token?: string | null;
 		readonly authHeaders: Record<string, string>;
+		/** 指定すると OPFS の代わりにこのハンドルへ直接書き込む（構造化複製で渡される） */
+		readonly fileHandle?: FileSystemFileHandle;
 	};
 
 export type DownloadTransformWorkerRequestInput = DownloadTransformWorkerRequest extends infer T
@@ -37,7 +41,7 @@ export type DownloadTransformProgress = {
 
 export type DownloadTransformWorkerMessage =
 	| { type: 'progress'; id: string; progress: DownloadTransformProgress }
-	| { type: 'done'; id: string; opfsName: string; filename: string; mimeType: string }
+	| { type: 'done'; id: string; opfsName?: string; savedDirectly: boolean; filename: string; mimeType: string }
 	| { type: 'error'; id: string; error: string; opfsName?: string };
 
 self.onmessage = (event: MessageEvent<DownloadTransformWorkerRequest>) => {
@@ -47,6 +51,17 @@ self.onmessage = (event: MessageEvent<DownloadTransformWorkerRequest>) => {
 async function handleRequest(request: DownloadTransformWorkerRequest): Promise<void> {
 	let opfsName: string | undefined;
 	try {
+		const mimeType = request.mode === 'download' ? request.mimeType : 'video/mp4';
+		if (request.fileHandle) {
+			// showSaveFilePicker で得たハンドルへ直接書き込む（OPFS・クォータを経由しない）
+			if (request.mode === 'download') {
+				await writeDownload(request.fileHandle, request);
+			} else {
+				await writeHlsMp4(request.fileHandle, request);
+			}
+			post({ type: 'done', id: request.id, savedDirectly: true, filename: request.filename, mimeType });
+			return;
+		}
 		const tempFile = await createOpfsTempFile(request.id, tempExtension(request.filename));
 		opfsName = tempFile.opfsName;
 		if (request.mode === 'download') {
@@ -54,7 +69,7 @@ async function handleRequest(request: DownloadTransformWorkerRequest): Promise<v
 		} else {
 			await writeHlsMp4(tempFile.fileHandle, request);
 		}
-		post({ type: 'done', id: request.id, opfsName, filename: request.filename, mimeType: request.mode === 'download' ? request.mimeType : 'video/mp4' });
+		post({ type: 'done', id: request.id, opfsName, savedDirectly: false, filename: request.filename, mimeType });
 	} catch (err) {
 		console.error('Download transform worker failed', err, {
 			mode: request.mode,

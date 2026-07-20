@@ -29,6 +29,8 @@ type ArchiveDownloadWorkerDirectoryRequest = {
 	readonly excludePaths: string[];
 	readonly authHeaders: Record<string, string>;
 	readonly filename: string;
+	/** 指定すると OPFS の代わりにこのハンドルへ直接書き込む（構造化複製で渡される） */
+	readonly fileHandle?: FileSystemFileHandle;
 };
 
 type ArchiveDownloadWorkerToZipRequest = {
@@ -41,6 +43,8 @@ type ArchiveDownloadWorkerToZipRequest = {
 	/** 指定すると tar 内の各エントリーを復号してから zip に格納する */
 	readonly encryptionKey?: string;
 	readonly authHeaders: Record<string, string>;
+	/** 指定すると OPFS の代わりにこのハンドルへ直接書き込む（構造化複製で渡される） */
+	readonly fileHandle?: FileSystemFileHandle;
 };
 
 type ArchiveDownloadWorkerDecryptRequest = {
@@ -55,6 +59,8 @@ type ArchiveDownloadWorkerDecryptRequest = {
 	/** 復号キー（multibase形式）。tar 内はエントリー単位で暗号化されている */
 	readonly encryptionKey: string;
 	readonly authHeaders: Record<string, string>;
+	/** 指定すると OPFS の代わりにこのハンドルへ直接書き込む（構造化複製で渡される） */
+	readonly fileHandle?: FileSystemFileHandle;
 };
 
 export type ArchiveDownloadWorkerRequest = ArchiveDownloadWorkerDirectoryRequest | ArchiveDownloadWorkerToZipRequest | ArchiveDownloadWorkerDecryptRequest;
@@ -70,7 +76,7 @@ export type ArchiveDownloadProgress = {
 
 export type ArchiveDownloadWorkerMessage =
 	| { type: 'progress'; id: string; progress: ArchiveDownloadProgress }
-	| { type: 'done'; id: string; opfsName: string; filename: string; mimeType: string }
+	| { type: 'done'; id: string; opfsName?: string; savedDirectly: boolean; filename: string; mimeType: string }
 	| { type: 'error'; id: string; error: string; opfsName?: string };
 
 const TAR_MIME = 'application/x-tar';
@@ -83,25 +89,31 @@ self.onmessage = (event: MessageEvent<ArchiveDownloadWorkerRequest>) => {
 async function handleRequest(request: ArchiveDownloadWorkerRequest): Promise<void> {
 	let opfsName: string | undefined;
 	try {
-		const tempFile = await createOpfsTempFile(request.id, opfsExtension(request));
-		opfsName = tempFile.opfsName;
-		const fileHandle = tempFile.fileHandle;
+		const savedDirectly = request.fileHandle != null;
+		let fileHandle: FileSystemFileHandle;
+		if (request.fileHandle) {
+			fileHandle = request.fileHandle;
+		} else {
+			const tempFile = await createOpfsTempFile(request.id, opfsExtension(request));
+			opfsName = tempFile.opfsName;
+			fileHandle = tempFile.fileHandle;
+		}
 
 		if (request.mode === 'directory') {
 			const files = await resolveDirectoryTargets(request);
 			if (request.format === 'tar') {
 				await writeTar(fileHandle, files, request);
-				post({ type: 'done', id: request.id, opfsName, filename: request.filename, mimeType: TAR_MIME });
+				post({ type: 'done', id: request.id, opfsName, savedDirectly, filename: request.filename, mimeType: TAR_MIME });
 			} else {
 				await writeZip(fileHandle, files, request);
-				post({ type: 'done', id: request.id, opfsName, filename: request.filename, mimeType: ZIP_MIME });
+				post({ type: 'done', id: request.id, opfsName, savedDirectly, filename: request.filename, mimeType: ZIP_MIME });
 			}
 			return;
 		}
 
 		if (request.mode === 'archive-to-zip') {
 			await writeArchiveAsZip(fileHandle, request);
-			post({ type: 'done', id: request.id, opfsName, filename: request.filename, mimeType: ZIP_MIME });
+			post({ type: 'done', id: request.id, opfsName, savedDirectly, filename: request.filename, mimeType: ZIP_MIME });
 			return;
 		}
 
@@ -109,7 +121,7 @@ async function handleRequest(request: ArchiveDownloadWorkerRequest): Promise<voi
 			const outputGzip = request.isTargz && !request.decompress;
 			const mimeType = outputGzip ? 'application/gzip' : TAR_MIME;
 			await writeDecryptedArchive(fileHandle, request);
-			post({ type: 'done', id: request.id, opfsName, filename: request.filename, mimeType });
+			post({ type: 'done', id: request.id, opfsName, savedDirectly, filename: request.filename, mimeType });
 			return;
 		}
 	} catch (err) {
