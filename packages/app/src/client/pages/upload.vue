@@ -14,10 +14,10 @@ import FileVisibilitySettingsSummary from '@/components/FileVisibilitySettingsSu
 import MediaConversionSettingsDialog from '@/components/MediaConversionSettingsDialog.vue';
 import MediaConversionSettingsSummary from '@/components/MediaConversionSettingsSummary.vue';
 import HlsSettingsDialog from '@/components/HlsSettingsDialog.vue';
-import { ENCRYPTION_URL_FRAGMENT_KEY, MAX_FILE_PATH_LENGTH } from '../../shared/const';
+import { MAX_FILE_PATH_LENGTH } from '../../shared/const';
 import { isValidFilePath } from '../../shared/name-validation';
 import { UploadTree, type HlsEntryUploadSettings, type PlannedUploadEntry, type SelectedUploadEntry, type UploadDirectory, type UploadEntry, type UploadConversionPlan } from '@/utils/upload-tree';
-import { enqueueStreamingUploadJob, failUploadEntries, finishUploadEntries, getUploadEncryptionKey, pushUploadEntry, uploadWorkerJobs } from '@/store/upload-worker';
+import { enqueueStreamingUploadJob, failUploadEntries, finishUploadEntries, pushUploadEntry, uploadWorkerJobs } from '@/store/upload-worker';
 import { buildUploadConflictDirectoryPlan, findUploadConflictsInDirectory, getEffectiveUploadEntries, isPathUnderMissingDirectory } from '@/utils/upload-paths';
 import { takeShareTargetPayload } from '../../shared/share-target-store';
 import { readBlobTextPreview } from '@/utils/text-preview';
@@ -90,22 +90,6 @@ let previousBodyCursor = '';
 const uploadError = ref('');
 const uploadDone = ref(false);
 const redirectUploadJobId = ref<string | null>(null);
-const encryptionShareLink = ref<string | null>(null);
-const encryptionLinkCopied = ref(false);
-let encryptionLinkCopiedTimer: ReturnType<typeof setTimeout> | null = null;
-
-function copyEncryptionShareLink(): void {
-	if (!encryptionShareLink.value) return;
-	void navigator.clipboard.writeText(encryptionShareLink.value).then(() => {
-		encryptionLinkCopied.value = true;
-		if (encryptionLinkCopiedTimer) clearTimeout(encryptionLinkCopiedTimer);
-		encryptionLinkCopiedTimer = setTimeout(() => {
-			encryptionLinkCopied.value = false;
-		}, 2000);
-	}).catch((err) => {
-		console.error('Failed to copy encryption share link', err);
-	});
-}
 const quotaWarningOpen = ref(false);
 const quotaWarningConfirmed = ref(false);
 const zipConfirmOpen = ref(false);
@@ -489,10 +473,6 @@ watch(uploadWorkerJobs, jobs => {
 	const job = jobs.find(current => current.id === jobId);
 	if (!job || job.status !== 'done' || !job.completedPath) return;
 	redirectUploadJobId.value = null;
-	const key = getUploadEncryptionKey(jobId);
-	if (key) {
-		encryptionShareLink.value = `${browserUploadLink(job.bucketName, job.completedPath)}#${ENCRYPTION_URL_FRAGMENT_KEY}=${key}`;
-	}
 	if (browserUploadAutoOpen.value && window.location.pathname === '/uploader') {
 		navigateTo(browserUploadLink(job.bucketName, job.completedPath));
 	}
@@ -1640,24 +1620,6 @@ onMounted(async () => {
           アップロードジョブを開始しました。
           <NirA to="/my/uploadings?tab=browser" :class="$style.doneLink">進捗を見る →</NirA>
         </div>
-        <div v-if="encryptionShareLink" class="alert alert-info">
-          <p :class="$style.encryptionNotice">
-            このファイルはエンドツーエンド暗号化されています。復号するにはキー付きの共有リンクが必要です。
-          </p>
-          <div :class="$style.encryptionLinkRow">
-            <input
-              :value="encryptionShareLink"
-              class="form-input"
-              :class="$style.encryptionLinkInput"
-              readonly
-              @focus="($event.target as HTMLInputElement).select()"
-            >
-            <button type="button" class="btn btn-secondary" @click="copyEncryptionShareLink">
-              コピー
-            </button>
-          </div>
-          <p v-if="encryptionLinkCopied" :class="$style.encryptionCopied">コピーしました</p>
-        </div>
       </div>
 
       <ConfirmDialog
@@ -2346,28 +2308,6 @@ onMounted(async () => {
 
 .doneLink {
   margin-left: 8px;
-  font-weight: 600;
-}
-
-.encryptionNotice {
-  margin: 0 0 8px;
-}
-
-.encryptionLinkRow {
-  display: flex;
-  gap: 8px;
-  align-items: stretch;
-}
-
-.encryptionLinkInput {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-family: var(--font-mono, monospace);
-  font-size: 0.8125rem;
-}
-
-.encryptionCopied {
-  margin: 8px 0 0;
   font-weight: 600;
 }
 
