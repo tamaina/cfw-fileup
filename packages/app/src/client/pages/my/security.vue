@@ -11,7 +11,7 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import SensitiveActionAuth from '@/components/SensitiveActionAuth.vue';
 import type { ApiReq } from '../../../shared/api';
 import { useBackupCodeActions } from '@/composables/useBackupCodeActions';
-import { listEncryptionKeys, deleteEncryptionKey, clearAllEncryptionKeys, type KeyRecord } from '@/utils/encryption-key-store';
+import { listEncryptionKeys, deleteEncryptionKey, clearAllEncryptionKeys, exportEncryptionKeys, importEncryptionKeys, type KeyRecord, type EncryptionKeyExport } from '@/utils/encryption-key-store';
 import NirA from '@/components/NirA.vue';
 
 interface PasskeyItem {
@@ -81,6 +81,10 @@ const encryptionKeysLoading = ref(true);
 const encryptionKeyError = ref('');
 const clearingEncryptionKeys = ref(false);
 const showClearEncryptionKeysConfirm = ref(false);
+const exportingEncryptionKeys = ref(false);
+const importingEncryptionKeys = ref(false);
+const importResult = ref('');
+const importFileInput = ref<HTMLInputElement | null>(null);
 
 /**
  * 復号キーに対応するファイルの閲覧ページURLを返す。
@@ -121,6 +125,58 @@ async function removeAllEncryptionKeys(): Promise<void> {
 		encryptionKeyError.value = String(e);
 	} finally {
 		clearingEncryptionKeys.value = false;
+	}
+}
+
+async function handleExportEncryptionKeys(): Promise<void> {
+	exportingEncryptionKeys.value = true;
+	encryptionKeyError.value = '';
+	try {
+		const data = await exportEncryptionKeys();
+		const json = JSON.stringify(data, null, 2);
+		const blob = new Blob([json], { type: 'application/json' });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = `cfw-fileup-encryption-keys-${new Date().toISOString().slice(0, 10)}.json`;
+		a.click();
+		setTimeout(() => URL.revokeObjectURL(url), 100);
+	} catch (e) {
+		encryptionKeyError.value = String(e);
+	} finally {
+		exportingEncryptionKeys.value = false;
+	}
+}
+
+function triggerImportEncryptionKeys(): void {
+	importFileInput.value?.click();
+}
+
+async function handleImportEncryptionKeysFile(event: Event): Promise<void> {
+	const input = event.target as HTMLInputElement;
+	const file = input.files?.[0];
+	// 同じファイルを再選択できるようにリセット
+	input.value = '';
+	if (!file) return;
+
+	importingEncryptionKeys.value = true;
+	encryptionKeyError.value = '';
+	importResult.value = '';
+	try {
+		const text = await file.text();
+		let data: EncryptionKeyExport;
+		try {
+			data = JSON.parse(text) as EncryptionKeyExport;
+		} catch {
+			throw new Error('JSONファイルの解析に失敗しました');
+		}
+		const result = await importEncryptionKeys(data);
+		importResult.value = `${result.imported}件をインポートしました` + (result.skipped > 0 ? `（${result.skipped}件は既存のためスキップ）` : '');
+		await loadEncryptionKeys();
+	} catch (e) {
+		encryptionKeyError.value = String(e);
+	} finally {
+		importingEncryptionKeys.value = false;
 	}
 }
 
@@ -568,18 +624,45 @@ onMounted(async () => {
               このブラウザに保存されているエンドツーエンド暗号化の復号キーです。削除すると、対応するファイルをこのブラウザで復号できなくなります。
             </p>
           </div>
-          <Button.Root
-            v-if="encryptionKeys.length > 0"
-            class="btn btn-danger"
-            :loading="clearingEncryptionKeys"
-            @click="showClearEncryptionKeysConfirm = true"
-          >
-            <Button.Loading>削除中...</Button.Loading>
-            <Button.Content>すべて削除</Button.Content>
-          </Button.Root>
+          <div :class="$style.encKeyActions">
+            <Button.Root
+              class="btn btn-secondary"
+              :loading="exportingEncryptionKeys"
+              :disabled="encryptionKeys.length === 0"
+              @click="handleExportEncryptionKeys"
+            >
+              <Button.Loading>エクスポート中...</Button.Loading>
+              <Button.Content>エクスポート</Button.Content>
+            </Button.Root>
+            <Button.Root
+              class="btn btn-secondary"
+              :loading="importingEncryptionKeys"
+              @click="triggerImportEncryptionKeys"
+            >
+              <Button.Loading>インポート中...</Button.Loading>
+              <Button.Content>インポート</Button.Content>
+            </Button.Root>
+            <input
+              ref="importFileInput"
+              type="file"
+              accept=".json,application/json"
+              :class="$style.hiddenFileInput"
+              @change="handleImportEncryptionKeysFile"
+            >
+            <Button.Root
+              v-if="encryptionKeys.length > 0"
+              class="btn btn-danger"
+              :loading="clearingEncryptionKeys"
+              @click="showClearEncryptionKeysConfirm = true"
+            >
+              <Button.Loading>削除中...</Button.Loading>
+              <Button.Content>すべて削除</Button.Content>
+            </Button.Root>
+          </div>
         </div>
 
         <div v-if="encryptionKeyError" class="alert alert-error">{{ encryptionKeyError }}</div>
+        <div v-if="importResult" class="alert alert-success">{{ importResult }}</div>
         <div v-if="encryptionKeysLoading" :class="$style.mutedText">読み込み中...</div>
         <div v-else-if="encryptionKeys.length === 0" :class="$style.mutedText">保存されている復号キーはありません。</div>
         <div v-else class="card">
@@ -644,6 +727,9 @@ onMounted(async () => {
 
 .section {
   display: grid;
+  // minmax(0, 1fr) にしないと、グリッドアイテムの min-width: auto によって
+  // テーブルの固有幅がカードを押し広げ、ページ全体が横スクロールになる
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   margin-bottom: 28px;
 }
@@ -785,6 +871,17 @@ onMounted(async () => {
 .encKeyNoLink {
   font-size: 0.8rem;
   color: var(--color-text-muted);
+}
+
+.encKeyActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.hiddenFileInput {
+  display: none;
 }
 
 @media (max-width: 640px) {

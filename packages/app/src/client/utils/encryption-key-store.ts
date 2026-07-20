@@ -110,3 +110,79 @@ export async function listEncryptionKeys(): Promise<KeyRecord[]> {
 		request.onerror = () => reject(request.error);
 	});
 }
+
+/**
+ * インポート用のJSON形式。
+ * エクスポート時にこの形式で出力し、インポート時にこの形式を受け付ける。
+ */
+export interface EncryptionKeyExport {
+	version: 1;
+	app: 'cfw-fileup';
+	exportedAt: string;
+	keys: KeyRecord[];
+}
+
+/** 現在の全キーをエクスポート用オブジェクトとして返す。 */
+export async function exportEncryptionKeys(): Promise<EncryptionKeyExport> {
+	const keys = await listEncryptionKeys();
+	return {
+		version: 1,
+		app: 'cfw-fileup',
+		exportedAt: new Date().toISOString(),
+		keys,
+	};
+}
+
+export interface ImportEncryptionKeysResult {
+	imported: number;
+	skipped: number;
+}
+
+/**
+ * エクスポートされたJSONからキーをインポートする。
+ * 既に同じ fileId が存在する場合はスキップする（上書きしない）。
+ */
+export async function importEncryptionKeys(data: EncryptionKeyExport): Promise<ImportEncryptionKeysResult> {
+	if (data.version !== 1 || data.app !== 'cfw-fileup' || !Array.isArray(data.keys)) {
+		throw new Error('無効なエクスポートファイルです');
+	}
+
+	const db = await openDb();
+	let imported = 0;
+	let skipped = 0;
+
+	for (const key of data.keys) {
+		if (!key.fileId || !key.keyMultibase) {
+			skipped++;
+			continue;
+		}
+
+		const exists = await new Promise<boolean>((resolve, reject) => {
+			const tx = db.transaction(STORE_NAME, 'readonly');
+			const request = tx.objectStore(STORE_NAME).get(key.fileId);
+			request.onsuccess = () => resolve(request.result != null);
+			request.onerror = () => reject(request.error);
+		});
+
+		if (exists) {
+			skipped++;
+			continue;
+		}
+
+		await new Promise<void>((resolve, reject) => {
+			const tx = db.transaction(STORE_NAME, 'readwrite');
+			tx.objectStore(STORE_NAME).put({
+				fileId: key.fileId,
+				keyMultibase: key.keyMultibase,
+				createdAt: key.createdAt ?? Date.now(),
+				bucketName: key.bucketName,
+				path: key.path,
+			} satisfies KeyRecord);
+			tx.oncomplete = () => resolve();
+			tx.onerror = () => reject(tx.error);
+		});
+		imported++;
+	}
+
+	return { imported, skipped };
+}
