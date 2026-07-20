@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { AlertDialog, Button, Input } from '@vuetify/v0';
-import { Download, Flag, ShieldCheck, ShieldOff, TextCursorInput, Trash2 } from '@lucide/vue';
+import { Download, Flag, KeyRound, ShieldCheck, ShieldOff, TextCursorInput, Trash2 } from '@lucide/vue';
 import { authStore } from '@/store/auth';
 import { apiPost } from '@/utils/api';
 import { mainRouter } from '@/router';
@@ -9,6 +9,7 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import MoveEntryDialog from '@/components/MoveEntryDialog.vue';
 import TurnstileWidget from '@/components/TurnstileWidget.vue';
 import { fileReportReasonIds, fileReportReasonLabels, fileReportRelationshipIds, fileReportRelationshipLabels, type FileReportReasonId, type FileReportRelationshipId } from '../../shared/file-reports';
+import { multibaseToKey } from '../../shared/encryption';
 
 const props = withDefaults(defineProps<{
 	bucketName: string;
@@ -22,6 +23,10 @@ const props = withDefaults(defineProps<{
 	reportPath?: string;
 	hideManagement?: boolean;
 	showDownload?: boolean;
+	/** ファイル本体がE2E暗号化されているかどうか */
+	isEncrypted?: boolean;
+	/** 復号キーが利用可能かどうか */
+	hasEncryptionKey?: boolean;
 }>(), {
 	showDownload: true,
 });
@@ -29,6 +34,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
 	(e: 'update:isModerationForcedPrivate', value: boolean): void;
 	(e: 'download', event: MouseEvent): void;
+	(e: 'addEncryptionKey', key: string): void;
 }>();
 
 const deleteError = ref('');
@@ -173,6 +179,33 @@ async function updateModerationForcedPrivate(): Promise<void> {
 function handleMoved(target: { bucketName: string; path: string }): void {
 	mainRouter.pushByPath(`/v/${target.bucketName}/${target.path}`);
 }
+
+// --- 復号キー追加ダイアログ ---
+const keyDialog = ref(false);
+const keyInput = ref('');
+const keyError = ref('');
+
+const showAddKeyButton = computed(() => props.isEncrypted === true && !props.hasEncryptionKey);
+
+function openKeyDialog(): void {
+	keyInput.value = '';
+	keyError.value = '';
+	keyDialog.value = true;
+}
+
+function submitKeyDialog(): void {
+	const raw = keyInput.value.trim();
+	if (raw === '') {
+		keyError.value = '復号キーを入力してください。';
+		return;
+	}
+	if (multibaseToKey(raw) == null) {
+		keyError.value = '復号キーの形式が正しくありません。「z」で始まるmultibase形式のキーを入力してください。';
+		return;
+	}
+	keyDialog.value = false;
+	emit('addEncryptionKey', raw);
+}
 </script>
 
 <template>
@@ -182,6 +215,12 @@ function handleMoved(target: { bucketName: string; path: string }): void {
         <Download :size="16" :stroke-width="2" aria-hidden="true" />
         ダウンロード
       </a>
+      <Button.Root v-if="showAddKeyButton" class="btn btn-secondary" @click="openKeyDialog">
+        <Button.Content>
+          <KeyRound :size="16" :stroke-width="2" aria-hidden="true" />
+          復号キーを追加
+        </Button.Content>
+      </Button.Root>
       <slot />
       <Button.Root v-if="!hideManagement && authStore.user && bucketId" class="btn btn-ghost" @click="moveDialog = true">
         <Button.Content>
@@ -355,6 +394,24 @@ function handleMoved(target: { bucketName: string; path: string }): void {
         </form>
       </AlertDialog.Content>
     </AlertDialog.Root>
+
+    <AlertDialog.Root v-model="keyDialog">
+      <AlertDialog.Content :class="$style.keyDialog">
+        <form :class="$style.keyDialogInner" @submit.prevent="submitKeyDialog">
+          <AlertDialog.Title :class="$style.keyDialogTitle">復号キーを追加</AlertDialog.Title>
+          <p :class="$style.keyDialogDesc">このファイルはE2E暗号化されています。共有された復号キー（「z」で始まる文字列）を入力すると、このブラウザで復号できるようになります。キーはこのブラウザにのみ保存され、サーバーには送信されません。</p>
+          <div v-if="keyError" class="alert alert-error">{{ keyError }}</div>
+          <div class="form-group">
+            <label class="form-label" for="encryptionKeyInput">復号キー</label>
+            <input id="encryptionKeyInput" v-model="keyInput" class="form-input" :class="$style.keyInput" placeholder="z..." autocomplete="off" spellcheck="false" autofocus>
+          </div>
+          <div :class="$style.keyDialogActions">
+            <AlertDialog.Cancel class="btn btn-secondary" type="button">キャンセル</AlertDialog.Cancel>
+            <button class="btn btn-primary" type="submit">追加</button>
+          </div>
+        </form>
+      </AlertDialog.Content>
+    </AlertDialog.Root>
   </div>
 </template>
 
@@ -435,6 +492,53 @@ function handleMoved(target: { bucketName: string; path: string }): void {
 }
 
 .reportActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.keyDialog {
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: none;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  padding: 0;
+  width: min(520px, calc(100vw - 32px));
+  max-height: 90vh;
+  overflow: auto;
+
+  &::backdrop {
+    background: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(2px);
+  }
+}
+
+.keyDialogInner {
+  display: grid;
+  gap: 14px;
+  padding: 24px;
+}
+
+.keyDialogTitle {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.keyDialogDesc {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+.keyInput {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+
+.keyDialogActions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;

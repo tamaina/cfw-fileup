@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue';
 import { Button, Popover } from '@vuetify/v0';
-import { EllipsisVertical } from '@lucide/vue';
+import { EllipsisVertical, ShieldCheck } from '@lucide/vue';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import FileVisibilitySettings from '@/components/FileVisibilitySettings.vue';
 import InfiniteTableRow from '@/components/InfiniteTableRow.vue';
 import { apiPost } from '@/utils/api';
+import { ENCRYPTION_URL_FRAGMENT_KEY } from '../../shared/const';
 import type { FileVisibility } from '../../shared/file-visibility';
 
 const props = defineProps<{
@@ -18,6 +19,8 @@ const props = defineProps<{
 	isDownloadCountVisible: boolean;
 	canUseDownloadCount: boolean;
 	autoTokenId?: string | null;
+	/** 暗号化キー（multibase形式）。共有URLに #key=z... として付加される */
+	encryptionKey?: string;
 }>();
 const emit = defineEmits<{
 	(e: 'update:fileVisibility', value: FileVisibility): void;
@@ -135,6 +138,12 @@ async function createToken(): Promise<void> {
 function viewUrl(token?: string): string {
 	const url = new URL(`/v/${props.bucketName}/${props.filePath}`, location.origin);
 	if (token) url.searchParams.set('token', token);
+	// 暗号化ファイルの共有URLには復号キーをフラグメントとして付加する（サーバーには送信されない）
+	if (props.encryptionKey) {
+		const params = new URLSearchParams(url.hash.slice(1));
+		params.set(ENCRYPTION_URL_FRAGMENT_KEY, props.encryptionKey);
+		url.hash = params.toString();
+	}
 	return url.toString();
 }
 
@@ -257,6 +266,10 @@ onMounted(loadTokens);
       <p :class="[$style.shareHint, 'text-muted']">
         「ファイル一覧とActivityPubに表示」がオンの公開ファイルは、ActivityPub対応サービスからこのリンクを照会できます。
       </p>
+      <p v-if="encryptionKey" :class="[$style.encryptionHint, 'text-muted']">
+        <ShieldCheck :size="13" :stroke-width="2" aria-hidden="true" />
+        復号キーがURLの <code>#key=…</code> に含まれています（サーバーには送信されません）。
+      </p>
       <div class="flex items-center gap-2 flex-wrap">
         <pre :class="$style.tokenUrl"><code>{{ viewUrl() }}</code></pre>
         <Button.Root class="btn btn-secondary" @click="copyPublicUrl">
@@ -268,6 +281,10 @@ onMounted(loadTokens);
       <div :class="[$style.sectionHeading, 'card-title', 'mb-2']">新しい共有URLを発行</div>
       <p :class="[$style.shareHint, 'text-muted']">
         ActivityPubでのリンク照会は、公開ファイルで「ファイル一覧とActivityPubに表示」をオンにした場合に有効です。
+      </p>
+      <p v-if="encryptionKey" :class="[$style.encryptionHint, 'text-muted']">
+        <ShieldCheck :size="13" :stroke-width="2" aria-hidden="true" />
+        復号キーがURLの <code>#key=…</code> に含まれています（サーバーには送信されません）。
       </p>
 
       <div class="flex items-center gap-3 flex-wrap">
@@ -419,6 +436,15 @@ onMounted(loadTokens);
 }
 
 .shareHint {
+  margin: -4px 0 10px;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.encryptionHint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin: -4px 0 10px;
   font-size: 0.8rem;
   line-height: 1.5;

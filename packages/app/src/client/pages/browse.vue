@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import type { FileVisibility } from '../../shared/file-visibility';
 import { Form, Input } from '@vuetify/v0';
+import { ShieldCheck } from '@lucide/vue';
 import BrowseDirectory from './browse.directory.vue';
 import BrowseFile from './browse.file.vue';
 import BrowseFileTokens from './browse.file-tokens.vue';
@@ -17,6 +18,9 @@ import { archiveEntryDownloadUrl, archiveEntryStreamUrl } from '@/utils/archive-
 import { createBgzfDecompressor } from 'bgzf';
 import { hasMimeTypeMismatch as detectMimeTypeMismatch, inferMimeTypeByExtension, isExecutableMimeType, selectStoredOrSniffedMimeType } from '../../shared/mime-by-extension';
 import { HLS_TAR_MIME } from '../../shared/hls';
+import { ENCRYPTION_URL_FRAGMENT_KEY } from '../../shared/const';
+import { decryptBlob, importAesCtrKey, multibaseToKey } from '../../shared/encryption';
+import { saveEncryptionKey, getEncryptionKey } from '@/utils/encryption-key-store';
 
 const props = withDefaults(defineProps<{
 	bucketName: string;
@@ -91,7 +95,15 @@ const innerDownloadUrl = computed(() => {
 	if (!fileId.value) return '';
 	return archiveEntryDownloadUrl(fileId.value, entryPath.value ?? '', autoToken.value);
 });
-const innerPreviewUrl = computed(() => isTargz.value ? innerObjectUrl.value : innerDownloadUrl.value);
+// 暗号化アーカイブのエントリーはクライアント側で復号した ObjectURL を使う（復号中や鍵なしの間は空）
+const innerPreviewUrl = computed(() => {
+	if (isEncrypted.value) return innerObjectUrl.value;
+	return isTargz.value ? innerObjectUrl.value : innerDownloadUrl.value;
+});
+// BrowseFile へのダウンロードURL。復号済みなら ObjectURL、鍵なし時は生のエントリーURL（暗号化されたままのダウンロード用）
+const innerFileDownloadUrl = computed(() => {
+	return innerObjectUrl.value || innerDownloadUrl.value;
+});
 const innerHlsUrl = computed(() => {
 	if (!fileId.value || !entryPath.value) return undefined;
 	if (!entryPath.value.toLowerCase().endsWith('.m3u8')) return undefined;
@@ -205,9 +217,31 @@ function applyInnerSniffedMimeType(entry: InnerArchiveEntry & { type: 'targz' },
 	return detectedMimeType;
 }
 
+/** 暗号化アーカイブのエントリーを復号して Blob を作る（tar/tar.gz 共通） */
+async function createEncryptedInnerEntryBlob(): Promise<Blob> {
+	const entry = innerMeta.value;
+	if (!entry) throw new Error('Archive entry is not loaded');
+	const rawKey = encryptionKey.value ? multibaseToKey(encryptionKey.value) : null;
+	if (!rawKey) throw new Error('このブラウザに復号キーがありません');
+	const cryptoKey = await importAesCtrKey(rawKey, ['decrypt']);
+	const res = await fetch(innerDownloadUrl.value, { headers: archiveFetchHeaders() });
+	if (!res.ok) throw new Error(`Failed to fetch entry: HTTP ${res.status}`);
+	const blob = await res.blob();
+	const decrypted = await decryptBlob(blob, cryptoKey);
+	if (entry.type === 'targz') {
+		const bytes = new Uint8Array(await decrypted.arrayBuffer()) as Uint8Array<ArrayBuffer>;
+		const mimeType = applyInnerSniffedMimeType(entry, bytes);
+		return new Blob([bytes], { type: mimeType });
+	}
+	return new Blob([decrypted], { type: entry.mimeType || undefined });
+}
+
 async function createInnerEntryBlob(): Promise<Blob> {
 	const entry = innerMeta.value;
 	if (!entry) throw new Error('Archive entry is not loaded');
+	if (isEncrypted.value) {
+		return createEncryptedInnerEntryBlob();
+	}
 	if (entry.type === 'tar') {
 		throw new Error('Client-side extraction is only used for tar.gz entries');
 	}
@@ -229,7 +263,8 @@ function revokeInnerObjectUrl(): void {
 async function refreshInnerObjectUrl(): Promise<void> {
 	revokeInnerObjectUrl();
 	innerDownloadError.value = '';
-	if (!isTargz.value) return;
+	if (!isEncrypted.value && !isTargz.value) return;
+	if (isEncrypted.value && !encryptionKey.value) return;
 	if (!isEntryFile.value || !innerMeta.value) return;
 	if (!isInnerImage.value && !isInnerMarkdown.value && !isInnerJson.value && !isInnerTextLike.value) return;
 	try {
@@ -243,7 +278,7 @@ async function refreshInnerObjectUrl(): Promise<void> {
 }
 
 async function downloadInnerEntry(event: MouseEvent): Promise<void> {
-	if (!isTargz.value) return;
+	if (!isEncrypted.value && !isTargz.value) return;
 	if (innerObjectUrl.value) return;
 	event.preventDefault();
 	try {
@@ -309,6 +344,8 @@ const isTar = ref(false);
 const fileSize = ref<number | null>(null);
 const fileId = ref<string | null>(null);
 const fileBucketId = ref<string | null>(null);
+const isEncrypted = ref(false);
+const encryptionKey = ref<string | null>(null);
 const fileMimeType = ref<string | null>(null);
 const fileExtensionMimeType = ref<string | null>(null);
 const hasMimeTypeMismatch = ref(false);
@@ -531,6 +568,7 @@ async function fetchMeta(): Promise<void> {
 			isOwner?: boolean;
 			fileId?: string;
 			bucketId?: string;
+			isEncrypted?: boolean;
 		};
 		isTargz.value = data.isTargz ?? false;
 		isTar.value = data.isTar ?? false;
@@ -550,6 +588,12 @@ async function fetchMeta(): Promise<void> {
 		ownerCanDisableFileAds.value = data.ownerCanDisableFileAds ?? false;
 		fileId.value = data.fileId ?? null;
 		fileBucketId.value = data.bucketId ?? null;
+		isEncrypted.value = data.isEncrypted ?? false;
+
+		// Resolve encryption key: URL fragment takes priority, then IndexedDB
+		if (data.isEncrypted && data.fileId) {
+			await resolveEncryptionKey(data.fileId);
+		}
 
 		if (apiMetaRes.ok) {
 			const apiMeta = await apiMetaRes.json() as { turnstileEnabled?: boolean; turnstileSiteKey?: string };
@@ -582,6 +626,13 @@ async function fetchMeta(): Promise<void> {
 		metaLoading.value = false;
 	}
 }
+
+// 鍵が解決されたタイミングでエントリープレビューを再試行（IndexedDB からの復元が非同期のため）
+watch(() => encryptionKey.value, (key) => {
+	if (key && isEncrypted.value && isEntryFile.value && innerMeta.value && !innerObjectUrl.value) {
+		void refreshInnerObjectUrl();
+	}
+});
 
 async function submitPassphrase({ valid }: { valid: boolean }): Promise<void> {
 	if (!valid) return;
@@ -719,6 +770,52 @@ function tokenDeleted(tokenId: string) {
 	try { sessionStorage.removeItem(autoTokenCacheKey()); } catch { /* */ }
 }
 
+/** Parse encryption key from URL fragment (#key=z...) or load from IndexedDB */
+async function resolveEncryptionKey(resolvedFileId: string): Promise<void> {
+	// 1. Check URL fragment
+	const hash = window.location.hash;
+	if (hash) {
+		const params = new URLSearchParams(hash.slice(1));
+		const fragmentKey = params.get(ENCRYPTION_URL_FRAGMENT_KEY);
+		if (fragmentKey) {
+			encryptionKey.value = fragmentKey;
+			// Persist to IndexedDB for future visits
+			// 閲覧ページへリンクできるよう、保存先バケットとパスも記録する
+			await saveEncryptionKey(resolvedFileId, fragmentKey, { bucketName: props.bucketName, path: baseFilePath.value }).catch(() => {});
+			return;
+		}
+	}
+	// 2. Load from IndexedDB
+	const stored = await getEncryptionKey(resolvedFileId).catch(() => null);
+	if (stored) {
+		encryptionKey.value = stored;
+		// NOTE: IDBから復元した鍵はURLに自動書き込みしない。
+		// ブラウザ履歴に鍵が残るのを防ぐため。共有リンクが必要な場合はユーザーが明示的にコピーする。
+	}
+}
+
+/** URLフラグメントに #key=z... を書き込む（既存の他のパラメータは保持） */
+function writeKeyToUrlFragment(key: string): void {
+	try {
+		const url = new URL(window.location.href);
+		const params = new URLSearchParams(url.hash.slice(1));
+		if (params.get(ENCRYPTION_URL_FRAGMENT_KEY) === key) return;
+		params.set(ENCRYPTION_URL_FRAGMENT_KEY, key);
+		url.hash = params.toString();
+		window.history.replaceState(null, '', url.toString());
+	} catch { /* ignore */ }
+}
+
+/** ダイアログから復号キーを追加: 状態反映 + IndexedDB保存 + URLフラグメント書き込み */
+async function addEncryptionKey(key: string): Promise<void> {
+	encryptionKey.value = key;
+	if (fileId.value) {
+		// 閲覧ページへリンクできるよう、保存先バケットとパスも記録する
+		await saveEncryptionKey(fileId.value, key, { bucketName: props.bucketName, path: baseFilePath.value }).catch(() => {});
+	}
+	writeKeyToUrlFragment(key);
+}
+
 onMounted(fetchBrowseTerms);
 watch(() => [props.bucketName, props.filePath], () => {
 	activeTab.value = 'info';
@@ -729,6 +826,8 @@ watch(() => [props.bucketName, props.filePath], () => {
 	passphraseTokenExpiresAt.value = null;
 	fileId.value = null;
 	fileBucketId.value = null;
+	isEncrypted.value = false;
+	encryptionKey.value = null;
 	fileMimeType.value = null;
 	fileExtensionMimeType.value = null;
 	hasMimeTypeMismatch.value = false;
@@ -785,6 +884,15 @@ onUnmounted(revokeInnerObjectUrl);
       </span>
       <span v-if="fileIsModerationForcedPrivate && !isDirectory && !metaError" class="badge badge-danger">
         強制非公開
+      </span>
+      <span
+        v-if="isEncrypted && !isDirectory && !metaError"
+        class="badge badge-info"
+        :class="$style.encryptedBadge"
+        :title="encryptionKey ? 'このブラウザに復号キーがあります' : '復号キーがありません'"
+      >
+        <ShieldCheck :size="12" :stroke-width="2" aria-hidden="true" />
+        {{ encryptionKey ? '復号可能' : '暗号化' }}
       </span>
       <span
         v-if="!isDirectory && !metaError && (isEntryFile ? innerMeta?.size != null : fileSize != null)"
@@ -849,7 +957,7 @@ onUnmounted(revokeInnerObjectUrl);
           :fileId="fileId ?? ''"
           :bucketId="null"
           :token="autoToken ?? undefined"
-          :download-url-override="innerPreviewUrl || innerDownloadUrl"
+          :download-url-override="innerFileDownloadUrl"
           :preview-url="innerPreviewUrl"
           :download-filename="innerDownloadFilename"
           :download-error-override="innerDownloadError"
@@ -862,7 +970,10 @@ onUnmounted(revokeInnerObjectUrl);
           :hideManagement="true"
           :showAds="true"
           :ownerCanDisableFileAds="ownerCanDisableFileAds"
+          :isEncrypted="isEncrypted"
+          :encryptionKey="encryptionKey ?? undefined"
           @download="downloadInnerEntry"
+          @add-encryption-key="addEncryptionKey"
         />
       </template>
 
@@ -889,7 +1000,7 @@ onUnmounted(revokeInnerObjectUrl);
             :show-ads="true"
             @update:is-moderation-forced-private="fileIsModerationForcedPrivateChanged"
           />
-	          <BrowseDirectory v-else-if="isTargz || isTar" :bucketName="bucketName" :filePath="baseFilePath" :isTargz="isTargz" :isTar="isTar" :entryPath="entryPath ?? ''" :token="autoToken ?? undefined" :fileId="fileId ?? undefined" :ownerCanDisableFileAds="ownerCanDisableFileAds" />
+	          <BrowseDirectory v-else-if="isTargz || isTar" :bucketName="bucketName" :filePath="baseFilePath" :isTargz="isTargz" :isTar="isTar" :entryPath="entryPath ?? ''" :token="autoToken ?? undefined" :fileId="fileId ?? undefined" :ownerCanDisableFileAds="ownerCanDisableFileAds" :isEncrypted="isEncrypted" :encryptionKey="encryptionKey ?? undefined" @add-encryption-key="addEncryptionKey" />
 	          <BrowseFile
             v-else
             :bucketName="bucketName"
@@ -901,7 +1012,10 @@ onUnmounted(revokeInnerObjectUrl);
 	            :isModerationForcedPrivate="fileIsModerationForcedPrivate"
 	            :ownerCanDisableFileAds="ownerCanDisableFileAds"
 	            :showAds="true"
+	            :isEncrypted="isEncrypted"
+	            :encryptionKey="encryptionKey ?? undefined"
 	            @update:isModerationForcedPrivate="fileIsModerationForcedPrivateChanged"
+	            @add-encryption-key="addEncryptionKey"
           />
         </template>
 
@@ -917,6 +1031,7 @@ onUnmounted(revokeInnerObjectUrl);
           :isDownloadCountVisible="fileIsDownloadCountVisible"
           :canUseDownloadCount="canUseDownloadCount"
           :autoTokenId="autoTokenId"
+          :encryptionKey="encryptionKey ?? undefined"
           @update:fileVisibility="fileVisibilityChanged"
           @update:isListed="fileIsListedChanged"
           @update:isDownloadCountEnabled="fileDownloadCountEnabledChanged"
@@ -958,7 +1073,7 @@ onUnmounted(revokeInnerObjectUrl);
 
       <!-- ログインなし or ディレクトリ or (非公開 + トークンあり): タブなし -->
       <template v-else>
-	        <BrowseDirectory v-if="isDirectory || isTargz || isTar" :bucketName="bucketName" :filePath="baseFilePath" :isTargz="isTargz" :isTar="isTar" :entryPath="entryPath ?? ''" :token="autoToken ?? undefined" :fileId="fileId ?? undefined" :ownerCanDisableFileAds="ownerCanDisableFileAds" />
+	        <BrowseDirectory v-if="isDirectory || isTargz || isTar" :bucketName="bucketName" :filePath="baseFilePath" :isTargz="isTargz" :isTar="isTar" :entryPath="entryPath ?? ''" :token="autoToken ?? undefined" :fileId="fileId ?? undefined" :ownerCanDisableFileAds="ownerCanDisableFileAds" :isEncrypted="isEncrypted" :encryptionKey="encryptionKey ?? undefined" @add-encryption-key="addEncryptionKey" />
         <BrowseFile
           v-else-if="!isDirectory"
           :bucketName="bucketName"
@@ -970,7 +1085,10 @@ onUnmounted(revokeInnerObjectUrl);
 	          :isModerationForcedPrivate="fileIsModerationForcedPrivate"
 	          :ownerCanDisableFileAds="ownerCanDisableFileAds"
 	          :showAds="true"
+	          :isEncrypted="isEncrypted"
+	          :encryptionKey="encryptionKey ?? undefined"
 	          @update:isModerationForcedPrivate="fileIsModerationForcedPrivateChanged"
+	          @add-encryption-key="addEncryptionKey"
         />
       </template>
     </template>
@@ -980,6 +1098,10 @@ onUnmounted(revokeInnerObjectUrl);
 <style module lang="scss">
 .breadcrumbsNoMargin {
   margin-bottom: 0;
+}
+
+.encryptedBadge {
+  gap: 4px;
 }
 
 .termsGate {

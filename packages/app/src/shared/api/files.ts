@@ -45,6 +45,7 @@ const FileListEntry = v.pipe(
 		mimeType: v.optional(MimeTypeString),
 		isTargz: v.optional(v.boolean()),
 		isTar: v.optional(v.boolean()),
+		isEncrypted: v.optional(v.boolean()),
 		visibility: v.optional(fileVisibilitySchema),
 		isListed: v.optional(v.boolean()),
 		isModerationForcedPrivate: v.optional(v.boolean()),
@@ -125,6 +126,8 @@ export const filesApiDef = {
 			isDownloadCountEnabled: v.optional(v.boolean()),
 			isDownloadCountVisible: v.optional(v.boolean()),
 			mimeType: v.optional(MimeTypeString),
+			/** クライアントサイドE2E暗号化が適用されているか */
+			isEncrypted: v.optional(v.boolean()),
 		}),
 		res: {
 			200: { description: 'Success', content: { 'application/json': { vSchema: v.object({ ok: v.literal(true) }) } } },
@@ -255,6 +258,7 @@ export const filesApiDef = {
 				isModerationForcedPrivate: v.boolean(),
 				isTargz: v.boolean(),
 				isTar: v.boolean(),
+				isEncrypted: v.boolean(),
 				size: v.nullable(v.number()),
 				mimeType: v.nullable(MimeTypeString),
 				extensionMimeType: v.optional(MimeTypeString),

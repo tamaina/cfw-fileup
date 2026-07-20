@@ -37,6 +37,7 @@ type FileListEntry = {
 	mimeType?: string;
 	isTargz?: boolean;
 	isTar?: boolean;
+	isEncrypted?: boolean;
 	visibility?: 'public' | 'private' | 'passphrase';
 	isListed?: boolean;
 	isModerationForcedPrivate?: boolean;
@@ -62,6 +63,7 @@ type RawFileListEntry = {
 	mimeType: string | null;
 	isTargz: number | null;
 	isTar: number | null;
+	isEncrypted: number | null;
 	visibility: 'public' | 'private' | 'passphrase' | null;
 	isListed: number | null;
 	isModerationForcedPrivate: number | null;
@@ -164,6 +166,7 @@ async function listFiles(c: { env: Env; req: { header(name: string): string | un
 				NULL AS mime_type,
 				NULL AS is_targz,
 				NULL AS is_tar,
+				NULL AS is_encrypted,
 				NULL AS visibility,
 				is_listed AS is_listed,
 				NULL AS is_moderation_forced_private,
@@ -193,6 +196,7 @@ async function listFiles(c: { env: Env; req: { header(name: string): string | un
 				CASE WHEN instr(substr(path, ?), '/') = 0 THEN mime_type ELSE NULL END AS mime_type,
 				CASE WHEN instr(substr(path, ?), '/') = 0 THEN is_targz ELSE NULL END AS is_targz,
 				CASE WHEN instr(substr(path, ?), '/') = 0 THEN is_tar ELSE NULL END AS is_tar,
+				CASE WHEN instr(substr(path, ?), '/') = 0 THEN is_encrypted ELSE NULL END AS is_encrypted,
 				CASE WHEN instr(substr(path, ?), '/') = 0 THEN visibility ELSE NULL END AS visibility,
 				CASE WHEN instr(substr(path, ?), '/') = 0 THEN is_listed ELSE NULL END AS is_listed,
 				CASE WHEN instr(substr(path, ?), '/') = 0 THEN is_moderation_forced_private ELSE NULL END AS is_moderation_forced_private,
@@ -227,6 +231,7 @@ async function listFiles(c: { env: Env; req: { header(name: string): string | un
 				max(mime_type) AS mimeType,
 				max(is_targz) AS isTargz,
 				max(is_tar) AS isTar,
+				max(is_encrypted) AS isEncrypted,
 				max(visibility) AS visibility,
 				max(is_listed) AS isListed,
 				max(is_moderation_forced_private) AS isModerationForcedPrivate,
@@ -247,7 +252,7 @@ async function listFiles(c: { env: Env; req: { header(name: string): string | un
 		bucket.id, prefixLike, normalizedPath,
 		childStart, childStart, childStart, childStart, childStart, childStart,
 		childStart, normalizedPath.length, childStart, childStart,
-		childStart, childStart, childStart, childStart, childStart, childStart,
+		childStart, childStart, childStart, childStart, childStart, childStart, childStart,
 		childStart, childStart, childStart, childStart, childStart,
 		bucket.id, prefixLike, normalizedPath,
 		...publicExtraBind,
@@ -273,6 +278,7 @@ async function listFiles(c: { env: Env; req: { header(name: string): string | un
 			mimeType: row.mimeType ?? undefined,
 			isTargz: !!row.isTargz,
 			isTar: !!row.isTar,
+			isEncrypted: !!row.isEncrypted,
 			visibility: row.visibility ?? undefined,
 			...((row.isDownloadCountEnabled && (isOwnerOrAdmin || row.isDownloadCountVisible)) ? { downloadCount: row.downloadCount ?? 0 } : {}),
 			...(isOwnerOrAdmin
@@ -375,6 +381,7 @@ app.get('/meta', async (c) => {
 		isModerationForcedPrivate: file.isModerationForcedPrivate,
 		isTargz: file.isTargz,
 		isTar: file.isTar,
+		isEncrypted: file.isEncrypted,
 		size: file.size,
 		mimeType: file.mimeType,
 		extensionMimeType: inferMimeTypeByExtension(file.path),
@@ -718,9 +725,12 @@ app.post(
 		const fileSize = r2Object.size;
 		await validateArchiveIndexRows(db, file.id, fileSize);
 
+		const isEncrypted = body.isEncrypted ?? false;
+
 		let detectedMimeType: string | undefined;
 		let headerBytes: Uint8Array | undefined;
-		if (fileSize > 0) {
+		// Skip MIME sniffing for encrypted files — content is opaque to the server
+		if (!isEncrypted && fileSize > 0) {
 			try {
 				const r2Slice = await c.env.R2.get(file.r2Key, { range: { offset: 0, length: 4100 } });
 				if (r2Slice && 'bytes' in r2Slice) {
@@ -730,7 +740,7 @@ app.post(
 				// fall back to client-provided content type
 			}
 		}
-		if (headerBytes !== undefined || fileSize === 0) {
+		if (!isEncrypted && (headerBytes !== undefined || fileSize === 0)) {
 			detectedMimeType = selectStoredOrSniffedMimeType({
 				path: file.path,
 				sniffBytes: headerBytes ?? new Uint8Array(0),
@@ -738,8 +748,10 @@ app.post(
 			});
 		}
 		const requestedMimeType = body.mimeType === HLS_TAR_MIME ? body.mimeType : undefined;
-		const mimeType = requestedMimeType ?? detectedMimeType ?? r2Object.httpMetadata?.contentType;
-		const mismatch = hasSuspiciousFileType(file.path, mimeType);
+		const mimeType = isEncrypted
+			? (body.mimeType ?? 'application/octet-stream')
+			: (requestedMimeType ?? detectedMimeType ?? r2Object.httpMetadata?.contentType);
+		const mismatch = isEncrypted ? false : hasSuspiciousFileType(file.path, mimeType);
 		if (mismatch && await shouldRejectMismatchedFileType(c.env)) {
 			throw apiError(400, 'FILE_CONTENT_TYPE_DOES_NOT_MATCH_FILE_EXTENSION');
 		}
@@ -758,6 +770,7 @@ app.post(
 				passphraseHash: body.visibility === 'passphrase' && body.passphrase ? await hashPassword(body.passphrase) : null,
 				isDownloadCountEnabled,
 				isDownloadCountVisible,
+				isEncrypted,
 				size: fileSize,
 				mimeType,
 			})

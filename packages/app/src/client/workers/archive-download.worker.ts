@@ -1,6 +1,7 @@
-import { createTarHeader, parseTarStream, createBgzfDecompressor, isBgzf } from 'bgzf';
+import { createTarHeader, parseTarStream, createBgzfDecompressor, isBgzf, TarArchiver, type FileEntry } from 'bgzf';
 import { ZipWriter } from '@zip.js/zip.js';
 import { createOpfsTempFile } from './opfs-temp';
+import { createAesCtrDecryptTransform, importAesCtrKey, multibaseToKey } from '../../shared/encryption';
 
 type ArchiveFormat = 'tar' | 'zip';
 
@@ -37,10 +38,26 @@ type ArchiveDownloadWorkerToZipRequest = {
 	readonly token?: string;
 	readonly isTargz: boolean;
 	readonly filename: string;
+	/** 指定すると tar 内の各エントリーを復号してから zip に格納する */
+	readonly encryptionKey?: string;
 	readonly authHeaders: Record<string, string>;
 };
 
-export type ArchiveDownloadWorkerRequest = ArchiveDownloadWorkerDirectoryRequest | ArchiveDownloadWorkerToZipRequest;
+type ArchiveDownloadWorkerDecryptRequest = {
+	readonly id: string;
+	readonly mode: 'archive-decrypt';
+	readonly fileId: string;
+	readonly token?: string;
+	readonly isTargz: boolean;
+	/** true の場合、復号後に gzip 圧縮せず tar のまま出力する */
+	readonly decompress?: boolean;
+	readonly filename: string;
+	/** 復号キー（multibase形式）。tar 内はエントリー単位で暗号化されている */
+	readonly encryptionKey: string;
+	readonly authHeaders: Record<string, string>;
+};
+
+export type ArchiveDownloadWorkerRequest = ArchiveDownloadWorkerDirectoryRequest | ArchiveDownloadWorkerToZipRequest | ArchiveDownloadWorkerDecryptRequest;
 
 export type ArchiveDownloadProgress = {
 	phase: 'resolving' | 'reading' | 'writing' | 'done';
@@ -87,6 +104,14 @@ async function handleRequest(request: ArchiveDownloadWorkerRequest): Promise<voi
 			post({ type: 'done', id: request.id, opfsName, filename: request.filename, mimeType: ZIP_MIME });
 			return;
 		}
+
+		if (request.mode === 'archive-decrypt') {
+			const outputGzip = request.isTargz && !request.decompress;
+			const mimeType = outputGzip ? 'application/gzip' : TAR_MIME;
+			await writeDecryptedArchive(fileHandle, request);
+			post({ type: 'done', id: request.id, opfsName, filename: request.filename, mimeType });
+			return;
+		}
 	} catch (err) {
 		console.error('Archive download worker failed', err, {
 			mode: request.mode,
@@ -99,6 +124,7 @@ async function handleRequest(request: ArchiveDownloadWorkerRequest): Promise<voi
 
 function opfsExtension(request: ArchiveDownloadWorkerRequest): string {
 	if (request.mode === 'directory') return request.format === 'tar' ? '.tar' : '.zip';
+	if (request.mode === 'archive-decrypt') return (request.isTargz && !request.decompress) ? '.tar.gz' : '.tar';
 	return '.zip';
 }
 
@@ -278,7 +304,7 @@ async function writeZip(
 	}
 }
 
-function archiveDownloadUrl(request: Extract<ArchiveDownloadWorkerRequest, { mode: 'archive-to-zip' }>): string {
+function archiveDownloadUrl(request: { fileId: string; token?: string }): string {
 	const base = `/d/${encodeURIComponent(request.fileId)}`;
 	return request.token ? `${base}?token=${encodeURIComponent(request.token)}` : base;
 }
@@ -287,6 +313,12 @@ async function writeArchiveAsZip(fileHandle: FileSystemFileHandle, request: Extr
 	const writable = await fileHandle.createWritable();
 	const zipWriter = new ZipWriter(writable, { bufferedWrite: false });
 	let processedFiles = 0;
+	let cryptoKey: CryptoKey | null = null;
+	if (request.encryptionKey) {
+		const rawKey = multibaseToKey(request.encryptionKey);
+		if (!rawKey) throw new Error('Invalid encryption key');
+		cryptoKey = await importAesCtrKey(rawKey, ['decrypt']);
+	}
 	try {
 		progress(request.id, { phase: 'reading', processedFiles: 0, totalFiles: 0, currentFile: request.filename });
 		const res = await fetch(archiveDownloadUrl(request), { headers: request.authHeaders });
@@ -296,7 +328,10 @@ async function writeArchiveAsZip(fileHandle: FileSystemFileHandle, request: Extr
 			: res.body;
 		for await (const entry of parseTarStream(tarStream)) {
 			progress(request.id, { phase: 'writing', processedFiles, totalFiles: 0, currentFile: entry.name });
-			await zipWriter.add(entry.name, entry.stream);
+			const body = cryptoKey
+				? entry.stream.pipeThrough(createAesCtrDecryptTransform(cryptoKey))
+				: entry.stream;
+			await zipWriter.add(entry.name, body);
 			processedFiles++;
 			progress(request.id, { phase: 'writing', processedFiles, totalFiles: 0, currentFile: entry.name });
 		}
@@ -304,6 +339,47 @@ async function writeArchiveAsZip(fileHandle: FileSystemFileHandle, request: Extr
 		progress(request.id, { phase: 'done', processedFiles, totalFiles: processedFiles, currentFile: '' });
 	} catch (err) {
 		await zipWriter.close().catch(() => {});
+		await writable.abort().catch(() => {});
+		throw err;
+	}
+}
+
+/** tar 内の各エントリーを復号して、新しい tar / tar.gz アーカイブとして書き出す。
+ *  tar.gz は BGZF ではなく標準 gzip で出力する（bsdtar 互換性のため）。 */
+async function writeDecryptedArchive(fileHandle: FileSystemFileHandle, request: Extract<ArchiveDownloadWorkerRequest, { mode: 'archive-decrypt' }>): Promise<void> {
+	const rawKey = multibaseToKey(request.encryptionKey);
+	if (!rawKey) throw new Error('Invalid encryption key');
+	const cryptoKey = await importAesCtrKey(rawKey, ['decrypt']);
+
+	const res = await fetch(archiveDownloadUrl(request), { headers: request.authHeaders });
+	if (!res.ok || !res.body) throw new Error(`Failed to fetch archive: HTTP ${res.status}`);
+	const tarStream = request.isTargz
+		? await createTarStreamFromGzip(res.body)
+		: res.body;
+
+	let processedFiles = 0;
+	const entries = (async function* (): AsyncGenerator<FileEntry> {
+		for await (const entry of parseTarStream(tarStream)) {
+			progress(request.id, { phase: 'reading', processedFiles, totalFiles: 0, currentFile: entry.name });
+			const decryptedStream = entry.stream.pipeThrough(createAesCtrDecryptTransform(cryptoKey));
+			const blob = await new Response(decryptedStream).blob();
+			processedFiles++;
+			progress(request.id, { phase: 'writing', processedFiles, totalFiles: 0, currentFile: entry.name });
+			yield { path: entry.name, file: new File([blob], entry.name, { type: 'application/octet-stream' }) };
+		}
+	})();
+
+	const writable = await fileHandle.createWritable();
+	try {
+		const archiver = await TarArchiver.createFromEntries(entries);
+		const outputGzip = request.isTargz && !request.decompress;
+		const stream: ReadableStream<Uint8Array<ArrayBuffer>> = outputGzip
+			? archiver.stream.pipeThrough(new CompressionStream('gzip'))
+			: archiver.stream;
+		await pipeToWritable(stream, writable);
+		await writable.close();
+		progress(request.id, { phase: 'done', processedFiles, totalFiles: processedFiles, currentFile: '' });
+	} catch (err) {
 		await writable.abort().catch(() => {});
 		throw err;
 	}

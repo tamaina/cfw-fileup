@@ -61,6 +61,7 @@ export interface UploadJobRequest {
 
 export interface UploadStreamingJobRequest extends Omit<UploadJobRequest, 'files' | 'imageCompression' | 'videoConversion'> {
 	totalFiles: number;
+	isEncrypted?: boolean;
 }
 
 export interface UploadJobSnapshot {
@@ -77,6 +78,9 @@ export interface UploadJobSnapshot {
 	createdAt: number;
 	updatedAt: number;
 	completedPath?: string;
+	fileIds?: readonly string[];
+	/** fileIds と同じ順序で、各ファイルの保存先パスを保持する（暗号化キーのリンク用に使う） */
+	uploadedFilePaths?: readonly string[];
 	error?: string;
 }
 
@@ -90,4 +94,5 @@ export type UploadWorkerClientMessage =
 
 export type UploadWorkerServerMessage =
 	| { type: 'snapshot'; jobs: UploadJobSnapshot[] }
-	| { type: 'enqueued'; jobId: string; requestId?: string };
+	| { type: 'enqueued'; jobId: string; requestId?: string }
+	| { type: 'encryption-key'; jobId: string; key: string };

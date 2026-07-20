@@ -1,6 +1,7 @@
 import { createBgzfDecompressor, isBgzf } from 'bgzf';
 import { Conversion, HLS_FORMATS, Input, Mp4OutputFormat, Output, StreamTarget, UrlSource, type StreamTargetChunk } from 'mediabunny';
 import { createOpfsTempFile } from './opfs-temp';
+import { createAesCtrDecryptTransform, importAesCtrKey, multibaseToKey } from '../../shared/encryption';
 
 export type DownloadTransformWorkerRequest =
 	{
@@ -10,6 +11,7 @@ export type DownloadTransformWorkerRequest =
 		readonly filename: string;
 		readonly mimeType: string;
 		readonly transform: 'none' | 'decompress-gzip' | 'recompress-bgzf';
+		readonly encryptionKey?: string;
 		readonly authHeaders: Record<string, string>;
 	} | {
 		readonly id: string;
@@ -146,7 +148,15 @@ async function writeDownload(fileHandle: FileSystemFileHandle, request: Extract<
 				progress(request.id, { phase: 'reading', processedFiles: 0, totalFiles: 1, currentFile: request.filename, completedBytes, totalBytes });
 			})
 			: res.body;
-		const stream = await transformStream(progressBody, request.transform);
+		// Decrypt first if a key is provided, then apply the (de)compression transform.
+		let stream: ReadableStream<Uint8Array<ArrayBuffer>> = progressBody;
+		if (request.encryptionKey) {
+			const rawKey = multibaseToKey(request.encryptionKey);
+			if (!rawKey) throw new Error('Invalid encryption key');
+			const cryptoKey = await importAesCtrKey(rawKey, ['decrypt']);
+			stream = stream.pipeThrough(createAesCtrDecryptTransform(cryptoKey)) as ReadableStream<Uint8Array<ArrayBuffer>>;
+		}
+		stream = await transformStream(stream, request.transform);
 		progress(request.id, { phase: 'writing', processedFiles: 0, totalFiles: 1, currentFile: request.filename, completedBytes, totalBytes });
 		await pipeToWritable(stream, writable);
 		await writable.close();

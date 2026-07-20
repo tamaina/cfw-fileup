@@ -22,6 +22,8 @@ export const files = sqliteTable('files', {
 	isClosed: integer('is_closed', { mode: 'boolean' }).notNull().default(false),
 	isTargz: integer('is_targz', { mode: 'boolean' }).notNull().default(false),
 	isTar: integer('is_tar', { mode: 'boolean' }).notNull().default(false),
+	/** クライアントサイドE2E暗号化（AES-256-CTR）が適用されているか */
+	isEncrypted: integer('is_encrypted', { mode: 'boolean' }).notNull().default(false),
 	uploadId: text('upload_id'),
 	/** マルチパートアップロードのパートサイズ（バイト）。デフォルト32MiB */
 	partSize: integer('part_size').notNull().default(32 * 1024 * 1024),
