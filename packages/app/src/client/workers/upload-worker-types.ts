@@ -79,6 +79,8 @@ export interface UploadJobSnapshot {
 	updatedAt: number;
 	completedPath?: string;
 	fileIds?: readonly string[];
+	/** fileIds と同じ順序で、各ファイルの保存先パスを保持する（暗号化キーのリンク用に使う） */
+	uploadedFilePaths?: readonly string[];
 	error?: string;
 }
 

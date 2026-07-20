@@ -45,9 +45,11 @@ export function connectUploadWorker(): void {
 				if (!key) continue;
 				const previous = previousJobs.find(j => j.id === job.id);
 				if (previous?.status === 'done') continue; // already processed
-				for (const fileId of job.fileIds) {
-					saveEncryptionKey(fileId, key).catch(() => {});
-				}
+				job.fileIds.forEach((fileId, index) => {
+					// 閲覧ページへリンクできるよう、保存先バケットとパスも記録する
+					const path = job.uploadedFilePaths?.[index];
+					saveEncryptionKey(fileId, key, { bucketName: job.bucketName, path }).catch(() => {});
+				});
 			}
 		}
 		if (message.type === 'encryption-key') {

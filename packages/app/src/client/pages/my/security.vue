@@ -11,6 +11,8 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import SensitiveActionAuth from '@/components/SensitiveActionAuth.vue';
 import type { ApiReq } from '../../../shared/api';
 import { useBackupCodeActions } from '@/composables/useBackupCodeActions';
+import { listEncryptionKeys, deleteEncryptionKey, clearAllEncryptionKeys, type KeyRecord } from '@/utils/encryption-key-store';
+import NirA from '@/components/NirA.vue';
 
 interface PasskeyItem {
 	id: string;
@@ -68,6 +70,59 @@ const tokenError = ref('');
 const revokingTokens = ref(false);
 const nextTokenCursor = ref<string | null>(null);
 const hasMoreTokens = ref(false);
+
+// --- セキュリティー設定のタブ ---
+const activeTab = ref<'passkey' | 'password' | 'tokens' | 'encryption'>('passkey');
+
+// --- E2E暗号化鍵管理 ---
+type EncryptionKeyItem = KeyRecord;
+const encryptionKeys = ref<EncryptionKeyItem[]>([]);
+const encryptionKeysLoading = ref(true);
+const encryptionKeyError = ref('');
+const clearingEncryptionKeys = ref(false);
+const showClearEncryptionKeysConfirm = ref(false);
+
+/**
+ * 復号キーに対応するファイルの閲覧ページURLを返す。
+ * 位置情報（bucketName/path）が記録されていない古いレコードは null を返す。
+ */
+function encryptionKeyLink(ek: EncryptionKeyItem): string | null {
+	if (!ek.bucketName || !ek.path) return null;
+	return `/v/${ek.bucketName}/${ek.path}`;
+}
+
+async function loadEncryptionKeys(): Promise<void> {
+	encryptionKeysLoading.value = true;
+	encryptionKeyError.value = '';
+	try {
+		encryptionKeys.value = await listEncryptionKeys();
+	} catch (e) {
+		encryptionKeyError.value = String(e);
+	} finally {
+		encryptionKeysLoading.value = false;
+	}
+}
+
+async function removeEncryptionKey(fileId: string): Promise<void> {
+	try {
+		await deleteEncryptionKey(fileId);
+		encryptionKeys.value = encryptionKeys.value.filter(k => k.fileId !== fileId);
+	} catch (e) {
+		encryptionKeyError.value = String(e);
+	}
+}
+
+async function removeAllEncryptionKeys(): Promise<void> {
+	clearingEncryptionKeys.value = true;
+	try {
+		await clearAllEncryptionKeys();
+		encryptionKeys.value = [];
+	} catch (e) {
+		encryptionKeyError.value = String(e);
+	} finally {
+		clearingEncryptionKeys.value = false;
+	}
+}
 
 async function saveInitialPassword(): Promise<void> {
 	pageError.value = '';
@@ -274,7 +329,7 @@ function formatBackupCode(code: string): string {
 
 onMounted(async () => {
 	await fetchCurrentUser();
-	await Promise.all([loadPasskeys(), loadBackupCodeStatus(), loadTokens()]);
+	await Promise.all([loadPasskeys(), loadBackupCodeStatus(), loadTokens(), loadEncryptionKeys()]);
 });
 </script>
 
@@ -289,15 +344,22 @@ onMounted(async () => {
     <div v-if="!authStore.user" class="alert alert-info">ログインが必要です。</div>
 
     <template v-else>
-      <section :class="$style.section">
-        <SensitiveActionAuth
-          :class="['card', $style.card]"
-          :show-password-fallback="false"
-          description="パスワード未設定のアカウントでパスワードを設定するには、先にパスキーで本人確認します。"
-          @success="(message: string) => { pageError = ''; pageSuccess = message; }"
-          @error="(message: string) => { pageSuccess = ''; pageError = message; }"
-        />
+      <SensitiveActionAuth
+        :class="['card', $style.card, 'mb-4']"
+        :show-password-fallback="false"
+        description="パスワード未設定のアカウントでパスワードを設定するには、先にパスキーで本人確認します。"
+        @success="(message: string) => { pageError = ''; pageSuccess = message; }"
+        @error="(message: string) => { pageSuccess = ''; pageError = message; }"
+      />
 
+      <div class="tab-bar mb-4">
+        <button type="button" class="tab-btn" :class="{ 'tab-btn-active': activeTab === 'passkey' }" @click="activeTab = 'passkey'">パスキー</button>
+        <button type="button" class="tab-btn" :class="{ 'tab-btn-active': activeTab === 'password' }" @click="activeTab = 'password'">パスワード</button>
+        <button type="button" class="tab-btn" :class="{ 'tab-btn-active': activeTab === 'tokens' }" @click="activeTab = 'tokens'">アクセストークン</button>
+        <button type="button" class="tab-btn" :class="{ 'tab-btn-active': activeTab === 'encryption' }" @click="activeTab = 'encryption'">E2E暗号化キー</button>
+      </div>
+
+      <section v-if="activeTab === 'password'" :class="$style.section">
         <div :class="['card', $style.card]">
           <div :class="$style.serviceHeader">
             <div>
@@ -336,7 +398,7 @@ onMounted(async () => {
         </div>
       </section>
 
-      <section :class="$style.section">
+      <section v-if="activeTab === 'passkey'" :class="$style.section">
         <h3 :class="$style.sectionTitle">パスキー</h3>
 
         <div :class="['card', $style.card, shouldWarnBackupCodes && $style.backupCardWarning]">
@@ -443,7 +505,7 @@ onMounted(async () => {
         </div>
       </section>
 
-      <section :class="$style.section">
+      <section v-if="activeTab === 'tokens'" :class="$style.section">
         <div :class="$style.tokenHeader">
           <div>
             <h3 :class="$style.sectionTitle">アクセストークン</h3>
@@ -497,6 +559,63 @@ onMounted(async () => {
           </div>
         </div>
       </section>
+
+      <section v-if="activeTab === 'encryption'" :class="$style.section">
+        <div :class="$style.tokenHeader">
+          <div>
+            <h3 :class="$style.sectionTitle">E2E暗号化キー</h3>
+            <p :class="$style.sectionDescription">
+              このブラウザに保存されているエンドツーエンド暗号化の復号キーです。削除すると、対応するファイルをこのブラウザで復号できなくなります。
+            </p>
+          </div>
+          <Button.Root
+            v-if="encryptionKeys.length > 0"
+            class="btn btn-danger"
+            :loading="clearingEncryptionKeys"
+            @click="showClearEncryptionKeysConfirm = true"
+          >
+            <Button.Loading>削除中...</Button.Loading>
+            <Button.Content>すべて削除</Button.Content>
+          </Button.Root>
+        </div>
+
+        <div v-if="encryptionKeyError" class="alert alert-error">{{ encryptionKeyError }}</div>
+        <div v-if="encryptionKeysLoading" :class="$style.mutedText">読み込み中...</div>
+        <div v-else-if="encryptionKeys.length === 0" :class="$style.mutedText">保存されている復号キーはありません。</div>
+        <div v-else class="card">
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>ファイルID</th>
+                  <th>ファイル</th>
+                  <th>キー（先頭）</th>
+                  <th>保存日時</th>
+                  <th class="col-actions"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="ek in encryptionKeys" :key="ek.fileId">
+                  <td :class="$style.encKeyId">{{ ek.fileId }}</td>
+                  <td>
+                    <NirA v-if="encryptionKeyLink(ek)" :to="encryptionKeyLink(ek)!" :class="$style.encKeyLink" :title="ek.path">
+                      {{ ek.path }}
+                    </NirA>
+                    <span v-else :class="$style.encKeyNoLink">リンクなし</span>
+                  </td>
+                  <td :class="$style.encKeyPreview" :title="ek.keyMultibase">{{ ek.keyMultibase.slice(0, 16) }}…</td>
+                  <td class="col-muted">{{ formatDate(ek.createdAt) }}</td>
+                  <td class="col-actions">
+                    <Button.Root :class="['btn', 'btn-ghost', $style.deleteButton]" @click="removeEncryptionKey(ek.fileId)">
+                      <Button.Content>削除</Button.Content>
+                    </Button.Root>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
     </template>
 
     <ConfirmDialog
@@ -506,6 +625,14 @@ onMounted(async () => {
       confirm-label="生成する"
       :danger="true"
       @confirm="generateBackupCodes"
+    />
+    <ConfirmDialog
+      v-model:open="showClearEncryptionKeysConfirm"
+      title="復号キーをすべて削除"
+      message="このブラウザに保存されているすべての復号キーが削除されます。削除すると、対応する暗号化ファイルをこのブラウザで復号できなくなります。続けますか？"
+      confirm-label="すべて削除"
+      :danger="true"
+      @confirm="removeAllEncryptionKeys"
     />
   </div>
 </template>
@@ -630,6 +757,34 @@ onMounted(async () => {
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
+}
+
+.encKeyId {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.8rem;
+}
+
+.encKeyPreview {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.encKeyLink {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.8rem;
+  color: var(--color-primary);
+  text-decoration: none;
+  word-break: break-all;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.encKeyNoLink {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
 }
 
 @media (max-width: 640px) {

@@ -5,7 +5,6 @@ import type { FileEntry } from 'bgzf';
 import { createTarArchive } from '../utils/tar-archive';
 import {
 	createAesCtrEncryptTransform,
-	encryptBlob,
 	generateIv,
 	generateRawKey,
 	importAesCtrKey,
@@ -145,7 +144,7 @@ function startStreamingJob(job: StreamingJob): void {
 		updateJob(job.id, { status: 'running' });
 		try {
 			const result = await executeStreamingUpload(job.id, job.request, job.queue);
-			updateJob(job.id, { status: 'done', uploadedBytes: result.totalBytes, totalBytes: result.totalBytes, completedPath: result.completedPath, fileIds: result.fileIds });
+			updateJob(job.id, { status: 'done', uploadedBytes: result.totalBytes, totalBytes: result.totalBytes, completedPath: result.completedPath, fileIds: result.fileIds, uploadedFilePaths: result.uploadedFilePaths });
 		} catch (err) {
 			job.queue.close();
 			console.error('Streaming upload job failed', err, { jobId: job.id });
@@ -638,11 +637,12 @@ class UploadEntryQueue {
 	}
 }
 
-async function executeStreamingUpload(id: string, request: UploadStreamingJobRequest, queue: UploadEntryQueue): Promise<{ completedPath: string; totalBytes: number; fileIds: string[] }> {
+async function executeStreamingUpload(id: string, request: UploadStreamingJobRequest, queue: UploadEntryQueue): Promise<{ completedPath: string; totalBytes: number; fileIds: string[]; uploadedFilePaths: string[] }> {
 	let cumulativeBytes = 0;
 	let totalBytes = request.totalBytes;
 	let completedPath = '';
 	const fileIds: string[] = [];
+	const uploadedFilePaths: string[] = [];
 
 	// Set up encryption if requested
 	let cryptoKey: CryptoKey | null = null;
@@ -672,6 +672,7 @@ async function executeStreamingUpload(id: string, request: UploadStreamingJobReq
 					updateJob(id, { uploadedBytes: cumulativeBytes + n });
 				}, cryptoKey ? originalMimeType : undefined);
 				fileIds.push(fileId);
+				uploadedFilePaths.push(path);
 			} else if (cryptoKey) {
 				// Encrypted individual file: stream through encrypt transform
 				const iv = generateIv();
@@ -680,11 +681,13 @@ async function executeStreamingUpload(id: string, request: UploadStreamingJobReq
 					updateJob(id, { uploadedBytes: cumulativeBytes + n });
 				}, originalMimeType);
 				fileIds.push(fileId);
+				uploadedFilePaths.push(path);
 			} else {
 				const fileId = await uploadResolvedBlob(entry, file, path, request, (n) => {
 					updateJob(id, { uploadedBytes: cumulativeBytes + n });
 				});
 				fileIds.push(fileId);
+				uploadedFilePaths.push(path);
 			}
 			cumulativeBytes += file.size;
 			processedFiles++;
@@ -693,7 +696,7 @@ async function executeStreamingUpload(id: string, request: UploadStreamingJobReq
 			await cleanupResolvedEntry(entry);
 			updateJob(id, { fileIndex: processedFiles, uploadedBytes: cumulativeBytes });
 		}
-			return { completedPath, totalBytes: currentJobTotalBytes(id, totalBytes), fileIds };
+			return { completedPath, totalBytes: currentJobTotalBytes(id, totalBytes), fileIds, uploadedFilePaths };
 	}
 
 	updateJob(id, { filename: '', fileIndex: 0, totalFiles: request.totalFiles, uploadedBytes: 0 });
@@ -709,7 +712,8 @@ async function executeStreamingUpload(id: string, request: UploadStreamingJobReq
 			updateJob(id, { uploadedBytes: n });
 		}, cryptoKey ? 'application/x-tar' : undefined);
 		fileIds.push(archiveFileId);
-			return { completedPath: archivePath, totalBytes: currentJobTotalBytes(id, totalBytes), fileIds };
+		uploadedFilePaths.push(archivePath);
+			return { completedPath: archivePath, totalBytes: currentJobTotalBytes(id, totalBytes), fileIds, uploadedFilePaths };
 	}
 
 	const archivePath = `${request.prefix}${request.archiveBaseName}.tar.gz`;
@@ -720,7 +724,8 @@ async function executeStreamingUpload(id: string, request: UploadStreamingJobReq
 		updateJob(id, { uploadedBytes: n });
 	}, cryptoKey ? 'application/gzip' : undefined);
 	fileIds.push(archiveFileId);
-	return { completedPath: archivePath, totalBytes: currentJobTotalBytes(id, totalBytes), fileIds };
+	uploadedFilePaths.push(archivePath);
+	return { completedPath: archivePath, totalBytes: currentJobTotalBytes(id, totalBytes), fileIds, uploadedFilePaths };
 }
 
 function currentJobTotalBytes(id: string, fallback: number): number {
@@ -750,7 +755,10 @@ async function* encryptedEntriesAsFileEntries(queue: UploadEntryQueue, key: Cryp
 		try {
 			const file = await readResolvedEntryFile(entry);
 			const iv = generateIv();
-			const encryptedBlob = await encryptBlob(file, key, iv);
+			// Stream through the encrypt transform to avoid holding both plaintext
+			// and ciphertext in memory simultaneously (important for large files).
+			const encryptedStream = file.stream().pipeThrough(createAesCtrEncryptTransform(key, iv));
+			const encryptedBlob = await new Response(encryptedStream).blob();
 			yield {
 				path: entry.path,
 				file: new File([encryptedBlob], entry.path, { type: 'application/octet-stream', lastModified: file.lastModified }),

@@ -780,7 +780,8 @@ async function resolveEncryptionKey(resolvedFileId: string): Promise<void> {
 		if (fragmentKey) {
 			encryptionKey.value = fragmentKey;
 			// Persist to IndexedDB for future visits
-			await saveEncryptionKey(resolvedFileId, fragmentKey).catch(() => {});
+			// 閲覧ページへリンクできるよう、保存先バケットとパスも記録する
+			await saveEncryptionKey(resolvedFileId, fragmentKey, { bucketName: props.bucketName, path: baseFilePath.value }).catch(() => {});
 			return;
 		}
 	}
@@ -788,8 +789,8 @@ async function resolveEncryptionKey(resolvedFileId: string): Promise<void> {
 	const stored = await getEncryptionKey(resolvedFileId).catch(() => null);
 	if (stored) {
 		encryptionKey.value = stored;
-		// IDBから鍵を復元できた場合、URLにも付与して共有しやすくする
-		writeKeyToUrlFragment(stored);
+		// NOTE: IDBから復元した鍵はURLに自動書き込みしない。
+		// ブラウザ履歴に鍵が残るのを防ぐため。共有リンクが必要な場合はユーザーが明示的にコピーする。
 	}
 }
 
@@ -809,7 +810,8 @@ function writeKeyToUrlFragment(key: string): void {
 async function addEncryptionKey(key: string): Promise<void> {
 	encryptionKey.value = key;
 	if (fileId.value) {
-		await saveEncryptionKey(fileId.value, key).catch(() => {});
+		// 閲覧ページへリンクできるよう、保存先バケットとパスも記録する
+		await saveEncryptionKey(fileId.value, key, { bucketName: props.bucketName, path: baseFilePath.value }).catch(() => {});
 	}
 	writeKeyToUrlFragment(key);
 }

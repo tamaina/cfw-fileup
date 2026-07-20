@@ -18,6 +18,11 @@ for (let i = 0; i < BASE58_ALPHABET.length; i++) {
 	BASE58_MAP.set(BASE58_ALPHABET[i]!, i);
 }
 
+/**
+ * Encode bytes as a base58btc string.
+ * NOTE: Uses 32-bit integer arithmetic internally. Safe for inputs up to ~1 KB
+ * (e.g. 32-byte keys). For very large inputs (>1 KB), digit overflow may occur.
+ */
 export function base58btcEncode(bytes: Uint8Array): string {
 	if (bytes.length === 0) return '';
 
@@ -86,6 +91,11 @@ export function base58btcDecode(str: string): Uint8Array<ArrayBuffer> {
 
 // --- unsigned varint (protobuf/multicodec style) ---
 
+/**
+ * Encode a non-negative integer as an unsigned varint.
+ * NOTE: Uses `>>>` (unsigned right shift), which operates on 32-bit integers.
+ * Values must be in the range [0, 2^32 - 1]. For multicodec codes this is sufficient.
+ */
 export function varintEncode(value: number): Uint8Array<ArrayBuffer> {
 	const bytes: number[] = [];
 	while (value >= 0x80) {
@@ -172,15 +182,23 @@ export async function importAesCtrKey(rawKey: Uint8Array<ArrayBuffer>, usages: K
 /**
  * Compute the counter block for a given byte offset.
  * counter = IV + floor(byteOffset / 16) as a 128-bit big-endian integer.
+ *
+ * The addition is performed byte-by-byte from the least significant byte (index 15)
+ * upwards. `carry` holds the remaining value to add: initially the block index,
+ * then any overflow propagated to higher bytes. At each byte position:
+ *   - Add the low byte of `carry` to the counter byte.
+ *   - If the sum exceeds 0xff, propagate +1 to the next higher byte.
+ *   - Shift `carry` right by 8 bits (divide by 256) for the next iteration.
+ * Both sources of carry (block index upper bytes AND byte overflow) are combined.
  */
 function computeCounter(iv: Uint8Array, byteOffset: number): Uint8Array<ArrayBuffer> {
 	const counter = new Uint8Array(iv);
 	const blockIndex = Math.floor(byteOffset / 16);
-	// Add blockIndex to the counter as a big-endian 128-bit integer
 	let carry = blockIndex;
 	for (let i = 15; i >= 0 && carry > 0; i--) {
 		const sum = counter[i]! + (carry & 0xff);
 		counter[i] = sum & 0xff;
+		// Propagate: upper bytes of carry + overflow from this byte addition
 		carry = Math.floor(carry / 256) + (sum > 0xff ? 1 : 0);
 	}
 	return counter;

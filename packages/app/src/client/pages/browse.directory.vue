@@ -1224,7 +1224,9 @@ onBeforeUnmount(() => {
 watch(() => [props.bucketName, props.filePath], () => { load(); loadBucketId(); });
 watch(() => props.encryptionKey, (key) => {
 	// 鍵が後から解決された場合（IndexedDB からの非同期復元）、エントリー一覧を再構築して復号プレビューを開始
+	// 古いObjectURLを先に解放してから再構築する（リーク防止）
 	if (key && isArchive.value && allArchiveEntries.value.length > 0) {
+		revokeAllDecryptedPreviews();
 		buildArchiveEntries();
 	}
 });
