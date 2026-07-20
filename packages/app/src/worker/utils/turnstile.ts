@@ -1,5 +1,5 @@
 export function isTurnstileConfigured(env: Env): boolean {
-	return env.TURNSTILE_SECRET.trim() !== '' && env.TURNSTILE_SITE_KEY.trim() !== '';
+	return !!env.TURNSTILE_SECRET && env.TURNSTILE_SECRET.trim() !== '' && env.TURNSTILE_SITE_KEY.trim() !== '';
 }
 
 export async function verifyTurnstile(token: string, secret: string): Promise<boolean> {

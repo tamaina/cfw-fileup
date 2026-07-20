@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onBeforeUnmount, watch } from 'vue';
-import { PackageOpen } from '@lucide/vue';
+import { PackageOpen, ShieldCheck } from '@lucide/vue';
 import { authHeaders } from '@/store/auth';
 import type { DownloadTransformWorkerMessage, DownloadTransformWorkerRequestInput, DownloadTransformProgress } from '@/workers/download-transform.worker';
 import { getOpfsTempFile, removeOpfsTempFile } from '@/workers/opfs-temp';
@@ -12,7 +12,9 @@ import JsonPreview from '@/components/JsonPreview.vue';
 import HlsVideoPreview from '@/components/HlsVideoPreview.vue';
 import PreviewInterstitialAd from '@/components/PreviewInterstitialAd.vue';
 import FileActionBar from '@/components/FileActionBar.vue';
+import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import { parseExifDisplayItems, type ExifDisplayItem } from '@/utils/exif';
+import { AES_CTR_IV_LENGTH, decryptBlob, importAesCtrKey, multibaseToKey } from '../../shared/encryption';
 
 const props = withDefaults(defineProps<{
 	bucketName: string;
@@ -36,6 +38,10 @@ const props = withDefaults(defineProps<{
 	showAds?: boolean;
 	/** HLS プレイリスト再生用URL（スラッシュ温存）。アーカイブ内 m3u8 エントリーで指定される */
 	hlsUrl?: string;
+	/** ファイル本体がE2E暗号化されているかどうか。プレビューの表示判定に使う */
+	isEncrypted?: boolean;
+	/** 暗号化キー（multibase形式）。指定されるとダウンロード時に復号する */
+	encryptionKey?: string;
 }>(), {
 	showAds: true,
 });
@@ -43,6 +49,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
 	(e: 'update:isModerationForcedPrivate', value: boolean): void;
 	(e: 'download', event: MouseEvent): void;
+	(e: 'addEncryptionKey', key: string): void;
 }>();
 
 const downloadUrl = computed(() => {
@@ -51,7 +58,7 @@ const downloadUrl = computed(() => {
 	const base = `/d/${props.fileId}`;
 	return props.token ? `${base}?token=${props.token}` : base;
 });
-const previewUrl = computed(() => props.previewUrl || downloadUrl.value);
+const previewUrl = computed(() => props.previewUrl || decryptedPreviewUrl.value || downloadUrl.value);
 const downloadFilename = computed(() => props.downloadFilename || props.filePath.split('/').filter(Boolean).at(-1) || 'download');
 const displayFilename = computed(() => props.filePath.split('/').filter(Boolean).at(-1) || props.filePath || 'download');
 const visibleMimeType = computed(() => props.mimeType ?? null);
@@ -96,6 +103,61 @@ const downloadTransformRequests = new Map<string, {
 }>();
 
 const canShowPreview = computed(() => props.showAds === false || previewAdCompleted.value);
+
+/** 暗号化ファイルで鍵が利用できないとき、プレビューを差し止める */
+const encryptedPreviewUnavailable = computed(() => props.isEncrypted === true && !props.encryptionKey);
+
+// --- 暗号化ファイルの復号プレビュー ---
+const DECRYPT_PREVIEW_MAX_BYTES = 256 * 1024;
+const decryptedPreviewUrl = ref('');
+let decryptedPreviewGeneration = 0;
+
+const isPreviewableContent = computed(() => isImage.value || isMarkdown.value || isJson.value || isTextLike.value);
+const needsDecryptedPreview = computed(() =>
+	props.isEncrypted === true &&
+	!!props.encryptionKey &&
+	isPreviewableContent.value &&
+	!decryptedPreviewUrl.value &&
+	!props.downloadUrlOverride,
+);
+
+function revokeDecryptedPreviewUrl(): void {
+	if (decryptedPreviewUrl.value) {
+		URL.revokeObjectURL(decryptedPreviewUrl.value);
+		decryptedPreviewUrl.value = '';
+	}
+}
+
+async function refreshDecryptedPreview(): Promise<void> {
+	const generation = ++decryptedPreviewGeneration;
+	revokeDecryptedPreviewUrl();
+	if (!needsDecryptedPreview.value || !props.encryptionKey) return;
+	const rawKey = multibaseToKey(props.encryptionKey);
+	if (!rawKey) return;
+	try {
+		const cryptoKey = await importAesCtrKey(rawKey, ['decrypt']);
+		const headers: Record<string, string> = { ...authHeaders() };
+		// AES-CTRは先頭から独立して復号できるため、テキスト系プレビューは部分取得で十分
+		if (!isImage.value) {
+			headers.Range = `bytes=0-${AES_CTR_IV_LENGTH + DECRYPT_PREVIEW_MAX_BYTES - 1}`;
+		}
+		const res = await fetch(downloadUrl.value, { headers });
+		if (generation !== decryptedPreviewGeneration) return;
+		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		const blob = await res.blob();
+		if (generation !== decryptedPreviewGeneration) return;
+		const decrypted = await decryptBlob(blob, cryptoKey);
+		if (generation !== decryptedPreviewGeneration) return;
+		decryptedPreviewUrl.value = URL.createObjectURL(decrypted);
+	} catch (err) {
+		if (generation !== decryptedPreviewGeneration) return;
+		console.error('Failed to decrypt preview', err, { fileId: props.fileId, filePath: props.filePath });
+	}
+}
+
+watch([needsDecryptedPreview, () => props.encryptionKey, downloadUrl], () => {
+	void refreshDecryptedPreview();
+}, { immediate: true });
 
 function getDownloadTransformWorker(): Worker {
 	if (downloadTransformWorker) return downloadTransformWorker;
@@ -191,6 +253,7 @@ async function startDecompressedDownload(): Promise<void> {
 			filename,
 			mimeType: 'application/octet-stream',
 			transform: 'decompress-gzip',
+			encryptionKey: props.encryptionKey,
 			authHeaders: authHeaders(),
 		});
 		await downloadOpfsFile(result);
@@ -207,14 +270,84 @@ async function startDecompressedDownload(): Promise<void> {
 	}
 }
 
+/** 暗号化ファイルのダウンロード: ワーカーで復号してから保存 */
+async function startEncryptedDownload(): Promise<void> {
+	downloadError.value = '';
+	downloadProgress.value = null;
+	if (!navigator.storage?.getDirectory) {
+		downloadError.value = 'このブラウザは OPFS に対応していないため、復号してダウンロードできません。';
+		return;
+	}
+	const statusId = String(downloadTransformRequestId + 1);
+	const filename = downloadFilename.value;
+	startDownloadStatus(statusId, filename);
+	try {
+		const result = await runDownloadTransformWorker({
+			mode: 'download',
+			url: downloadUrl.value,
+			filename,
+			mimeType: props.mimeType ?? 'application/octet-stream',
+			transform: 'none',
+			encryptionKey: props.encryptionKey,
+			authHeaders: authHeaders(),
+		});
+		await downloadOpfsFile(result);
+		completeDownloadStatus(statusId);
+		downloadProgress.value = null;
+	} catch (err) {
+		await cleanupTempFile((err as Error & { opfsName?: string }).opfsName);
+		downloadTransformWorker?.terminate();
+		downloadTransformWorker = null;
+		console.error('Encrypted file download failed', err, { fileId: props.fileId, filePath: props.filePath });
+		const message = err instanceof Error ? err.message : String(err);
+		failDownloadStatus(statusId, message);
+		downloadError.value = message;
+	}
+}
+
+const encryptedDownloadConfirmOpen = ref(false);
+
+function handleDownloadClick(event: MouseEvent): void {
+	// 暗号化アーカイブエントリーで鍵あり: 親(browse.vue)が復号してダウンロードする
+	if (props.isEncrypted && props.encryptionKey && props.downloadUrlOverride) {
+		emit('download', event);
+		return;
+	}
+	if (props.isEncrypted) {
+		event.preventDefault();
+		if (props.encryptionKey) {
+			// 暗号化ファイル本体: ワーカーで復号してダウンロード
+			void startEncryptedDownload();
+		} else {
+			// 鍵なし: 暗号化されたままダウンロードしてよいか確認する
+			encryptedDownloadConfirmOpen.value = true;
+		}
+		return;
+	}
+	emit('download', event);
+}
+
+/** 復号キーがないまま、暗号化されたファイルをそのままダウンロードする */
+function confirmEncryptedDownload(): void {
+	const url = downloadUrl.value;
+	if (!url) return;
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = downloadFilename.value;
+	document.body.append(a);
+	a.click();
+	a.remove();
+}
+
 onBeforeUnmount(() => {
 	downloadTransformWorker?.terminate();
 	downloadTransformWorker = null;
+	revokeDecryptedPreviewUrl();
 });
 watch([isImage, previewUrl], () => {
 	void loadExif();
 }, { immediate: true });
-watch(() => `${props.fileId}:${props.filePath}:${previewUrl.value}`, () => {
+watch(() => `${props.fileId}:${props.filePath}`, () => {
 	previewAdCompleted.value = false;
 	exifItems.value = [];
 });
@@ -242,8 +375,11 @@ watch(canShowPreview, () => {
       :is-moderation-forced-private="isModerationForcedPrivate"
       :report-path="reportPath"
       :hide-management="hideManagement"
-      @download="emit('download', $event)"
+      :is-encrypted="isEncrypted"
+      :has-encryption-key="encryptionKey != null"
+      @download="handleDownloadClick"
       @update:is-moderation-forced-private="emit('update:isModerationForcedPrivate', $event)"
+      @add-encryption-key="emit('addEncryptionKey', $event)"
     >
       <button v-if="!hideManagement && isGz" type="button" class="btn btn-secondary" :disabled="downloadProgress != null" @click="startDecompressedDownload">
         <PackageOpen :size="16" :stroke-width="2" aria-hidden="true" />
@@ -257,7 +393,11 @@ watch(canShowPreview, () => {
       @complete="completePreviewAd"
     />
 
-    <div v-if="canShowPreview && isImage" :class="[$style.imagePreview, exifItems.length > 0 ? $style.imagePreviewWithExif : null]">
+    <div v-if="encryptedPreviewUnavailable" :class="[$style.encryptedNoKey, 'alert', 'alert-warning']">
+      <ShieldCheck :size="16" :stroke-width="2" aria-hidden="true" />
+      <span>このファイルは暗号化されています。このブラウザに復号キーがないためプレビューできません。ダウンロードは暗号化されたまま保存されます。</span>
+    </div>
+    <div v-else-if="canShowPreview && isImage" :class="[$style.imagePreview, exifItems.length > 0 ? $style.imagePreviewWithExif : null]">
       <img :src="previewUrl" :alt="filePath" class="file-preview-image">
       <aside v-if="exifItems.length > 0" :class="$style.exifPanel" aria-label="EXIF情報">
         <h3 :class="$style.exifTitle" :title="displayFilename">{{ displayFilename }}</h3>
@@ -274,7 +414,21 @@ watch(canShowPreview, () => {
     <JsonPreview v-else-if="canShowPreview && isJson" :url="previewUrl" :filename="filePath" :class="$style.jsonPreview" />
     <RawTextPreview v-else-if="canShowPreview && (isTextLike || isHlsPlaylist)" :url="previewUrl" :filename="filePath" :class="$style.rawPreview" />
 
+    <p v-if="decryptedPreviewUrl && canShowPreview" :class="$style.decryptedCaption">
+      <ShieldCheck :size="13" :stroke-width="2" aria-hidden="true" />
+      このブラウザに保存されたキーで復号して表示しています
+    </p>
+
     <div v-if="visibleDownloadError" class="alert alert-error mt-3">{{ visibleDownloadError }}</div>
+
+    <ConfirmDialog
+      v-model:open="encryptedDownloadConfirmOpen"
+      title="復号キーがありません"
+      message="このファイルは暗号化されています。このブラウザに復号キーがないため、暗号化されたままダウンロードされます。それでもダウンロードしますか？"
+      confirm-label="ダウンロード"
+      cancel-label="キャンセル"
+      @confirm="confirmEncryptedDownload"
+    />
   </div>
 </template>
 
@@ -349,6 +503,27 @@ watch(canShowPreview, () => {
 
 .fileTypeWarningLine {
   margin: 0;
+}
+
+.encryptedNoKey {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 16px;
+
+  svg {
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+}
+
+.decryptedCaption {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 0;
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
 }
 
 @media (max-width: 640px) {

@@ -672,6 +672,7 @@ async function handleDownload(c: AppContext, entryPath: string | null): Promise<
 			mimeType: file.mimeType,
 			isTargz: file.isTargz,
 			isTar: file.isTar,
+			isEncrypted: file.isEncrypted,
 			visibility: file.visibility,
 		});
 	}

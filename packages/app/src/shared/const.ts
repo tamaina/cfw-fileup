@@ -10,3 +10,11 @@ export const MAX_WEBAUTHN_FIELD_LENGTH = 16384;
 export const MAX_APP_SETTING_TEXT_LENGTH = 10000;
 export const MAX_DELETE_TARGETS = 100;
 export const MAX_ARCHIVE_INDEX_ENTRIES = 10000;
+
+/**
+ * Custom multicodec code for AES-256 encryption keys.
+ */
+export const ENCRYPTION_KEY_MULTICODEC = 0xa2;
+
+/** URL fragment key prefix for encrypted file links, e.g. #key=z... */
+export const ENCRYPTION_URL_FRAGMENT_KEY = 'key';

@@ -2,8 +2,8 @@
 import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue';
 import * as v from 'valibot';
 import type { FileVisibility } from '../../shared/file-visibility';
-import { Button, Popover } from '@vuetify/v0';
-import { Archive, CheckCheck, Download, EllipsisVertical, Eye, EyeOff, FileArchive, FileIcon, FileVideo, Folder, FolderPlus, LayoutGrid, List, PackageOpen, ShieldCheck, ShieldOff, TextCursorInput, Trash2, Upload, X } from '@lucide/vue';
+import { AlertDialog, Button, Popover } from '@vuetify/v0';
+import { Archive, CheckCheck, Download, EllipsisVertical, Eye, EyeOff, FileArchive, FileIcon, FileVideo, Folder, FolderPlus, KeyRound, LayoutGrid, List, PackageOpen, ShieldCheck, ShieldOff, TextCursorInput, Trash2, Upload, X } from '@lucide/vue';
 import NirA from '@/components/NirA.vue';
 import { authStore, authHeaders } from '@/store/auth';
 import { apiPost } from '@/utils/api';
@@ -25,6 +25,7 @@ import { completeDownloadStatus, failDownloadStatus, startDownloadStatus, update
 import { registerDownloadedOpfsFile } from '@/store/download-cleanup';
 import { formatBytes } from '@/utils/byte-size';
 import { archiveEntryDownloadUrl } from '@/utils/archive-entry-url';
+import { decryptBlob, importAesCtrKey, multibaseToKey } from '../../shared/encryption';
 import type { DistributiveOmit } from '../../shared/type-hack';
 import { HLS_POSTER_NAME, HLS_TAR_MIME } from '../../shared/hls';
 
@@ -37,6 +38,14 @@ const props = defineProps<{
 	fileId?: string;
 	token?: string;
 	ownerCanDisableFileAds?: boolean;
+	/** 暗号化キー（multibase形式）。アーカイブ内エントリーの復号に使用 */
+	encryptionKey?: string;
+	/** ファイル本体（アーカイブ）がE2E暗号化されているかどうか */
+	isEncrypted?: boolean;
+}>();
+
+const emit = defineEmits<{
+	(e: 'addEncryptionKey', key: string): void;
 }>();
 
 const isArchive = computed(() => props.isTargz || props.isTar);
@@ -50,6 +59,8 @@ interface DisplayEntry {
 	size?: number;
 	fileId?: string;
 	label: string;
+	/** E2E暗号化されているか */
+	isEncrypted?: boolean;
 	visibility?: FileVisibility;
 	isListed?: boolean;
 	isModerationForcedPrivate?: boolean;
@@ -89,6 +100,7 @@ type DirectoryEntry = {
 	mimeType?: string;
 	isTargz?: boolean;
 	isTar?: boolean;
+	isEncrypted?: boolean;
 	visibility?: FileVisibility;
 	isListed?: boolean;
 	isModerationForcedPrivate?: boolean;
@@ -131,6 +143,37 @@ const moderationTarget = ref<DisplayEntry | null>(null);
 const moderationValue = ref(false);
 const moveDialog = ref(false);
 const moveTarget = ref<DisplayEntry | null>(null);
+/** 復号キーがないまま暗号化アーカイブをそのままダウンロードする確認 */
+const encryptedArchiveDownloadConfirm = ref(false);
+const encryptedArchiveDownloadDecompress = ref(false);
+const encryptedArchiveDownloadZip = ref(false);
+
+// --- 復号キー追加ダイアログ ---
+const keyDialog = ref(false);
+const keyInput = ref('');
+const keyError = ref('');
+
+const showAddKeyButton = computed(() => props.isEncrypted === true && !props.encryptionKey);
+
+function openKeyDialog(): void {
+	keyInput.value = '';
+	keyError.value = '';
+	keyDialog.value = true;
+}
+
+function submitKeyDialog(): void {
+	const raw = keyInput.value.trim();
+	if (raw === '') {
+		keyError.value = '復号キーを入力してください。';
+		return;
+	}
+	if (multibaseToKey(raw) == null) {
+		keyError.value = '復号キーの形式が正しくありません。「z」で始まるmultibase形式のキーを入力してください。';
+		return;
+	}
+	keyDialog.value = false;
+	emit('addEncryptionKey', raw);
+}
 
 type ViewMode = 'list' | 'grid';
 const VIEW_MODE_KEY = 'cfw-fileup:dir-view-mode';
@@ -493,6 +536,7 @@ async function startArchiveToZipDownload(): Promise<void> {
 			token: props.token,
 			isTargz: props.isTargz,
 			filename,
+			encryptionKey: props.isEncrypted ? props.encryptionKey : undefined,
 			authHeaders: authHeaders(),
 		});
 		await downloadOpfsFile(result);
@@ -509,6 +553,36 @@ async function startArchiveToZipDownload(): Promise<void> {
 	}
 }
 
+/** 暗号化アーカイブのダウンロード要求。鍵がなければ確認ダイアログを出す */
+function requestFullArchiveDownload(decompress: boolean): void {
+	if (props.isEncrypted && !props.encryptionKey) {
+		encryptedArchiveDownloadDecompress.value = decompress;
+		encryptedArchiveDownloadZip.value = false;
+		encryptedArchiveDownloadConfirm.value = true;
+		return;
+	}
+	void startFullArchiveDownload(decompress);
+}
+
+function requestArchiveToZipDownload(): void {
+	if (props.isEncrypted && !props.encryptionKey) {
+		encryptedArchiveDownloadDecompress.value = false;
+		encryptedArchiveDownloadZip.value = true;
+		encryptedArchiveDownloadConfirm.value = true;
+		return;
+	}
+	void startArchiveToZipDownload();
+}
+
+/** 復号キーがないまま暗号化アーカイブをそのままダウンロードする */
+function confirmEncryptedArchiveDownload(): void {
+	if (encryptedArchiveDownloadZip.value) {
+		void startArchiveToZipDownload();
+	} else {
+		void startFullArchiveDownload(encryptedArchiveDownloadDecompress.value);
+	}
+}
+
 async function startFullArchiveDownload(decompress: boolean): Promise<void> {
 	archiveDownloadError.value = '';
 	archiveDownloadProgress.value = null;
@@ -522,6 +596,23 @@ async function startFullArchiveDownload(decompress: boolean): Promise<void> {
 	const statusId = `download-${archiveDownloadRequestId + 1}`;
 	startDownloadStatus(statusId, filename);
 	try {
+		// 暗号化アーカイブ: エントリー単位で復号してから tar / tar.gz を再構築する
+		if (props.isEncrypted && props.encryptionKey) {
+			const result = await runArchiveDownloadWorker({
+				mode: 'archive-decrypt',
+				fileId: props.fileId,
+				token: props.token,
+				isTargz: props.isTargz,
+				decompress,
+				filename,
+				encryptionKey: props.encryptionKey,
+				authHeaders: authHeaders(),
+			});
+			await downloadOpfsFile(result);
+			completeDownloadStatus(statusId);
+			archiveDownloadProgress.value = null;
+			return;
+		}
 		const result = await runDownloadTransformWorker({
 			mode: 'download',
 			url: downloadUrl.value,
@@ -815,13 +906,18 @@ async function executeBulkUpdateModerationForcedPrivate(): Promise<void> {
 function buildArchiveEntries(): void {
 	const seenDirs = new Set<string>();
 	const result: DisplayEntry[] = [];
+	const canDecryptEntries = props.encryptionKey != null && props.fileId != null;
+	// 一覧の再構築ごとに世代を進め、進行中の復号をまとめてキャンセルする
+	const generation = ++decryptedPreviewGeneration;
 
 	for (const e of allArchiveEntries.value) {
 		if (!e.path.startsWith(archivePath.value)) continue;
 		const rest = e.path.slice(archivePath.value.length);
 		const slashIdx = rest.indexOf('/');
 		if (slashIdx === -1) {
-			const previewUrl = props.isTar && props.fileId && isImageMime(e.mimeType) ? archiveEntryDownloadUrl(props.fileId, e.path, props.token) : undefined;
+			const showImagePreview = props.isTar && props.fileId && isImageMime(e.mimeType);
+			// 暗号化アーカイブでは暗号文URLを直接 <img> に渡さず、復号した ObjectURL を非同期で差し込む
+			const previewUrl = showImagePreview && !canDecryptEntries ? archiveEntryDownloadUrl(props.fileId!, e.path, props.token) : undefined;
 			result.push({
 				key: e.id,
 				name: rest,
@@ -831,8 +927,12 @@ function buildArchiveEntries(): void {
 				size: e.size,
 				fileId: e.id,
 				label: e.mimeType,
+				isEncrypted: props.isEncrypted === true,
 				previewUrl,
 			});
+			if (showImagePreview && canDecryptEntries) {
+				void applyDecryptedPreview(generation, e.id, e.path, e.mimeType);
+			}
 		} else {
 			const dirName = rest.slice(0, slashIdx);
 			if (!seenDirs.has(dirName)) {
@@ -855,6 +955,36 @@ function buildArchiveEntries(): void {
 	});
 
 	entries.value = result;
+}
+
+// --- 暗号化アーカイブエントリーのグリッドプレビュー復号 ---
+const decryptedPreviewUrls = new Map<string, string>();
+let decryptedPreviewGeneration = 0;
+
+async function applyDecryptedPreview(generation: number, entryId: string, entryPath: string, mimeType: string): Promise<void> {
+	if (!props.fileId || !props.encryptionKey) return;
+	const rawKey = multibaseToKey(props.encryptionKey);
+	if (!rawKey) return;
+	try {
+		const cryptoKey = await importAesCtrKey(rawKey, ['decrypt']);
+		const res = await fetch(archiveEntryDownloadUrl(props.fileId, entryPath, props.token), { headers: authHeaders() });
+		if (generation !== decryptedPreviewGeneration) return;
+		if (!res.ok) return;
+		const decrypted = await decryptBlob(await res.blob(), cryptoKey);
+		if (generation !== decryptedPreviewGeneration) return;
+		const objectUrl = URL.createObjectURL(new Blob([decrypted], { type: mimeType || undefined }));
+		const previous = decryptedPreviewUrls.get(entryId);
+		if (previous) URL.revokeObjectURL(previous);
+		decryptedPreviewUrls.set(entryId, objectUrl);
+		const target = entries.value.find(entry => entry.key === entryId);
+		if (target) target.previewUrl = objectUrl;
+	} catch { /* プレビュー失敗時はアイコン表示のまま */ }
+}
+
+function revokeAllDecryptedPreviews(): void {
+	decryptedPreviewGeneration++;
+	for (const url of decryptedPreviewUrls.values()) URL.revokeObjectURL(url);
+	decryptedPreviewUrls.clear();
 }
 
 function navigateArchiveDir(path: string): void {
@@ -1068,6 +1198,7 @@ function toDisplayEntry(e: DirectoryEntry): DisplayEntry {
 		size: e.size,
 		fileId: e.fileId,
 		label: isHlsTarMime(e.mimeType) ? 'HLS tar' : e.isTargz ? 'tar.gz' : e.isTar ? 'tar' : mime,
+		isEncrypted: e.isEncrypted === true,
 		visibility: e.visibility,
 		isListed: e.isListed,
 		isModerationForcedPrivate: e.isModerationForcedPrivate,
@@ -1088,8 +1219,15 @@ onBeforeUnmount(() => {
 	archiveDownloadWorker = null;
 	downloadTransformWorker?.terminate();
 	downloadTransformWorker = null;
+	revokeAllDecryptedPreviews();
 });
 watch(() => [props.bucketName, props.filePath], () => { load(); loadBucketId(); });
+watch(() => props.encryptionKey, (key) => {
+	// 鍵が後から解決された場合（IndexedDB からの非同期復元）、エントリー一覧を再構築して復号プレビューを開始
+	if (key && isArchive.value && allArchiveEntries.value.length > 0) {
+		buildArchiveEntries();
+	}
+});
 watch(() => props.entryPath, (newEntryPath) => {
 	if (isArchive.value) {
 		archivePath.value = newEntryPath ?? '';
@@ -1107,22 +1245,32 @@ watch([isPartiallySelected, isAllSelected], async () => {
     <div class="card file-actions flex gap-2 items-center mb-3 flex-wrap">
       <!-- アーカイブ操作 -->
       <template v-if="isArchive" class="flex gap-2 items-center mb-3 flex-wrap">
-        <button v-if="isTargz" type="button" class="btn btn-primary" :disabled="archiveDownloadProgress != null" @click="startFullArchiveDownload(false)">
+        <button v-if="isTargz" type="button" class="btn btn-primary" :disabled="archiveDownloadProgress != null" @click="requestFullArchiveDownload(false)">
           <Download :size="16" :stroke-width="2" aria-hidden="true" />
           ダウンロード (.tar.gz)
         </button>
-        <a v-else :href="downloadUrl" download class="btn btn-primary">
+        <a v-else-if="!isEncrypted" :href="downloadUrl" download class="btn btn-primary">
           <Download :size="16" :stroke-width="2" aria-hidden="true" />
           ダウンロード
         </a>
-        <button v-if="isTargz" type="button" class="btn btn-secondary" :disabled="archiveDownloadProgress != null" @click="startFullArchiveDownload(true)">
+        <button v-else type="button" class="btn btn-primary" :disabled="archiveDownloadProgress != null" @click="requestFullArchiveDownload(true)">
+          <Download :size="16" :stroke-width="2" aria-hidden="true" />
+          ダウンロード
+        </button>
+        <button v-if="isTargz" type="button" class="btn btn-secondary" :disabled="archiveDownloadProgress != null" @click="requestFullArchiveDownload(true)">
           <PackageOpen :size="16" :stroke-width="2" aria-hidden="true" />
           展開してダウンロード (.tar)
         </button>
-        <button type="button" class="btn btn-secondary" :disabled="archiveDownloadProgress != null" @click="startArchiveToZipDownload">
+        <button type="button" class="btn btn-secondary" :disabled="archiveDownloadProgress != null" @click="requestArchiveToZipDownload">
           <FileArchive :size="16" :stroke-width="2" aria-hidden="true" />
           zipとしてダウンロード
         </button>
+        <Button.Root v-if="showAddKeyButton" class="btn btn-secondary" @click="openKeyDialog">
+          <Button.Content>
+            <KeyRound :size="16" :stroke-width="2" aria-hidden="true" />
+            復号キーを追加
+          </Button.Content>
+        </Button.Root>
         <Button.Root v-if="authStore.user" class="btn btn-ghost-danger" @click="archiveDeleteDialog = true">
           <Button.Content>
             <Trash2 :size="16" :stroke-width="2" aria-hidden="true" />
@@ -1325,7 +1473,13 @@ watch([isPartiallySelected, isAllSelected], async () => {
                   {{ !entry.isDir && entry.downloadCount != null ? entry.downloadCount.toLocaleString() : '' }}
                 </td>
                 <td :class="$style.labelCell">
-                  <span v-if="entry.label" :class="entry.isHlsTar ? ['badge', $style.hlsTarBadge] : ['badge', 'badge-muted']">{{ entry.label }}</span>
+                  <div :class="$style.labelBadges">
+                    <span v-if="entry.label" :class="entry.isHlsTar ? ['badge', $style.hlsTarBadge] : ['badge', 'badge-muted']">{{ entry.label }}</span>
+                    <span v-if="entry.isEncrypted" class="badge badge-info" :class="$style.encryptedBadge">
+                      <ShieldCheck :size="12" :stroke-width="2" aria-hidden="true" />
+                      暗号化
+                    </span>
+                  </div>
                 </td>
                 <td v-if="!isArchive && authStore.user" :class="$style.publicCell">
                   <div :class="$style.publicBadges">
@@ -1467,6 +1621,10 @@ watch([isPartiallySelected, isAllSelected], async () => {
                   <span v-if="entry.size != null" :class="$style.gridCardSize">{{ formatSize(entry.size) }}</span>
                   <span v-if="!entry.isDir && entry.downloadCount != null" class="badge badge-info">DL {{ entry.downloadCount.toLocaleString() }}</span>
                   <span v-if="entry.label" :class="entry.isHlsTar ? ['badge', $style.hlsTarBadge] : ['badge', 'badge-muted']">{{ entry.label }}</span>
+                  <span v-if="entry.isEncrypted" class="badge badge-info" :class="$style.encryptedBadge">
+                    <ShieldCheck :size="12" :stroke-width="2" aria-hidden="true" />
+                    暗号化
+                  </span>
                   <span v-if="!entry.isDir && entry.visibility != null && !isArchive" :class="entry.visibility === 'public' ? 'badge badge-success' : entry.visibility === 'passphrase' ? 'badge badge-warning' : 'badge badge-muted'">
                     {{ entry.visibility === 'public' ? '公開' : entry.visibility === 'passphrase' ? '合言葉' : '非公開' }}
                   </span>
@@ -1654,6 +1812,36 @@ watch([isPartiallySelected, isAllSelected], async () => {
       @confirm="executeDeleteArchive"
       @cancel="archiveDeleteDialog = false"
     />
+
+    <!-- 復号キーなしで暗号化アーカイブをダウンロードする確認 -->
+    <ConfirmDialog
+      v-model:open="encryptedArchiveDownloadConfirm"
+      title="復号キーがありません"
+      message="このアーカイブは暗号化されています。このブラウザに復号キーがないため、中身は暗号化されたままダウンロードされます。それでもダウンロードしますか？"
+      confirm-label="ダウンロード"
+      cancel-label="キャンセル"
+      @confirm="confirmEncryptedArchiveDownload"
+      @cancel="encryptedArchiveDownloadConfirm = false"
+    />
+
+    <!-- 復号キー追加ダイアログ -->
+    <AlertDialog.Root v-model="keyDialog">
+      <AlertDialog.Content :class="$style.keyDialog">
+        <form :class="$style.keyDialogInner" @submit.prevent="submitKeyDialog">
+          <AlertDialog.Title :class="$style.keyDialogTitle">復号キーを追加</AlertDialog.Title>
+          <p :class="$style.keyDialogDesc">このアーカイブはE2E暗号化されています。共有された復号キー（「z」で始まる文字列）を入力すると、このブラウザで中身を復号できるようになります。キーはこのブラウザにのみ保存され、サーバーには送信されません。</p>
+          <div v-if="keyError" class="alert alert-error">{{ keyError }}</div>
+          <div class="form-group">
+            <label class="form-label" for="archiveEncryptionKeyInput">復号キー</label>
+            <input id="archiveEncryptionKeyInput" v-model="keyInput" class="form-input" :class="$style.keyInput" placeholder="z..." autocomplete="off" spellcheck="false" autofocus>
+          </div>
+          <div :class="$style.keyDialogActions">
+            <AlertDialog.Cancel class="btn btn-secondary" type="button">キャンセル</AlertDialog.Cancel>
+            <button class="btn btn-primary" type="submit">追加</button>
+          </div>
+        </form>
+      </AlertDialog.Content>
+    </AlertDialog.Root>
   </div>
 </template>
 
@@ -1844,6 +2032,17 @@ watch([isPartiallySelected, isAllSelected], async () => {
 
 .labelCell {
   white-space: nowrap;
+}
+
+.labelBadges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+
+.encryptedBadge {
+  gap: 4px;
 }
 
 .hlsTarBadge {
@@ -2057,5 +2256,52 @@ watch([isPartiallySelected, isAllSelected], async () => {
   flex: 0 0 32px;
   width: 32px;
   padding-inline: 0;
+}
+
+.keyDialog {
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: none;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  padding: 0;
+  width: min(520px, calc(100vw - 32px));
+  max-height: 90vh;
+  overflow: auto;
+
+  &::backdrop {
+    background: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(2px);
+  }
+}
+
+.keyDialogInner {
+  display: grid;
+  gap: 14px;
+  padding: 24px;
+}
+
+.keyDialogTitle {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.keyDialogDesc {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+.keyInput {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+
+.keyDialogActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 </style>

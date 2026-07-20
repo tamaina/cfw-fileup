@@ -2,7 +2,7 @@
 import { ref, shallowRef, computed, onMounted, onUnmounted, watch, type Component } from 'vue';
 import type { FileVisibility } from '../../shared/file-visibility';
 import { Button, Dialog, Popover } from '@vuetify/v0';
-import { EllipsisVertical, File, FileArchive, FileAudio, FileCode, FileImage, FileText, FileVideo, Folder, FolderOpen, GripVertical, Pencil } from '@lucide/vue';
+import { EllipsisVertical, File, FileArchive, FileAudio, FileCode, FileImage, FileText, FileVideo, Folder, FolderOpen, GripVertical, Pencil, ShieldCheck } from '@lucide/vue';
 import { authStore } from '../store/auth';
 import { apiPost } from '../utils/api';
 import NirA from '@/components/NirA.vue';
@@ -14,10 +14,10 @@ import FileVisibilitySettingsSummary from '@/components/FileVisibilitySettingsSu
 import MediaConversionSettingsDialog from '@/components/MediaConversionSettingsDialog.vue';
 import MediaConversionSettingsSummary from '@/components/MediaConversionSettingsSummary.vue';
 import HlsSettingsDialog from '@/components/HlsSettingsDialog.vue';
-import { MAX_FILE_PATH_LENGTH } from '../../shared/const';
+import { ENCRYPTION_URL_FRAGMENT_KEY, MAX_FILE_PATH_LENGTH } from '../../shared/const';
 import { isValidFilePath } from '../../shared/name-validation';
 import { UploadTree, type HlsEntryUploadSettings, type PlannedUploadEntry, type SelectedUploadEntry, type UploadDirectory, type UploadEntry, type UploadConversionPlan } from '@/utils/upload-tree';
-import { enqueueStreamingUploadJob, failUploadEntries, finishUploadEntries, pushUploadEntry, uploadWorkerJobs } from '@/store/upload-worker';
+import { enqueueStreamingUploadJob, failUploadEntries, finishUploadEntries, getUploadEncryptionKey, pushUploadEntry, uploadWorkerJobs } from '@/store/upload-worker';
 import { buildUploadConflictDirectoryPlan, findUploadConflictsInDirectory, getEffectiveUploadEntries, isPathUnderMissingDirectory } from '@/utils/upload-paths';
 import { takeShareTargetPayload } from '../../shared/share-target-store';
 import { readBlobTextPreview } from '@/utils/text-preview';
@@ -70,6 +70,7 @@ const libraryName = ref('');
 const visibility = ref<FileVisibility>('public');
 const isListed = ref(true);
 const passphrase = ref('');
+const isEncrypted = ref(false);
 const visibilityDialogOpen = ref(false);
 const isDownloadCountEnabled = ref(false);
 const isDownloadCountVisible = ref(false);
@@ -89,6 +90,22 @@ let previousBodyCursor = '';
 const uploadError = ref('');
 const uploadDone = ref(false);
 const redirectUploadJobId = ref<string | null>(null);
+const encryptionShareLink = ref<string | null>(null);
+const encryptionLinkCopied = ref(false);
+let encryptionLinkCopiedTimer: ReturnType<typeof setTimeout> | null = null;
+
+function copyEncryptionShareLink(): void {
+	if (!encryptionShareLink.value) return;
+	void navigator.clipboard.writeText(encryptionShareLink.value).then(() => {
+		encryptionLinkCopied.value = true;
+		if (encryptionLinkCopiedTimer) clearTimeout(encryptionLinkCopiedTimer);
+		encryptionLinkCopiedTimer = setTimeout(() => {
+			encryptionLinkCopied.value = false;
+		}, 2000);
+	}).catch((err) => {
+		console.error('Failed to copy encryption share link', err);
+	});
+}
 const quotaWarningOpen = ref(false);
 const quotaWarningConfirmed = ref(false);
 const zipConfirmOpen = ref(false);
@@ -472,6 +489,10 @@ watch(uploadWorkerJobs, jobs => {
 	const job = jobs.find(current => current.id === jobId);
 	if (!job || job.status !== 'done' || !job.completedPath) return;
 	redirectUploadJobId.value = null;
+	const key = getUploadEncryptionKey(jobId);
+	if (key) {
+		encryptionShareLink.value = `${browserUploadLink(job.bucketName, job.completedPath)}#${ENCRYPTION_URL_FRAGMENT_KEY}=${key}`;
+	}
 	if (browserUploadAutoOpen.value && window.location.pathname === '/uploader') {
 		navigateTo(browserUploadLink(job.bucketName, job.completedPath));
 	}
@@ -1238,6 +1259,7 @@ async function executeUpload(): Promise<void> {
 			visibility: visibility.value,
 			isListed: isListed.value,
 			passphrase: passphrase.value || undefined,
+			isEncrypted: isEncrypted.value,
 			isDownloadCountEnabled: isDownloadCountEnabled.value,
 			isDownloadCountVisible: isDownloadCountEnabled.value ? isDownloadCountVisible.value : false,
 			partSize: browserUploadPartSizeBytes.value,
@@ -1587,6 +1609,16 @@ onMounted(async () => {
               {{ archiveUploadBaseName }}{{ archiveMode === 'tar' ? '.tar' : '.tar.gz' }}
             </div>
           </div>
+
+          <label :class="[$style.encryptionOption, isEncrypted ? $style.encryptionOptionSelected : null]">
+            <input v-model="isEncrypted" type="checkbox" :class="$style.radioInput">
+            <ShieldCheck :class="$style.encryptionOptionIcon" :size="20" :stroke-width="2" aria-hidden="true" />
+            <span :class="$style.archiveModeBody">
+              <span :class="$style.archiveModeText">ファイルを暗号化（エンドツーエンド）</span>
+              <span :class="$style.archiveModeDescription">ブラウザ上で暗号化してからアップロードします。サーバーは復号できません。復号キーはURLフラグメント（#key=...）で共有され、サーバーには送信されません。</span>
+            </span>
+            <span v-if="isEncrypted" class="badge badge-info" :class="$style.archiveModeBadge">有効</span>
+          </label>
         </div>
       </div>
 
@@ -1607,6 +1639,24 @@ onMounted(async () => {
         <div v-if="uploadDone" class="alert alert-success">
           アップロードジョブを開始しました。
           <NirA to="/my/uploadings?tab=browser" :class="$style.doneLink">進捗を見る →</NirA>
+        </div>
+        <div v-if="encryptionShareLink" class="alert alert-info">
+          <p :class="$style.encryptionNotice">
+            このファイルはエンドツーエンド暗号化されています。復号するにはキー付きの共有リンクが必要です。
+          </p>
+          <div :class="$style.encryptionLinkRow">
+            <input
+              :value="encryptionShareLink"
+              class="form-input"
+              :class="$style.encryptionLinkInput"
+              readonly
+              @focus="($event.target as HTMLInputElement).select()"
+            >
+            <button type="button" class="btn btn-secondary" @click="copyEncryptionShareLink">
+              コピー
+            </button>
+          </div>
+          <p v-if="encryptionLinkCopied" :class="$style.encryptionCopied">コピーしました</p>
         </div>
       </div>
 
@@ -2239,6 +2289,46 @@ onMounted(async () => {
   max-width: 360px;
 }
 
+.encryptionOption {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.encryptionOption:hover {
+  border-color: var(--color-border-focus);
+  background: var(--color-surface);
+}
+
+.encryptionOptionSelected {
+  border-color: var(--color-primary);
+  background: var(--color-primary-surface, color-mix(in srgb, var(--color-primary) 10%, transparent));
+  box-shadow: inset 0 0 0 1px var(--color-primary);
+}
+
+.encryptionOptionIcon {
+  margin-top: 2px;
+  color: var(--color-text-muted);
+  transition: color 0.15s ease;
+}
+
+.encryptionOptionSelected .encryptionOptionIcon {
+  color: var(--color-primary);
+}
+
+.encryptionOption:has(.radioInput:focus-visible) {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
 .radioInput {
   position: absolute;
   inline-size: 1px;
@@ -2256,6 +2346,28 @@ onMounted(async () => {
 
 .doneLink {
   margin-left: 8px;
+  font-weight: 600;
+}
+
+.encryptionNotice {
+  margin: 0 0 8px;
+}
+
+.encryptionLinkRow {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.encryptionLinkInput {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.8125rem;
+}
+
+.encryptionCopied {
+  margin: 8px 0 0;
   font-weight: 600;
 }
 
