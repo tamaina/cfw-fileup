@@ -191,11 +191,22 @@ function submitKeyDialog(): void {
 
 type ViewMode = 'list' | 'grid';
 const VIEW_MODE_KEY = 'cfw-fileup:dir-view-mode';
+/** リストビューの1ページあたりのエントリ数 */
+const LIST_PAGE_SIZE = 50;
+/** グリッドビューの1ページあたりのエントリ数（プレビューの同時取得数を抑えるため小さめ） */
+const GRID_PAGE_SIZE = 10;
 const viewMode = ref<ViewMode>((localStorage.getItem(VIEW_MODE_KEY) as ViewMode | null) ?? 'list');
+const directoryPageSize = computed(() => viewMode.value === 'grid' ? GRID_PAGE_SIZE : LIST_PAGE_SIZE);
 
 function setViewMode(mode: ViewMode): void {
+	if (viewMode.value === mode) return;
 	viewMode.value = mode;
 	localStorage.setItem(VIEW_MODE_KEY, mode);
+	// ページサイズがモードに依存するため、ディレクトリ一覧は引き直す。
+	// アーカイブ内表示はエントリ一覧をクライアント側で全件保持しているので不要。
+	if (!isArchive.value && !loading.value) {
+		void load({ preserveSelection: true });
+	}
 }
 
 function isImageMime(mime: string): boolean {
@@ -1016,15 +1027,17 @@ function navigateArchiveUp(): void {
 	}
 }
 
-async function load(): Promise<void> {
+async function load(options?: { preserveSelection?: boolean }): Promise<void> {
 	loading.value = true;
 	error.value = '';
 	directoryNextCursor.value = null;
 	directoryHasMore.value = false;
-	// ロード時に選択状態をリセット
-	selectedPaths.value.clear();
-	excludedPaths.value.clear();
-	selectAllMode.value = false;
+	// ロード時に選択状態をリセット（表示モード切替による引き直しでは維持する）
+	if (!options?.preserveSelection) {
+		selectedPaths.value.clear();
+		excludedPaths.value.clear();
+		selectAllMode.value = false;
+	}
 	try {
 		if (isArchive.value) {
 			const listUrl = props.token ? `${downloadUrl.value}&list` : `${downloadUrl.value}?list`;
@@ -1142,7 +1155,7 @@ async function executeDeleteArchive(): Promise<void> {
 }
 
 async function fetchDirectoryPage(cursor: string | null): Promise<DirectoryPage | null> {
-	return await fetchDirectoryPageWithLimit(cursor, 50);
+	return await fetchDirectoryPageWithLimit(cursor, directoryPageSize.value);
 }
 
 async function fetchDirectoryPageWithLimit(cursor: string | null, limit: number): Promise<DirectoryPage | null> {
