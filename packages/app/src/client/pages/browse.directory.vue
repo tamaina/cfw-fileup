@@ -1016,6 +1016,10 @@ async function applyDecryptedPreview(generation: number, entryId: string, entryP
 	if (!props.fileId || !props.encryptionKey) return;
 	const rawKey = multibaseToKey(props.encryptionKey);
 	if (!rawKey) return;
+
+	// TODO: グリッドビューの復号は並列数を決めたりキャッシュしたりする
+	return;
+
 	try {
 		const cryptoKey = await importAesCtrKey(rawKey, ['decrypt']);
 		const res = await fetch(archiveEntryDownloadUrl(props.fileId, entryPath, props.token), { headers: authHeaders() });
