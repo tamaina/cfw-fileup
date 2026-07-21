@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vitest';
-import { DownloadStalledError, fetchWithTimeout, runWithRetry, withInactivityTimeout } from '../src/client/workers/download-resilience';
+import { createRangedDownloadStream, DownloadStalledError, fetchWithTimeout, runWithRetry, withInactivityTimeout } from '../src/client/workers/download-resilience';
 
 describe('runWithRetry', () => {
 	test('retries transient failures and returns the successful attempt', async () => {
@@ -75,6 +75,63 @@ describe('fetchWithTimeout', () => {
 
 		await expect(fetchWithTimeout('/file', {}, 5)).rejects.toBeInstanceOf(DownloadStalledError);
 		expect(fetchMock).toHaveBeenCalledTimes(1);
+		vi.unstubAllGlobals();
+	});
+});
+
+describe('createRangedDownloadStream', () => {
+	test('retries an incomplete range from its beginning before committing it', async () => {
+		const requests: Array<{ range: string | null; ifRange: string | null }> = [];
+		let firstRangeAttempts = 0;
+		const fetchMock = vi.fn((_url: string, init?: RequestInit) => {
+			const headers = new Headers(init?.headers);
+			const range = headers.get('Range');
+			requests.push({ range, ifRange: headers.get('If-Range') });
+			if (range === 'bytes=0-3') {
+				firstRangeAttempts++;
+				return Promise.resolve(new Response(
+					new Uint8Array(firstRangeAttempts === 1 ? [0, 1] : [0, 1, 2, 3]),
+					{ status: 206, headers: { 'Content-Range': 'bytes 0-3/7', ETag: '"version-1"' } },
+				));
+			}
+			return Promise.resolve(new Response(
+				new Uint8Array([4, 5, 6]),
+				{ status: 206, headers: { 'Content-Range': 'bytes 4-6/7', ETag: '"version-1"' } },
+			));
+		});
+		vi.stubGlobal('fetch', fetchMock);
+
+		const committed: number[] = [];
+		const stream = createRangedDownloadStream('/file', {}, {
+			rangeSize: 4,
+			maxAttempts: 2,
+			requestTimeoutMs: 100,
+			inactivityTimeoutMs: 100,
+			onRangeCommitted: bytes => committed.push(bytes),
+		});
+		const chunks: number[] = [];
+		for await (const chunk of stream) chunks.push(...chunk);
+
+		expect(chunks).toEqual([0, 1, 2, 3, 4, 5, 6]);
+		expect(committed).toEqual([4, 7]);
+		expect(requests).toEqual([
+			{ range: 'bytes=0-3', ifRange: null },
+			{ range: 'bytes=0-3', ifRange: null },
+			{ range: 'bytes=4-7', ifRange: '"version-1"' },
+		]);
+		vi.unstubAllGlobals();
+	});
+
+	test('rejects a full response so different representations cannot be mixed', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(new Uint8Array([0, 1]), { status: 200 })));
+		const reader = createRangedDownloadStream('/file', {}, {
+			rangeSize: 4,
+			maxAttempts: 2,
+			requestTimeoutMs: 100,
+			inactivityTimeoutMs: 100,
+		}).getReader();
+
+		await expect(reader.read()).rejects.toThrow(/Expected HTTP 206/);
 		vi.unstubAllGlobals();
 	});
 });

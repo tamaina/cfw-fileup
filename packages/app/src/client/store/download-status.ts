@@ -12,6 +12,7 @@ export interface DownloadStatusProgress {
 	readonly attempt?: number;
 	readonly maxAttempts?: number;
 	readonly networkStalled?: boolean;
+	readonly retrying?: boolean;
 }
 
 export interface DownloadStatus {

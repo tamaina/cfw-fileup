@@ -89,8 +89,9 @@ const navDownloadPhaseText = computed(() => {
 	if (!status) return '';
 	if (status.error) return `エラー: ${status.filename}`;
 	if (status.progress.phase === 'done') return `完了: ${status.filename}`;
-	if (status.progress.networkStalled) {
-		return `通信停止を検知、再試行中 (${status.progress.attempt ?? 1}/${status.progress.maxAttempts ?? 1}): ${status.filename}`;
+	if (status.progress.networkStalled || status.progress.retrying) {
+		const reason = status.progress.networkStalled ? '通信停止を検知' : '通信エラー';
+		return `${reason}、Range再試行中 (${status.progress.attempt ?? 1}/${status.progress.maxAttempts ?? 1}): ${status.filename}`;
 	}
 	const phase = status.progress.phase === 'resolving' ? '対象解決中'
 		: status.progress.phase === 'reading' ? '読み込み中'

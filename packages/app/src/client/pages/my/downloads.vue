@@ -5,7 +5,7 @@ function phaseLabel(status: DownloadStatus): string {
 	if (status.error) return 'エラー';
 	if (status.progress.phase === 'done') return '完了';
 	if (status.progress.phase === 'resolving') return '対象解決中';
-	if (status.progress.networkStalled) return '再試行中';
+	if (status.progress.networkStalled || status.progress.retrying) return '再試行中';
 	if (status.progress.phase === 'reading') return '読み込み中';
 	return '書き込み中';
 }
