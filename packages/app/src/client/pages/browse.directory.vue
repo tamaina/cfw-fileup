@@ -29,6 +29,7 @@ import { archiveEntryDownloadUrl } from '@/utils/archive-entry-url';
 import { multibaseToKey } from '../../shared/encryption';
 import StorageQuotaDialog from '@/components/StorageQuotaDialog.vue';
 import { HLS_POSTER_NAME, HLS_TAR_MIME } from '../../shared/hls';
+import { cancelArchivePreviewConsumer, clearArchivePreviewContext, evictArchivePreview, requestArchivePreview } from '@/store/archive-preview-worker';
 
 const props = defineProps<{
 	bucketName: string;
@@ -203,6 +204,7 @@ const directoryPageSize = computed(() => viewMode.value === 'grid' ? GRID_PAGE_S
 
 function setViewMode(mode: ViewMode): void {
 	if (viewMode.value === mode) return;
+	resetDecryptedPreviewDisplay();
 	viewMode.value = mode;
 	localStorage.setItem(VIEW_MODE_KEY, mode);
 	if (isArchive.value) {
@@ -937,8 +939,8 @@ function buildArchiveEntries(): void {
 	const seenDirs = new Set<string>();
 	const result: DisplayEntry[] = [];
 	const canDecryptEntries = props.encryptionKey != null && props.fileId != null;
-	// 一覧の再構築ごとに世代を進め、進行中の復号をまとめてキャンセルする
-	++decryptedPreviewGeneration;
+	// 一覧の再構築ごとに表示用URLを解放し、この画面からの古い要求をキャンセルする
+	resetDecryptedPreviewDisplay();
 
 	for (const e of allArchiveEntries.value) {
 		if (!e.path.startsWith(archivePath.value)) continue;
@@ -993,7 +995,7 @@ function applyArchivePage(): void {
 
 	// 表示中の暗号化画像エントリに対してのみ復号プレビューを開始（未取得のものだけ）
 	const canDecryptEntries = props.encryptionKey != null && props.fileId != null;
-	if (canDecryptEntries && props.isTar && props.fileId) {
+	if (viewMode.value === 'grid' && canDecryptEntries && props.isTar && props.fileId) {
 		const generation = decryptedPreviewGeneration;
 		for (const entry of entries.value) {
 			if (!entry.isDir && isImageMime(entry.label ?? '') && !decryptedPreviewUrls.has(entry.key)) {
@@ -1011,19 +1013,56 @@ function loadMoreArchive(): void {
 // --- 暗号化アーカイブエントリーのグリッドプレビュー復号 ---
 const decryptedPreviewUrls = new Map<string, string>();
 let decryptedPreviewGeneration = 0;
+const archivePreviewConsumerId = crypto.randomUUID();
 
 async function applyDecryptedPreview(generation: number, entryId: string, entryPath: string, mimeType: string): Promise<void> {
-	// TODO: グリッドビューの復号は並列数を決めたりキャッシュしたりする
-	void generation;
-	void entryId;
-	void entryPath;
-	void mimeType;
+	if (!props.fileId || !props.encryptionKey || viewMode.value !== 'grid') return;
+	const archiveId = props.fileId;
+	const encryptionKey = props.encryptionKey;
+	try {
+		const blob = await requestArchivePreview({
+			consumerId: archivePreviewConsumerId,
+			archiveId,
+			entryId,
+			url: archiveEntryDownloadUrl(archiveId, entryPath, props.token),
+			encryptionKey,
+			mimeType,
+			headers: authHeaders(),
+		});
+		if (generation !== decryptedPreviewGeneration || viewMode.value !== 'grid') return;
+		const target = entries.value.find(entry => entry.key === entryId);
+		if (!target) return;
+		const objectUrl = URL.createObjectURL(blob);
+		const previous = decryptedPreviewUrls.get(entryId);
+		if (previous) URL.revokeObjectURL(previous);
+		decryptedPreviewUrls.set(entryId, objectUrl);
+		target.previewUrl = objectUrl;
+	} catch {
+		// 失敗・キャンセル時はアイコン表示のままにし、他のプレビューを継続する
+	}
 }
 
-function revokeAllDecryptedPreviews(): void {
+function resetDecryptedPreviewDisplay(): void {
 	decryptedPreviewGeneration++;
-	for (const url of decryptedPreviewUrls.values()) URL.revokeObjectURL(url);
+	cancelArchivePreviewConsumer(archivePreviewConsumerId);
+	for (const [entryId, url] of decryptedPreviewUrls) {
+		const entry = archiveBuiltEntries.value.find(item => item.key === entryId);
+		if (entry?.previewUrl === url) entry.previewUrl = undefined;
+		URL.revokeObjectURL(url);
+	}
 	decryptedPreviewUrls.clear();
+}
+
+function handlePreviewError(entry: DisplayEntry, event: Event): void {
+	const failedUrl = (event.currentTarget as HTMLImageElement).src;
+	if (!entry.previewUrl || new URL(entry.previewUrl, location.href).href !== failedUrl) return;
+	const objectUrl = decryptedPreviewUrls.get(entry.key);
+	if (objectUrl) URL.revokeObjectURL(objectUrl);
+	decryptedPreviewUrls.delete(entry.key);
+	entry.previewUrl = undefined;
+	if (props.fileId && props.encryptionKey && entry.isEncrypted) {
+		evictArchivePreview(props.fileId, entry.key, props.encryptionKey);
+	}
 }
 
 function navigateArchiveDir(path: string): void {
@@ -1262,14 +1301,16 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
 	if (currentDownloadId) removeProgressCallback(currentDownloadId);
-	revokeAllDecryptedPreviews();
+	resetDecryptedPreviewDisplay();
 });
 watch(() => [props.bucketName, props.filePath], () => { load(); loadBucketId(); });
-watch(() => props.encryptionKey, (key) => {
+watch(() => [props.fileId, props.encryptionKey] as const, ([fileId, key], [previousFileId, previousKey]) => {
+	if (previousFileId && previousKey && (fileId !== previousFileId || key !== previousKey)) {
+		clearArchivePreviewContext(previousFileId, previousKey);
+	}
 	// 鍵が後から解決された場合（IndexedDB からの非同期復元）、エントリー一覧を再構築して復号プレビューを開始
 	// 古いObjectURLを先に解放してから再構築する（リーク防止）
 	if (key && isArchive.value && allArchiveEntries.value.length > 0) {
-		revokeAllDecryptedPreviews();
 		buildArchiveEntries();
 	}
 });
@@ -1652,7 +1693,7 @@ watch([isPartiallySelected, isAllSelected], async () => {
                   height="300"
                   loading="lazy"
                   decoding="async"
-                  @error="entry.previewUrl = undefined"
+                  @error="handlePreviewError(entry, $event)"
                 >
                 <div v-else :class="$style.gridCardIcon">
                   <Folder v-if="entry.isDir" :size="42" :stroke-width="1.8" aria-hidden="true" />

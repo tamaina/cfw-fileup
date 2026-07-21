@@ -50,6 +50,7 @@ export default defineConfig({
 		},
 		warmup: {
 			clientFiles: [
+				'./src/client/workers/archive-preview.worker.ts',
 				'./src/client/workers/archive-download.worker.ts',
 				'./src/client/workers/download-transform.worker.ts',
 				'./src/client/workers/upload-worker.ts',
