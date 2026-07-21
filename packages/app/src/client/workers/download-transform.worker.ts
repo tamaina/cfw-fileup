@@ -1,7 +1,13 @@
 import { createBgzfDecompressor, isBgzf } from 'bgzf';
 import { Conversion, HLS_FORMATS, Input, Mp4OutputFormat, Output, StreamTarget, UrlSource, type StreamTargetChunk } from 'mediabunny';
 import { createOpfsTempFile } from './opfs-temp';
+import { createRangedDownloadStream } from './download-resilience';
 import { createAesCtrDecryptTransform, importAesCtrKey, multibaseToKey } from '../../shared/encryption';
+
+const DOWNLOAD_MAX_ATTEMPTS = 4;
+const DOWNLOAD_RANGE_SIZE = 32 * 1024 * 1024;
+const DOWNLOAD_REQUEST_TIMEOUT_MS = 30_000;
+const DOWNLOAD_INACTIVITY_TIMEOUT_MS = 30_000;
 
 export type DownloadTransformWorkerRequest =
 	{
@@ -37,6 +43,10 @@ export type DownloadTransformProgress = {
 	currentFile: string;
 	completedBytes?: number;
 	totalBytes?: number;
+	attempt?: number;
+	maxAttempts?: number;
+	networkStalled?: boolean;
+	retrying?: boolean;
 };
 
 export type DownloadTransformWorkerMessage =
@@ -151,20 +161,48 @@ function tempExtension(filename: string): string {
 
 async function writeDownload(fileHandle: FileSystemFileHandle, request: Extract<DownloadTransformWorkerRequest, { mode: 'download' }>): Promise<void> {
 	const writable = await fileHandle.createWritable();
+	let completedBytes = 0;
+	let totalBytes = 0;
+	let attempt = 1;
 	try {
-		progress(request.id, { phase: 'reading', processedFiles: 0, totalFiles: 1, currentFile: request.filename });
-		const res = await fetch(request.url, { headers: request.authHeaders });
-		if (!res.ok || !res.body) throw new Error(`Failed to fetch file: HTTP ${res.status}`);
-		const totalBytes = Number(res.headers.get('Content-Length')) || 0;
-		let completedBytes = 0;
-		const progressBody = totalBytes > 0
-			? withByteProgress(res.body, (bytes) => {
-				completedBytes += bytes;
-				progress(request.id, { phase: 'reading', processedFiles: 0, totalFiles: 1, currentFile: request.filename, completedBytes, totalBytes });
-			})
-			: res.body;
-		// Decrypt first if a key is provided, then apply the (de)compression transform.
-		let stream: ReadableStream<Uint8Array<ArrayBuffer>> = progressBody;
+		progress(request.id, {
+			phase: 'reading', processedFiles: 0, totalFiles: 1, currentFile: request.filename,
+			completedBytes, totalBytes, attempt, maxAttempts: DOWNLOAD_MAX_ATTEMPTS,
+		});
+		let stream = createRangedDownloadStream(request.url, { headers: request.authHeaders }, {
+			rangeSize: DOWNLOAD_RANGE_SIZE,
+			maxAttempts: DOWNLOAD_MAX_ATTEMPTS,
+			requestTimeoutMs: DOWNLOAD_REQUEST_TIMEOUT_MS,
+			inactivityTimeoutMs: DOWNLOAD_INACTIVITY_TIMEOUT_MS,
+			onMetadata(bytes) {
+				totalBytes = bytes;
+			},
+			onRangeCommitted(bytes, total) {
+				completedBytes = bytes;
+				totalBytes = total;
+				attempt = 1;
+				progress(request.id, {
+					phase: 'reading', processedFiles: 0, totalFiles: 1, currentFile: request.filename,
+					completedBytes, totalBytes, attempt, maxAttempts: DOWNLOAD_MAX_ATTEMPTS,
+				});
+			},
+			onStall(_rangeStart, stalledAttempt) {
+				attempt = stalledAttempt;
+				progress(request.id, {
+					phase: 'reading', processedFiles: 0, totalFiles: 1, currentFile: request.filename,
+					completedBytes, totalBytes, attempt, maxAttempts: DOWNLOAD_MAX_ATTEMPTS, networkStalled: true,
+				});
+			},
+			onRetry(error, rangeStart, nextAttempt, delayMs) {
+				attempt = nextAttempt;
+				console.warn(`[download-transform] Range starting at ${rangeStart} failed; retrying attempt ${nextAttempt} in ${delayMs}ms`, error);
+				progress(request.id, {
+					phase: 'reading', processedFiles: 0, totalFiles: 1, currentFile: request.filename,
+					completedBytes, totalBytes, attempt, maxAttempts: DOWNLOAD_MAX_ATTEMPTS, retrying: true,
+				});
+			},
+		});
+
 		if (request.encryptionKey) {
 			const rawKey = multibaseToKey(request.encryptionKey);
 			if (!rawKey) throw new Error('Invalid encryption key');
@@ -172,26 +210,20 @@ async function writeDownload(fileHandle: FileSystemFileHandle, request: Extract<
 			stream = stream.pipeThrough(createAesCtrDecryptTransform(cryptoKey)) as ReadableStream<Uint8Array<ArrayBuffer>>;
 		}
 		stream = await transformStream(stream, request.transform);
-		progress(request.id, { phase: 'writing', processedFiles: 0, totalFiles: 1, currentFile: request.filename, completedBytes, totalBytes });
+		progress(request.id, {
+			phase: 'writing', processedFiles: 0, totalFiles: 1, currentFile: request.filename,
+			completedBytes, totalBytes, attempt, maxAttempts: DOWNLOAD_MAX_ATTEMPTS,
+		});
 		await pipeToWritable(stream, writable);
 		await writable.close();
-		progress(request.id, { phase: 'done', processedFiles: 1, totalFiles: 1, currentFile: '', completedBytes: totalBytes, totalBytes });
-	} catch (err) {
+		progress(request.id, {
+			phase: 'done', processedFiles: 1, totalFiles: 1, currentFile: '',
+			completedBytes: totalBytes || completedBytes, totalBytes, attempt, maxAttempts: DOWNLOAD_MAX_ATTEMPTS,
+		});
+	} catch (error) {
 		await writable.abort().catch(() => {});
-		throw err;
+		throw error;
 	}
-}
-
-function withByteProgress(
-	stream: ReadableStream<Uint8Array<ArrayBuffer>>,
-	onChunk: (bytes: number) => void,
-): ReadableStream<Uint8Array<ArrayBuffer>> {
-	return stream.pipeThrough(new TransformStream<Uint8Array<ArrayBuffer>, Uint8Array<ArrayBuffer>>({
-		transform(chunk, controller) {
-			onChunk(chunk.byteLength);
-			controller.enqueue(chunk);
-		},
-	}));
 }
 
 async function transformStream(stream: ReadableStream<Uint8Array<ArrayBuffer>>, transform: Extract<DownloadTransformWorkerRequest, { mode: 'download' }>['transform']): Promise<ReadableStream<Uint8Array<ArrayBuffer>>> {

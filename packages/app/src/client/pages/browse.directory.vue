@@ -26,7 +26,7 @@ import { runArchiveDownload, runDownloadTransform, setProgressCallback, removePr
 import { DownloadCancelledError, StorageQuotaExceededError, resolveSaveTarget, type WorkerDownloadResult } from '@/utils/save-file';
 import { formatBytes } from '@/utils/byte-size';
 import { archiveEntryDownloadUrl } from '@/utils/archive-entry-url';
-import { decryptBlob, importAesCtrKey, multibaseToKey } from '../../shared/encryption';
+import { multibaseToKey } from '../../shared/encryption';
 import StorageQuotaDialog from '@/components/StorageQuotaDialog.vue';
 import { HLS_POSTER_NAME, HLS_TAR_MIME } from '../../shared/hls';
 
@@ -1013,27 +1013,11 @@ const decryptedPreviewUrls = new Map<string, string>();
 let decryptedPreviewGeneration = 0;
 
 async function applyDecryptedPreview(generation: number, entryId: string, entryPath: string, mimeType: string): Promise<void> {
-	if (!props.fileId || !props.encryptionKey) return;
-	const rawKey = multibaseToKey(props.encryptionKey);
-	if (!rawKey) return;
-
 	// TODO: グリッドビューの復号は並列数を決めたりキャッシュしたりする
-	return;
-
-	try {
-		const cryptoKey = await importAesCtrKey(rawKey, ['decrypt']);
-		const res = await fetch(archiveEntryDownloadUrl(props.fileId, entryPath, props.token), { headers: authHeaders() });
-		if (generation !== decryptedPreviewGeneration) return;
-		if (!res.ok) return;
-		const decrypted = await decryptBlob(await res.blob(), cryptoKey);
-		if (generation !== decryptedPreviewGeneration) return;
-		const objectUrl = URL.createObjectURL(new Blob([decrypted], { type: mimeType || undefined }));
-		const previous = decryptedPreviewUrls.get(entryId);
-		if (previous) URL.revokeObjectURL(previous);
-		decryptedPreviewUrls.set(entryId, objectUrl);
-		const target = entries.value.find(entry => entry.key === entryId);
-		if (target) target.previewUrl = objectUrl;
-	} catch { /* プレビュー失敗時はアイコン表示のまま */ }
+	void generation;
+	void entryId;
+	void entryPath;
+	void mimeType;
 }
 
 function revokeAllDecryptedPreviews(): void {

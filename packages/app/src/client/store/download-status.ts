@@ -9,6 +9,10 @@ export interface DownloadStatusProgress {
 	readonly currentFile: string;
 	readonly completedBytes?: number;
 	readonly totalBytes?: number;
+	readonly attempt?: number;
+	readonly maxAttempts?: number;
+	readonly networkStalled?: boolean;
+	readonly retrying?: boolean;
 }
 
 export interface DownloadStatus {

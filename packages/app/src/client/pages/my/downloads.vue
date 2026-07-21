@@ -5,15 +5,19 @@ function phaseLabel(status: DownloadStatus): string {
 	if (status.error) return 'エラー';
 	if (status.progress.phase === 'done') return '完了';
 	if (status.progress.phase === 'resolving') return '対象解決中';
+	if (status.progress.networkStalled || status.progress.retrying) return '再試行中';
 	if (status.progress.phase === 'reading') return '読み込み中';
 	return '書き込み中';
 }
 
 function progressLabel(status: DownloadStatus): string {
 	const progress = status.progress;
+	const attempt = progress.attempt && progress.maxAttempts && progress.attempt > 1
+		? `再試行 ${progress.attempt}/${progress.maxAttempts} `
+		: '';
 	if (progress.totalFiles <= 0) return progress.currentFile || status.filename;
 	const current = progress.currentFile ? `: ${progress.currentFile}` : '';
-	return `${progress.processedFiles}/${progress.totalFiles}${current}`;
+	return `${attempt}${progress.processedFiles}/${progress.totalFiles}${current}`;
 }
 
 function formatDate(timestamp: number): string {
