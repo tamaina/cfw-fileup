@@ -80,6 +80,10 @@ self.onconnect = (event) => {
 		}
 		if (message.type === 'fail-entries') {
 			failEntries(message.jobId, message.error);
+			return;
+		}
+		if (message.type === 'reset') {
+			resetAllJobs();
 		}
 	};
 	port.start();
@@ -180,6 +184,15 @@ function failEntries(jobId: string, error: string): void {
 	const job = streamingJobs.get(jobId);
 	if (!job) return;
 	job.queue.fail(new Error(error));
+}
+
+function resetAllJobs(): void {
+	for (const job of streamingJobs.values()) {
+		job.queue.fail(new Error('Reset by user'));
+	}
+	streamingJobs.clear();
+	jobs.length = 0;
+	broadcast();
 }
 
 function legacyEntryToResolved(entry: UploadWorkerEntry, index: number): UploadResolvedEntry {

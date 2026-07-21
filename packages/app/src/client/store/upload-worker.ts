@@ -103,6 +103,13 @@ export function getUploadEncryptionKey(jobId: string): string | undefined {
 	return encryptionKeys.value[jobId];
 }
 
+/** SharedWorker内の全アップロードジョブを破棄して初期状態に戻す。全タブに反映される。 */
+export function resetUploadWorker(): void {
+	jobs.value = [];
+	encryptionKeys.value = {};
+	post({ type: 'reset' });
+}
+
 function post(message: UploadWorkerClientMessage): void {
 	port?.postMessage(message);
 }

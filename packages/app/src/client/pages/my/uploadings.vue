@@ -10,7 +10,7 @@ import ByteSizeSettingItem from '@/components/ByteSizeSettingItem.vue';
 import { authStore } from '@/store/auth';
 import { apiPost } from '@/utils/api';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
-import { connectUploadWorker, uploadWorkerJobs } from '@/store/upload-worker';
+import { connectUploadWorker, resetUploadWorker, uploadWorkerJobs } from '@/store/upload-worker';
 import { cancelMediaConversionWorker, mediaConversionJobs, type MediaConversionJobSnapshot } from '@/store/media-conversion-worker';
 import { formatBytes } from '@/utils/byte-size';
 import {
@@ -50,6 +50,7 @@ const notificationSaving = ref(false);
 
 const deleteDialog = ref(false);
 const deleteTarget = ref<UploadEntry | null>(null);
+const resetDialog = ref(false);
 const nextCursor = ref<string | null>(null);
 const hasMore = ref(false);
 const booleanSettingSchema = v.picklist(['true', 'false']);
@@ -170,6 +171,11 @@ function requestDelete(entry: UploadEntry): void {
 	deleteDialog.value = true;
 }
 
+function executeResetWorker(): void {
+	resetUploadWorker();
+	resetDialog.value = false;
+}
+
 async function executeDelete(): Promise<void> {
 	if (!deleteTarget.value) return;
 	const entry = deleteTarget.value;
@@ -208,6 +214,11 @@ onMounted(() => {
       </div>
 
       <div v-if="activeTab === 'browser'">
+        <div v-if="uploadWorkerJobs.length > 0" class="mb-3">
+          <Button.Root class="btn btn-ghost-danger btn-sm" @click="resetDialog = true">
+            <Button.Content>アップロードジョブを初期化</Button.Content>
+          </Button.Root>
+        </div>
         <div v-if="uploadWorkerJobs.length === 0 && mediaConversionJobs.length === 0" class="empty-state">
           <p>ブラウザから実行中のアップロードはありません。</p>
         </div>
@@ -436,6 +447,16 @@ onMounted(() => {
       :danger="true"
       @confirm="executeDelete"
       @cancel="deleteDialog = false"
+    />
+
+    <ConfirmDialog
+      v-model:open="resetDialog"
+      title="アップロードジョブを初期化"
+      message="アップロードワーカーを再起動し、すべてのジョブ履歴を消去します。実行中のアップロードは中断されます。他のタブにも反映されます。"
+      confirm-label="初期化する"
+      :danger="true"
+      @confirm="executeResetWorker"
+      @cancel="resetDialog = false"
     />
   </div>
 </template>

@@ -90,7 +90,8 @@ export type UploadWorkerClientMessage =
 	| { type: 'enqueue-streaming'; requestId: string; job: UploadStreamingJobRequest }
 	| { type: 'push-entry'; jobId: string; entry: UploadResolvedEntry }
 	| { type: 'finish-entries'; jobId: string }
-	| { type: 'fail-entries'; jobId: string; error: string };
+	| { type: 'fail-entries'; jobId: string; error: string }
+	| { type: 'reset' };
 
 export type UploadWorkerServerMessage =
 	| { type: 'snapshot'; jobs: UploadJobSnapshot[] }
