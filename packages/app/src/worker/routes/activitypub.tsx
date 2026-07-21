@@ -5,7 +5,7 @@ import { buckets, files, tarFiles, targzFiles } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { apiError } from '../utils/api-error';
 import { resolveRouteCache, purgeWorkersCacheByPathPrefixes } from '../middleware/resolve-route-cache';
-import { fileMutationEvents, runMutationTask, type FileReference } from '../events/file-mutations';
+import { fileMutationEvents, runMutationTask } from '../events/file-mutations';
 import { getAppName } from '../utils/app-name';
 import { getPublicFile } from '../utils/public-file';
 import { getHlsTarMetadata } from '../utils/hls-tar-metadata';
@@ -18,6 +18,7 @@ type AppContext = Context<{ Bindings: Env }>;
 const activityJsonContentType = 'application/activity+json; charset=utf-8';
 const publicAddress = 'https://www.w3.org/ns/activitystreams#Public';
 const activityPubCacheMaxAgeSeconds = 5 * 60;
+const activityPubCacheStaleWhileRevalidateSeconds = 12 * 60 * 60;
 let activityPubCachePurgeListenersRegistered = false;
 
 function originFromRequest(request: Request): string {
@@ -247,6 +248,7 @@ registerActivityPubCachePurgeListeners();
 
 app.use('/a/*', resolveRouteCache({
 	externalMaxAgeSeconds: activityPubCacheMaxAgeSeconds,
+	staleWhileRevalidateSeconds: activityPubCacheStaleWhileRevalidateSeconds,
 }));
 
 app.get('/a/buckets/:bucketId', async (c) => {

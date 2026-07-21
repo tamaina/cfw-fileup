@@ -3,6 +3,7 @@ import { cache } from 'cloudflare:workers';
 
 type ResolveRouteCacheOptions = {
 	externalMaxAgeSeconds?: number;
+	staleWhileRevalidateSeconds?: number;
 };
 
 /**
@@ -23,7 +24,11 @@ export function resolveRouteCache(options: ResolveRouteCacheOptions = {}) {
 
 		const headers = new Headers(c.res.headers);
 		if (options.externalMaxAgeSeconds !== undefined) {
-			headers.set('Cache-Control', `public, max-age=${options.externalMaxAgeSeconds}`);
+			const directives = ['public', `max-age=${options.externalMaxAgeSeconds}`];
+			if (options.staleWhileRevalidateSeconds !== undefined) {
+				directives.push(`stale-while-revalidate=${options.staleWhileRevalidateSeconds}`);
+			}
+			headers.set('Cache-Control', directives.join(', '));
 		}
 
 		c.res = new Response(c.res.body, {
@@ -39,5 +44,10 @@ export function resolveRouteCache(options: ResolveRouteCacheOptions = {}) {
  * pathPrefixes はURLのパス部分（例: "/v/bucket/file.txt"）。
  */
 export async function purgeWorkersCacheByPathPrefixes(pathPrefixes: string[]): Promise<void> {
-	await cache.purge({ pathPrefixes });
+	if (pathPrefixes.length === 0) return;
+
+	const result = await cache.purge({ pathPrefixes });
+	if (!result.success) {
+		throw new Error(`Workers Cache purge failed: ${JSON.stringify(result.errors)}`);
+	}
 }

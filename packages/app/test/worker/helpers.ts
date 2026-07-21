@@ -4,6 +4,7 @@ import { deleteAppSettingCache } from '../../src/worker/utils/app-settings-cache
 import migration0000 from '../../migrations/0000_curly_lady_deathstrike.sql?raw';
 import migration0001 from '../../migrations/0001_confused_wild_child.sql?raw';
 import migration0002 from '../../migrations/0002_last_whizzer.sql?raw';
+import migration0003 from '../../migrations/0003_lazy_calypso.sql?raw';
 
 const defaultCf = {
 	country: 'JP',
@@ -48,6 +49,7 @@ const migrations = [
 	migration0000,
 	migration0001,
 	migration0002,
+	migration0003,
 ] as const;
 
 const tables = [

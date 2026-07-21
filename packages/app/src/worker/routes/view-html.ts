@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { buckets, files, tarFiles, targzFiles } from '../scheme/index';
 import { resolveRouteCache, purgeWorkersCacheByPathPrefixes } from '../middleware/resolve-route-cache';
 import { getDb } from '../utils/db';
-import { fileMutationEvents, runMutationTask, type FileReference } from '../events/file-mutations';
+import { fileMutationEvents, runMutationTask } from '../events/file-mutations';
 import { getAppName } from '../utils/app-name';
 import { getHlsTarMetadata } from '../utils/hls-tar-metadata';
 import { HLS_TAR_MIME } from '../../shared/hls';
@@ -14,6 +14,7 @@ type AppContext = Context<{ Bindings: Env }>;
 
 const activityJsonType = 'application/activity+json';
 const viewHtmlCacheMaxAgeSeconds = 3 * 60 * 60;
+const viewHtmlCacheStaleWhileRevalidateSeconds = 12 * 60 * 60;
 let viewHtmlCachePurgeListenersRegistered = false;
 
 function decodePathSegment(segment: string): string | null {
@@ -247,7 +248,10 @@ function registerViewHtmlCachePurgeListeners(): void {
 
 registerViewHtmlCachePurgeListeners();
 
-app.use('/v/*', resolveRouteCache({ externalMaxAgeSeconds: viewHtmlCacheMaxAgeSeconds }));
+app.use('/v/*', resolveRouteCache({
+	externalMaxAgeSeconds: viewHtmlCacheMaxAgeSeconds,
+	staleWhileRevalidateSeconds: viewHtmlCacheStaleWhileRevalidateSeconds,
+}));
 
 app.get('/v/*', async (c) => {
 	const response = await c.env.ASSETS.fetch(c.req.raw);

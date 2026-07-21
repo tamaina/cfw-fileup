@@ -128,7 +128,7 @@ describe('ActivityPub routes', () => {
 		expect(res.status).toBe(200);
 		const href = `https://example.test/a/files/${fileId}`;
 		expect(res.headers.get('Link')).toContain(`<${href}>; rel="alternate"; type="application/activity+json"`);
-		expect(res.headers.get('Cache-Control')).toBe('public, max-age=10800');
+		expect(res.headers.get('Cache-Control')).toBe('public, max-age=10800, stale-while-revalidate=43200');
 		expect(await res.text()).toContain(`<link rel="alternate" type="application/activity+json" href="${href}">`);
 	});
 
@@ -138,7 +138,7 @@ describe('ActivityPub routes', () => {
 
 		const res = await app.request(requestUrl, {}, envWithAssets());
 		expect(res.status).toBe(200);
-		expect(res.headers.get('Cache-Control')).toBe('public, max-age=10800');
+		expect(res.headers.get('Cache-Control')).toBe('public, max-age=10800, stale-while-revalidate=43200');
 		expect(await res.text()).toContain(`/a/files/${fileId}`);
 	});
 
@@ -171,7 +171,7 @@ describe('ActivityPub routes', () => {
 
 		const res = await app.request(`https://example.test/a/files/${fileId}`, activityJsonRequest, env);
 		expect(res.status).toBe(200);
-		expect(res.headers.get('Cache-Control')).toBe('public, max-age=300');
+		expect(res.headers.get('Cache-Control')).toBe('public, max-age=300, stale-while-revalidate=43200');
 		const note = await res.json() as Record<string, unknown>;
 		expect(note).not.toHaveProperty('url');
 	});
