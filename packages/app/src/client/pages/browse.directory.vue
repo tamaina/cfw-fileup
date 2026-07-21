@@ -130,6 +130,9 @@ type DirectoryPage = {
 	ownerCanDisableFileAds: boolean;
 };
 const allArchiveEntries = ref<RawArchiveEntry[]>([]);
+/** アーカイブエントリのクライアント側ページネーション用: buildArchiveEntries で構築した全エントリ */
+const archiveBuiltEntries = ref<DisplayEntry[]>([]);
+const archiveVisibleCount = ref(0);
 const archivePath = ref('');
 const ownerCanDisableFileAds = ref(false);
 const effectiveOwnerCanDisableFileAds = computed(() => isArchive.value ? props.ownerCanDisableFileAds === true : ownerCanDisableFileAds.value);
@@ -202,9 +205,11 @@ function setViewMode(mode: ViewMode): void {
 	if (viewMode.value === mode) return;
 	viewMode.value = mode;
 	localStorage.setItem(VIEW_MODE_KEY, mode);
-	// ページサイズがモードに依存するため、ディレクトリ一覧は引き直す。
-	// アーカイブ内表示はエントリ一覧をクライアント側で全件保持しているので不要。
-	if (!isArchive.value && !loading.value) {
+	if (isArchive.value) {
+		// ページサイズがモードに依存するため、アーカイブ内表示もページネーションをリセット
+		archiveVisibleCount.value = directoryPageSize.value;
+		applyArchivePage();
+	} else if (!loading.value) {
 		void load({ preserveSelection: true });
 	}
 }
@@ -933,7 +938,7 @@ function buildArchiveEntries(): void {
 	const result: DisplayEntry[] = [];
 	const canDecryptEntries = props.encryptionKey != null && props.fileId != null;
 	// 一覧の再構築ごとに世代を進め、進行中の復号をまとめてキャンセルする
-	const generation = ++decryptedPreviewGeneration;
+	++decryptedPreviewGeneration;
 
 	for (const e of allArchiveEntries.value) {
 		if (!e.path.startsWith(archivePath.value)) continue;
@@ -955,9 +960,6 @@ function buildArchiveEntries(): void {
 				isEncrypted: props.isEncrypted === true,
 				previewUrl,
 			});
-			if (showImagePreview && canDecryptEntries) {
-				void applyDecryptedPreview(generation, e.id, e.path, e.mimeType);
-			}
 		} else {
 			const dirName = rest.slice(0, slashIdx);
 			if (!seenDirs.has(dirName)) {
@@ -979,7 +981,31 @@ function buildArchiveEntries(): void {
 		return a.name.localeCompare(b.name);
 	});
 
-	entries.value = result;
+	archiveBuiltEntries.value = result;
+	archiveVisibleCount.value = directoryPageSize.value;
+	applyArchivePage();
+}
+
+/** アーカイブエントリのクライアント側ページネーションを適用し、表示中のエントリに対してのみ復号プレビューを開始する */
+function applyArchivePage(): void {
+	entries.value = archiveBuiltEntries.value.slice(0, archiveVisibleCount.value);
+	directoryHasMore.value = archiveBuiltEntries.value.length > archiveVisibleCount.value;
+
+	// 表示中の暗号化画像エントリに対してのみ復号プレビューを開始（未取得のものだけ）
+	const canDecryptEntries = props.encryptionKey != null && props.fileId != null;
+	if (canDecryptEntries && props.isTar && props.fileId) {
+		const generation = decryptedPreviewGeneration;
+		for (const entry of entries.value) {
+			if (!entry.isDir && isImageMime(entry.label ?? '') && !decryptedPreviewUrls.has(entry.key)) {
+				void applyDecryptedPreview(generation, entry.key, entry.fullPath, entry.label ?? '');
+			}
+		}
+	}
+}
+
+function loadMoreArchive(): void {
+	archiveVisibleCount.value += directoryPageSize.value;
+	applyArchivePage();
 }
 
 // --- 暗号化アーカイブエントリーのグリッドプレビュー復号 ---
@@ -1063,6 +1089,10 @@ async function load(options?: { preserveSelection?: boolean }): Promise<void> {
 }
 
 async function loadMoreDirectory(): Promise<void> {
+	if (isArchive.value) {
+		loadMoreArchive();
+		return;
+	}
 	if (!directoryHasMore.value || loadingMore.value) return;
 	loadingMore.value = true;
 	error.value = '';
@@ -1579,7 +1609,7 @@ watch([isPartiallySelected, isAllSelected], async () => {
                 </td>
               </tr>
               <InfiniteTableRow
-                v-if="!isArchive && (directoryHasMore || loadingMore)"
+                v-if="directoryHasMore || loadingMore"
                 :colspan="tableColspan"
                 :has-more="directoryHasMore"
                 :loading="loadingMore"
@@ -1753,7 +1783,7 @@ watch([isPartiallySelected, isAllSelected], async () => {
           </div>
         </template>
         <InfiniteLoadTrigger
-          v-if="!isArchive && viewMode !== 'list' && (directoryHasMore || loadingMore)"
+          v-if="viewMode !== 'list' && (directoryHasMore || loadingMore)"
           :has-more="directoryHasMore"
           :loading="loadingMore"
           @load-more="loadMoreDirectory"
