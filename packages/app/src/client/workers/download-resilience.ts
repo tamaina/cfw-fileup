@@ -10,6 +10,7 @@ export type RetryOptions = {
 	readonly shouldRetry: (error: unknown) => boolean;
 	readonly delayMs: (failedAttempt: number) => number;
 	readonly onRetry?: (error: unknown, failedAttempt: number, delayMs: number) => void;
+	readonly signal?: AbortSignal;
 };
 
 export async function runWithRetry<T>(operation: (attempt: number) => Promise<T>, options: RetryOptions): Promise<T> {
@@ -20,10 +21,25 @@ export async function runWithRetry<T>(operation: (attempt: number) => Promise<T>
 			if (attempt >= options.maxAttempts || !options.shouldRetry(error)) throw error;
 			const delayMs = options.delayMs(attempt);
 			options.onRetry?.(error, attempt, delayMs);
-			if (delayMs > 0) await new Promise(resolve => setTimeout(resolve, delayMs));
+			if (delayMs > 0) await abortableDelay(delayMs, options.signal);
 		}
 	}
 	throw new Error('Retry loop ended unexpectedly');
+}
+
+function abortableDelay(delayMs: number, signal?: AbortSignal): Promise<void> {
+	if (signal?.aborted) return Promise.reject(signal.reason);
+	return new Promise((resolve, reject) => {
+		const timeoutId = setTimeout(() => {
+			signal?.removeEventListener('abort', onAbort);
+			resolve();
+		}, delayMs);
+		function onAbort(): void {
+			clearTimeout(timeoutId);
+			reject(signal?.reason);
+		}
+		signal?.addEventListener('abort', onAbort, { once: true });
+	});
 }
 
 export function withInactivityTimeout<T>(stream: ReadableStream<T>, timeoutMs: number, onStall?: () => void): ReadableStream<T> {
@@ -60,10 +76,15 @@ export function withInactivityTimeout<T>(stream: ReadableStream<T>, timeoutMs: n
 }
 
 export async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
-	const controller = new AbortController();
-	const timeoutId = setTimeout(() => controller.abort(new DownloadStalledError(timeoutMs)), timeoutMs);
+	const timeoutController = new AbortController();
+	const sourceSignal = init.signal;
+	if (sourceSignal?.aborted) throw sourceSignal.reason;
+	const signal = sourceSignal === null || sourceSignal === undefined
+		? timeoutController.signal
+		: AbortSignal.any([sourceSignal, timeoutController.signal]);
+	const timeoutId = setTimeout(() => timeoutController.abort(new DownloadStalledError(timeoutMs)), timeoutMs);
 	try {
-		return await fetch(url, { ...init, signal: controller.signal });
+		return await fetch(url, { ...init, signal });
 	} finally {
 		clearTimeout(timeoutId);
 	}
@@ -97,39 +118,59 @@ export function createRangedDownloadStream(url: string, init: RequestInit, optio
 	let offset = 0;
 	let totalBytes: number | null = null;
 	let validator: string | null = null;
+	const abortController = new AbortController();
+	const sourceSignal = init.signal;
+	const forwardAbort = (): void => abortController.abort(sourceSignal?.reason);
+	if (sourceSignal?.aborted) forwardAbort();
+	else sourceSignal?.addEventListener('abort', forwardAbort, { once: true });
+	const finish = (): void => sourceSignal?.removeEventListener('abort', forwardAbort);
 
 	return new ReadableStream<Uint8Array<ArrayBuffer>>({
 		async pull(controller) {
-			if (totalBytes !== null && offset >= totalBytes) {
-				controller.close();
-				return;
-			}
+			try {
+				if (totalBytes !== null && offset >= totalBytes) {
+					finish();
+					controller.close();
+					return;
+				}
 
-			const rangeStart = offset;
-			const rangeEnd = rangeStart + options.rangeSize - 1;
-			const chunk = await runWithRetry(
-				attempt => fetchRange(url, init, rangeStart, rangeEnd, validator, attempt, options),
-				{
-					maxAttempts: options.maxAttempts,
-					shouldRetry: isRetryableRangeError,
-					delayMs: failedAttempt => Math.min(2 ** (failedAttempt - 1) * 1000, 16_000),
-					onRetry(error, failedAttempt, delayMs) {
-						options.onRetry?.(error, rangeStart, failedAttempt + 1, delayMs);
+				const rangeStart = offset;
+				const rangeEnd = rangeStart + options.rangeSize - 1;
+				const chunk = await runWithRetry(
+					attempt => fetchRange(url, { ...init, signal: abortController.signal }, rangeStart, rangeEnd, validator, attempt, options),
+					{
+						maxAttempts: options.maxAttempts,
+						shouldRetry: error => !abortController.signal.aborted && isRetryableRangeError(error),
+						delayMs: failedAttempt => Math.min(2 ** (failedAttempt - 1) * 1000, 16_000),
+						onRetry(error, failedAttempt, delayMs) {
+							options.onRetry?.(error, rangeStart, failedAttempt + 1, delayMs);
+						},
+						signal: abortController.signal,
 					},
-				},
-			);
+				);
 
-			if (totalBytes === null) {
-				totalBytes = chunk.totalBytes;
-				validator = chunk.validator;
-				options.onMetadata?.(totalBytes);
-			} else if (chunk.totalBytes !== totalBytes) {
-				throw new RangeResponseError('Download size changed between range requests', false);
+				if (totalBytes === null) {
+					if (chunk.validator === null && chunk.bytes.byteLength < chunk.totalBytes) {
+						throw new RangeResponseError('A strong ETag or Last-Modified validator is required for a multi-range download', false);
+					}
+					totalBytes = chunk.totalBytes;
+					validator = chunk.validator;
+					options.onMetadata?.(totalBytes);
+				} else if (chunk.totalBytes !== totalBytes) {
+					throw new RangeResponseError('Download size changed between range requests', false);
+				}
+
+				controller.enqueue(chunk.bytes);
+				offset += chunk.bytes.byteLength;
+				options.onRangeCommitted?.(offset, totalBytes);
+			} catch (error) {
+				finish();
+				throw error;
 			}
-
-			controller.enqueue(chunk.bytes);
-			offset += chunk.bytes.byteLength;
-			options.onRangeCommitted?.(offset, totalBytes);
+		},
+		cancel(reason) {
+			finish();
+			abortController.abort(reason);
 		},
 	});
 }

@@ -134,4 +134,42 @@ describe('createRangedDownloadStream', () => {
 		await expect(reader.read()).rejects.toThrow(/Expected HTTP 206/);
 		vi.unstubAllGlobals();
 	});
+
+	test('requires a validator before committing a multi-range download', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
+			new Uint8Array([0, 1, 2, 3]),
+			{ status: 206, headers: { 'Content-Range': 'bytes 0-3/8' } },
+		)));
+		const reader = createRangedDownloadStream('/file', {}, {
+			rangeSize: 4,
+			maxAttempts: 2,
+			requestTimeoutMs: 100,
+			inactivityTimeoutMs: 100,
+		}).getReader();
+
+		await expect(reader.read()).rejects.toThrow(/validator is required/);
+		vi.unstubAllGlobals();
+	});
+
+	test('aborts the active request without retrying when cancelled', async () => {
+		const fetchMock = vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+			init?.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+		}));
+		vi.stubGlobal('fetch', fetchMock);
+		const stream = createRangedDownloadStream('/file', {}, {
+			rangeSize: 4,
+			maxAttempts: 4,
+			requestTimeoutMs: 100,
+			inactivityTimeoutMs: 100,
+		});
+		const reader = stream.getReader();
+		const read = reader.read();
+		await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+		await reader.cancel(new DOMException('Cancelled', 'AbortError'));
+
+		await expect(read).resolves.toEqual({ done: true, value: undefined });
+		await Promise.resolve();
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		vi.unstubAllGlobals();
+	});
 });
