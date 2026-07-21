@@ -18,17 +18,16 @@ import MoveEntryDialog from '@/components/MoveEntryDialog.vue';
 import { MAX_DIRECTORY_NAME_LENGTH, MAX_FILE_PATH_LENGTH } from '../../shared/const';
 import { pathSegmentNameValidation } from '../../shared/name-validation';
 import { UploadTree } from '@/utils/upload-tree';
-import type { ArchiveDownloadWorkerMessage, ArchiveDownloadWorkerRequest, ArchiveDownloadProgress } from '@/workers/archive-download.worker';
-import type { DownloadTransformWorkerMessage, DownloadTransformWorkerRequestInput } from '@/workers/download-transform.worker';
+import type { ArchiveDownloadProgress } from '@/workers/archive-download.worker';
 import { getOpfsTempFile, removeOpfsTempFile } from '@/workers/opfs-temp';
-import { cancelDownloadStatus, completeDownloadStatus, failDownloadStatus, startDownloadStatus, updateDownloadStatus } from '@/store/download-status';
+import { cancelDownloadStatus, completeDownloadStatus, failDownloadStatus, startDownloadStatus } from '@/store/download-status';
 import { registerDownloadedOpfsFile } from '@/store/download-cleanup';
+import { runArchiveDownload, runDownloadTransform, setProgressCallback, removeProgressCallback, terminateArchiveDownloadWorker, terminateDownloadTransformWorker } from '@/store/download-worker';
 import { DownloadCancelledError, StorageQuotaExceededError, resolveSaveTarget, type WorkerDownloadResult } from '@/utils/save-file';
 import { formatBytes } from '@/utils/byte-size';
 import { archiveEntryDownloadUrl } from '@/utils/archive-entry-url';
 import { decryptBlob, importAesCtrKey, multibaseToKey } from '../../shared/encryption';
 import StorageQuotaDialog from '@/components/StorageQuotaDialog.vue';
-import type { DistributiveOmit } from '../../shared/type-hack';
 import { HLS_POSTER_NAME, HLS_TAR_MIME } from '../../shared/hls';
 
 const props = defineProps<{
@@ -212,17 +211,8 @@ const selectionPopoverOpen = ref(false);
 const headerCheckbox = ref<HTMLInputElement | null>(null);
 const archiveDownloadError = ref('');
 const archiveDownloadProgress = ref<ArchiveDownloadProgress | null>(null);
-let archiveDownloadWorker: Worker | null = null;
-let downloadTransformWorker: Worker | null = null;
-let archiveDownloadRequestId = 0;
-const archiveDownloadRequests = new Map<string, {
-	resolve: (value: WorkerDownloadResult) => void;
-	reject: (error: Error & { opfsName?: string }) => void;
-}>();
-const downloadTransformRequests = new Map<string, {
-	resolve: (value: WorkerDownloadResult) => void;
-	reject: (error: Error & { opfsName?: string }) => void;
-}>();
+/** 現在進行中のダウンロード ID（unmount 時に進捗コールバック解除用） */
+let currentDownloadId: string | null = null;
 
 /** 選択可能なエントリ */
 const selectableEntries = computed(() => entries.value);
@@ -351,70 +341,6 @@ function requestBulkModerationForcedPrivate(value: boolean): void {
 	bulkModerationDialog.value = true;
 }
 
-function getArchiveDownloadWorker(): Worker {
-	if (archiveDownloadWorker) return archiveDownloadWorker;
-	archiveDownloadWorker = new Worker(new URL('../workers/archive-download.worker.ts', import.meta.url), { type: 'module' });
-	archiveDownloadWorker.onmessage = (event: MessageEvent<ArchiveDownloadWorkerMessage>) => {
-		const message = event.data;
-		if (message.type === 'progress') {
-			archiveDownloadProgress.value = message.progress;
-			updateDownloadStatus(message.id, message.progress);
-			return;
-		}
-		const pending = archiveDownloadRequests.get(message.id);
-		if (!pending) return;
-		archiveDownloadRequests.delete(message.id);
-		if (message.type === 'done') {
-			pending.resolve({ opfsName: message.opfsName, savedDirectly: message.savedDirectly, filename: message.filename, mimeType: message.mimeType });
-		} else {
-			const error = new Error(message.error) as Error & { opfsName?: string };
-			error.opfsName = message.opfsName;
-			pending.reject(error);
-		}
-	};
-	return archiveDownloadWorker;
-}
-
-function runArchiveDownloadWorker(request: DistributiveOmit<ArchiveDownloadWorkerRequest, 'id'>): Promise<WorkerDownloadResult> {
-	const id = String(++archiveDownloadRequestId);
-	return new Promise((resolve, reject) => {
-		archiveDownloadRequests.set(id, { resolve, reject });
-		getArchiveDownloadWorker().postMessage({ ...request, id });
-	});
-}
-
-function getDownloadTransformWorker(): Worker {
-	if (downloadTransformWorker) return downloadTransformWorker;
-	downloadTransformWorker = new Worker(new URL('../workers/download-transform.worker.ts', import.meta.url), { type: 'module' });
-	downloadTransformWorker.onmessage = (event: MessageEvent<DownloadTransformWorkerMessage>) => {
-		const message = event.data;
-		if (message.type === 'progress') {
-			archiveDownloadProgress.value = message.progress;
-			updateDownloadStatus(message.id, message.progress);
-			return;
-		}
-		const pending = downloadTransformRequests.get(message.id);
-		if (!pending) return;
-		downloadTransformRequests.delete(message.id);
-		if (message.type === 'done') {
-			pending.resolve({ opfsName: message.opfsName, savedDirectly: message.savedDirectly, filename: message.filename, mimeType: message.mimeType });
-		} else if (message.type === 'error') {
-			const error = new Error(message.error) as Error & { opfsName?: string };
-			error.opfsName = message.opfsName;
-			pending.reject(error);
-		}
-	};
-	return downloadTransformWorker;
-}
-
-function runDownloadTransformWorker(request: DownloadTransformWorkerRequestInput): Promise<WorkerDownloadResult> {
-	const id = `download-${++archiveDownloadRequestId}`;
-	return new Promise((resolve, reject) => {
-		downloadTransformRequests.set(id, { resolve, reject });
-		getDownloadTransformWorker().postMessage({ ...request, id });
-	});
-}
-
 async function cleanupOpfsFile(opfsName: string | undefined): Promise<void> {
 	if (!opfsName) return;
 	await removeOpfsTempFile(opfsName);
@@ -462,11 +388,10 @@ async function startDirectoryArchiveDownload(format: 'tar' | 'zip'): Promise<voi
 	archiveDownloadError.value = '';
 	archiveDownloadProgress.value = null;
 	const filename = `${archiveBaseNameFromPath(props.filePath)}.${format}`;
-	const statusId = String(archiveDownloadRequestId + 1);
+	let downloadId: string | null = null;
 	try {
 		const saveTarget = await resolveSaveTarget(filename, archiveMimeType(format));
-		startDownloadStatus(statusId, filename);
-		const result = await runArchiveDownloadWorker({
+		const { id, promise } = runArchiveDownload({
 			mode: 'directory',
 			format,
 			bucketName: props.bucketName,
@@ -477,12 +402,20 @@ async function startDirectoryArchiveDownload(format: 'tar' | 'zip'): Promise<voi
 			filename,
 			fileHandle: saveTarget.kind === 'picker' ? saveTarget.fileHandle : undefined,
 		});
+		downloadId = id;
+		currentDownloadId = id;
+		setProgressCallback(id, (p) => { archiveDownloadProgress.value = p as ArchiveDownloadProgress; });
+		startDownloadStatus(id, filename);
+		const result = await promise;
+		removeProgressCallback(id);
+		currentDownloadId = null;
 		await downloadOpfsFile(result);
-		completeDownloadStatus(statusId);
+		completeDownloadStatus(id);
 		archiveDownloadProgress.value = null;
 	} catch (err) {
+		if (downloadId) { removeProgressCallback(downloadId); currentDownloadId = null; }
 		if (err instanceof DownloadCancelledError) {
-			cancelDownloadStatus(statusId);
+			if (downloadId) cancelDownloadStatus(downloadId);
 			archiveDownloadProgress.value = null;
 			return;
 		}
@@ -492,11 +425,10 @@ async function startDirectoryArchiveDownload(format: 'tar' | 'zip'): Promise<voi
 			return;
 		}
 		await cleanupOpfsFile((err as Error & { opfsName?: string }).opfsName);
-		downloadTransformWorker?.terminate();
-		downloadTransformWorker = null;
-		console.error('Directory file transform download failed', err, { fileId: props.fileId, filePath: props.filePath });
+		terminateArchiveDownloadWorker();
+		console.error('Directory archive download failed', err, { fileId: props.fileId, filePath: props.filePath });
 		const message = err instanceof Error ? err.message : String(err);
-		failDownloadStatus(statusId, message);
+		if (downloadId) failDownloadStatus(downloadId, message);
 		archiveDownloadError.value = message;
 	}
 }
@@ -506,11 +438,10 @@ async function startEntryArchiveDownload(entry: DisplayEntry): Promise<void> {
 	archiveDownloadError.value = '';
 	archiveDownloadProgress.value = null;
 	const filename = `${entry.name}.zip`;
-	const statusId = String(archiveDownloadRequestId + 1);
+	let downloadId: string | null = null;
 	try {
 		const saveTarget = await resolveSaveTarget(filename, archiveMimeType('zip'));
-		startDownloadStatus(statusId, filename);
-		const result = await runArchiveDownloadWorker({
+		const { id, promise } = runArchiveDownload({
 			mode: 'directory',
 			format: 'zip',
 			bucketName: props.bucketName,
@@ -521,12 +452,20 @@ async function startEntryArchiveDownload(entry: DisplayEntry): Promise<void> {
 			filename,
 			fileHandle: saveTarget.kind === 'picker' ? saveTarget.fileHandle : undefined,
 		});
+		downloadId = id;
+		currentDownloadId = id;
+		setProgressCallback(id, (p) => { archiveDownloadProgress.value = p as ArchiveDownloadProgress; });
+		startDownloadStatus(id, filename);
+		const result = await promise;
+		removeProgressCallback(id);
+		currentDownloadId = null;
 		await downloadOpfsFile(result);
-		completeDownloadStatus(statusId);
+		completeDownloadStatus(id);
 		archiveDownloadProgress.value = null;
 	} catch (err) {
+		if (downloadId) { removeProgressCallback(downloadId); currentDownloadId = null; }
 		if (err instanceof DownloadCancelledError) {
-			cancelDownloadStatus(statusId);
+			if (downloadId) cancelDownloadStatus(downloadId);
 			archiveDownloadProgress.value = null;
 			return;
 		}
@@ -536,11 +475,10 @@ async function startEntryArchiveDownload(entry: DisplayEntry): Promise<void> {
 			return;
 		}
 		await cleanupOpfsFile((err as Error & { opfsName?: string }).opfsName);
-		archiveDownloadWorker?.terminate();
-		archiveDownloadWorker = null;
+		terminateArchiveDownloadWorker();
 		console.error('Entry archive download failed', err, { entryPath: entry.fullPath });
 		const message = err instanceof Error ? err.message : String(err);
-		failDownloadStatus(statusId, message);
+		if (downloadId) failDownloadStatus(downloadId, message);
 		archiveDownloadError.value = message;
 	}
 }
@@ -550,11 +488,10 @@ async function startArchiveToZipDownload(): Promise<void> {
 	archiveDownloadProgress.value = null;
 	if (!props.fileId) return;
 	const filename = `${archiveBaseNameFromPath(props.filePath)}.zip`;
-	const statusId = String(archiveDownloadRequestId + 1);
+	let downloadId: string | null = null;
 	try {
 		const saveTarget = await resolveSaveTarget(filename, archiveMimeType('zip'), props.fileSize ?? undefined);
-		startDownloadStatus(statusId, filename);
-		const result = await runArchiveDownloadWorker({
+		const { id, promise } = runArchiveDownload({
 			mode: 'archive-to-zip',
 			fileId: props.fileId,
 			token: props.token,
@@ -564,12 +501,20 @@ async function startArchiveToZipDownload(): Promise<void> {
 			authHeaders: authHeaders(),
 			fileHandle: saveTarget.kind === 'picker' ? saveTarget.fileHandle : undefined,
 		});
+		downloadId = id;
+		currentDownloadId = id;
+		setProgressCallback(id, (p) => { archiveDownloadProgress.value = p as ArchiveDownloadProgress; });
+		startDownloadStatus(id, filename);
+		const result = await promise;
+		removeProgressCallback(id);
+		currentDownloadId = null;
 		await downloadOpfsFile(result);
-		completeDownloadStatus(statusId);
+		completeDownloadStatus(id);
 		archiveDownloadProgress.value = null;
 	} catch (err) {
+		if (downloadId) { removeProgressCallback(downloadId); currentDownloadId = null; }
 		if (err instanceof DownloadCancelledError) {
-			cancelDownloadStatus(statusId);
+			if (downloadId) cancelDownloadStatus(downloadId);
 			archiveDownloadProgress.value = null;
 			return;
 		}
@@ -579,11 +524,10 @@ async function startArchiveToZipDownload(): Promise<void> {
 			return;
 		}
 		await cleanupOpfsFile((err as Error & { opfsName?: string }).opfsName);
-		archiveDownloadWorker?.terminate();
-		archiveDownloadWorker = null;
+		terminateArchiveDownloadWorker();
 		console.error('Archive to ZIP download failed', err, { fileId: props.fileId, filePath: props.filePath });
 		const message = err instanceof Error ? err.message : String(err);
-		failDownloadStatus(statusId, message);
+		if (downloadId) failDownloadStatus(downloadId, message);
 		archiveDownloadError.value = message;
 	}
 }
@@ -625,14 +569,13 @@ async function startFullArchiveDownload(decompress: boolean): Promise<void> {
 	const baseName = archiveBaseNameFromPath(props.filePath);
 	const filename = `${baseName}${decompress ? '.tar' : '.tar.gz'}`;
 	const mimeType = decompress ? 'application/x-tar' : 'application/gzip';
-	const statusId = `download-${archiveDownloadRequestId + 1}`;
+	let downloadId: string | null = null;
 	try {
 		const saveTarget = await resolveSaveTarget(filename, mimeType, props.fileSize ?? undefined);
-		startDownloadStatus(statusId, filename);
 		const fileHandle = saveTarget.kind === 'picker' ? saveTarget.fileHandle : undefined;
 		// 暗号化アーカイブ: エントリー単位で復号してから tar / tar.gz を再構築する
 		if (props.isEncrypted && props.encryptionKey) {
-			const result = await runArchiveDownloadWorker({
+			const { id, promise } = runArchiveDownload({
 				mode: 'archive-decrypt',
 				fileId: props.fileId,
 				token: props.token,
@@ -643,12 +586,19 @@ async function startFullArchiveDownload(decompress: boolean): Promise<void> {
 				authHeaders: authHeaders(),
 				fileHandle,
 			});
+			downloadId = id;
+			currentDownloadId = id;
+			setProgressCallback(id, (p) => { archiveDownloadProgress.value = p as ArchiveDownloadProgress; });
+			startDownloadStatus(id, filename);
+			const result = await promise;
+			removeProgressCallback(id);
+			currentDownloadId = null;
 			await downloadOpfsFile(result);
-			completeDownloadStatus(statusId);
+			completeDownloadStatus(id);
 			archiveDownloadProgress.value = null;
 			return;
 		}
-		const result = await runDownloadTransformWorker({
+		const { id, promise } = runDownloadTransform({
 			mode: 'download',
 			url: downloadUrl.value,
 			filename,
@@ -657,12 +607,20 @@ async function startFullArchiveDownload(decompress: boolean): Promise<void> {
 			authHeaders: authHeaders(),
 			fileHandle,
 		});
+		downloadId = id;
+		currentDownloadId = id;
+		setProgressCallback(id, (p) => { archiveDownloadProgress.value = p as ArchiveDownloadProgress; });
+		startDownloadStatus(id, filename);
+		const result = await promise;
+		removeProgressCallback(id);
+		currentDownloadId = null;
 		await downloadOpfsFile(result);
-		completeDownloadStatus(statusId);
+		completeDownloadStatus(id);
 		archiveDownloadProgress.value = null;
 	} catch (err) {
+		if (downloadId) { removeProgressCallback(downloadId); currentDownloadId = null; }
 		if (err instanceof DownloadCancelledError) {
-			cancelDownloadStatus(statusId);
+			if (downloadId) cancelDownloadStatus(downloadId);
 			archiveDownloadProgress.value = null;
 			return;
 		}
@@ -672,11 +630,11 @@ async function startFullArchiveDownload(decompress: boolean): Promise<void> {
 			return;
 		}
 		await cleanupOpfsFile((err as Error & { opfsName?: string }).opfsName);
-		archiveDownloadWorker?.terminate();
-		archiveDownloadWorker = null;
+		terminateArchiveDownloadWorker();
+		terminateDownloadTransformWorker();
 		console.error('Full archive download failed', err, { fileId: props.fileId, filePath: props.filePath, decompress });
 		const message = err instanceof Error ? err.message : String(err);
-		failDownloadStatus(statusId, message);
+		if (downloadId) failDownloadStatus(downloadId, message);
 		archiveDownloadError.value = message;
 	}
 }
@@ -1261,10 +1219,7 @@ onMounted(() => {
 	loadBucketId();
 });
 onBeforeUnmount(() => {
-	archiveDownloadWorker?.terminate();
-	archiveDownloadWorker = null;
-	downloadTransformWorker?.terminate();
-	downloadTransformWorker = null;
+	if (currentDownloadId) removeProgressCallback(currentDownloadId);
 	revokeAllDecryptedPreviews();
 });
 watch(() => [props.bucketName, props.filePath], () => { load(); loadBucketId(); });

@@ -2,10 +2,11 @@
 import { ref, computed, onBeforeUnmount, watch } from 'vue';
 import { PackageOpen, ShieldCheck } from '@lucide/vue';
 import { authHeaders } from '@/store/auth';
-import type { DownloadTransformWorkerMessage, DownloadTransformWorkerRequestInput, DownloadTransformProgress } from '@/workers/download-transform.worker';
+import type { DownloadTransformProgress } from '@/workers/download-transform.worker';
 import { getOpfsTempFile, removeOpfsTempFile } from '@/workers/opfs-temp';
-import { cancelDownloadStatus, completeDownloadStatus, failDownloadStatus, startDownloadStatus, updateDownloadStatus } from '@/store/download-status';
+import { cancelDownloadStatus, completeDownloadStatus, failDownloadStatus, startDownloadStatus } from '@/store/download-status';
 import { registerDownloadedOpfsFile } from '@/store/download-cleanup';
+import { runDownloadTransform, setProgressCallback, removeProgressCallback, terminateDownloadTransformWorker } from '@/store/download-worker';
 import { DownloadCancelledError, StorageQuotaExceededError, resolveSaveTarget, type WorkerDownloadResult } from '@/utils/save-file';
 import MarkdownPreview from '@/components/MarkdownPreview.vue';
 import RawTextPreview from '@/components/RawTextPreview.vue';
@@ -100,12 +101,8 @@ const downloadProgress = ref<DownloadTransformProgress | null>(null);
 const quotaDialog = ref<{ requiredBytes: number; availableBytes: number } | null>(null);
 const exifItems = ref<ExifDisplayItem[]>([]);
 const previewAdCompleted = ref(false);
-let downloadTransformWorker: Worker | null = null;
-let downloadTransformRequestId = 0;
-const downloadTransformRequests = new Map<string, {
-	resolve: (value: WorkerDownloadResult) => void;
-	reject: (error: Error & { opfsName?: string }) => void;
-}>();
+/** 現在進行中のダウンロード ID（unmount 時に進捗コールバック解除用） */
+let currentDownloadId: string | null = null;
 
 const canShowPreview = computed(() => props.showAds === false || previewAdCompleted.value);
 
@@ -164,38 +161,6 @@ watch([needsDecryptedPreview, () => props.encryptionKey, downloadUrl], () => {
 	void refreshDecryptedPreview();
 }, { immediate: true });
 
-function getDownloadTransformWorker(): Worker {
-	if (downloadTransformWorker) return downloadTransformWorker;
-	downloadTransformWorker = new Worker(new URL('../workers/download-transform.worker.ts', import.meta.url), { type: 'module' });
-	downloadTransformWorker.onmessage = (event: MessageEvent<DownloadTransformWorkerMessage>) => {
-		const message = event.data;
-		if (message.type === 'progress') {
-			downloadProgress.value = message.progress;
-			updateDownloadStatus(message.id, message.progress);
-			return;
-		}
-		const pending = downloadTransformRequests.get(message.id);
-		if (!pending) return;
-		downloadTransformRequests.delete(message.id);
-		if (message.type === 'done') {
-			pending.resolve({ opfsName: message.opfsName, savedDirectly: message.savedDirectly, filename: message.filename, mimeType: message.mimeType });
-		} else if (message.type === 'error') {
-			const error = new Error(message.error) as Error & { opfsName?: string };
-			error.opfsName = message.opfsName;
-			pending.reject(error);
-		}
-	};
-	return downloadTransformWorker;
-}
-
-function runDownloadTransformWorker(request: DownloadTransformWorkerRequestInput): Promise<WorkerDownloadResult> {
-	const id = String(++downloadTransformRequestId);
-	return new Promise((resolve, reject) => {
-		downloadTransformRequests.set(id, { resolve, reject });
-		getDownloadTransformWorker().postMessage({ ...request, id });
-	});
-}
-
 async function cleanupTempFile(opfsName: string | undefined): Promise<void> {
 	if (!opfsName) return;
 	await removeOpfsTempFile(opfsName);
@@ -246,12 +211,11 @@ function completePreviewAd(): void {
 async function startDecompressedDownload(): Promise<void> {
 	downloadError.value = '';
 	downloadProgress.value = null;
-	const statusId = String(downloadTransformRequestId + 1);
 	const filename = decompressedFilename(props.filePath);
+	let downloadId: string | null = null;
 	try {
 		const saveTarget = await resolveSaveTarget(filename, 'application/octet-stream', props.fileSize ?? undefined);
-		startDownloadStatus(statusId, filename);
-		const result = await runDownloadTransformWorker({
+		const { id, promise } = runDownloadTransform({
 			mode: 'download',
 			url: downloadUrl.value,
 			filename,
@@ -261,12 +225,20 @@ async function startDecompressedDownload(): Promise<void> {
 			authHeaders: authHeaders(),
 			fileHandle: saveTarget.kind === 'picker' ? saveTarget.fileHandle : undefined,
 		});
+		downloadId = id;
+		currentDownloadId = id;
+		setProgressCallback(id, (p) => { downloadProgress.value = p as DownloadTransformProgress; });
+		startDownloadStatus(id, filename);
+		const result = await promise;
+		removeProgressCallback(id);
+		currentDownloadId = null;
 		await downloadOpfsFile(result);
-		completeDownloadStatus(statusId);
+		completeDownloadStatus(id);
 		downloadProgress.value = null;
 	} catch (err) {
+		if (downloadId) { removeProgressCallback(downloadId); currentDownloadId = null; }
 		if (err instanceof DownloadCancelledError) {
-			cancelDownloadStatus(statusId);
+			if (downloadId) cancelDownloadStatus(downloadId);
 			downloadProgress.value = null;
 			return;
 		}
@@ -276,11 +248,10 @@ async function startDecompressedDownload(): Promise<void> {
 			return;
 		}
 		await cleanupTempFile((err as Error & { opfsName?: string }).opfsName);
-		downloadTransformWorker?.terminate();
-		downloadTransformWorker = null;
+		terminateDownloadTransformWorker();
 		console.error('Transformed file download failed', err, { fileId: props.fileId, filePath: props.filePath });
 		const message = err instanceof Error ? err.message : String(err);
-		failDownloadStatus(statusId, message);
+		if (downloadId) failDownloadStatus(downloadId, message);
 		downloadError.value = message;
 	}
 }
@@ -289,12 +260,11 @@ async function startDecompressedDownload(): Promise<void> {
 async function startEncryptedDownload(): Promise<void> {
 	downloadError.value = '';
 	downloadProgress.value = null;
-	const statusId = String(downloadTransformRequestId + 1);
 	const filename = downloadFilename.value;
+	let downloadId: string | null = null;
 	try {
 		const saveTarget = await resolveSaveTarget(filename, props.mimeType ?? 'application/octet-stream', props.fileSize ?? undefined);
-		startDownloadStatus(statusId, filename);
-		const result = await runDownloadTransformWorker({
+		const { id, promise } = runDownloadTransform({
 			mode: 'download',
 			url: downloadUrl.value,
 			filename,
@@ -304,12 +274,20 @@ async function startEncryptedDownload(): Promise<void> {
 			authHeaders: authHeaders(),
 			fileHandle: saveTarget.kind === 'picker' ? saveTarget.fileHandle : undefined,
 		});
+		downloadId = id;
+		currentDownloadId = id;
+		setProgressCallback(id, (p) => { downloadProgress.value = p as DownloadTransformProgress; });
+		startDownloadStatus(id, filename);
+		const result = await promise;
+		removeProgressCallback(id);
+		currentDownloadId = null;
 		await downloadOpfsFile(result);
-		completeDownloadStatus(statusId);
+		completeDownloadStatus(id);
 		downloadProgress.value = null;
 	} catch (err) {
+		if (downloadId) { removeProgressCallback(downloadId); currentDownloadId = null; }
 		if (err instanceof DownloadCancelledError) {
-			cancelDownloadStatus(statusId);
+			if (downloadId) cancelDownloadStatus(downloadId);
 			downloadProgress.value = null;
 			return;
 		}
@@ -319,11 +297,10 @@ async function startEncryptedDownload(): Promise<void> {
 			return;
 		}
 		await cleanupTempFile((err as Error & { opfsName?: string }).opfsName);
-		downloadTransformWorker?.terminate();
-		downloadTransformWorker = null;
+		terminateDownloadTransformWorker();
 		console.error('Encrypted file download failed', err, { fileId: props.fileId, filePath: props.filePath });
 		const message = err instanceof Error ? err.message : String(err);
-		failDownloadStatus(statusId, message);
+		if (downloadId) failDownloadStatus(downloadId, message);
 		downloadError.value = message;
 	}
 }
@@ -363,8 +340,7 @@ function confirmEncryptedDownload(): void {
 }
 
 onBeforeUnmount(() => {
-	downloadTransformWorker?.terminate();
-	downloadTransformWorker = null;
+	if (currentDownloadId) removeProgressCallback(currentDownloadId);
 	revokeDecryptedPreviewUrl();
 });
 watch([isImage, previewUrl], () => {
