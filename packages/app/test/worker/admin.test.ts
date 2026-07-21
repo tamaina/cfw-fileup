@@ -957,7 +957,7 @@ describe('Crypto payment administration', () => {
 
 	test('creating a replacement plan price uses immutable price rows as history', async () => {
 		const { adminToken } = await setupAdminAndUser();
-		const { plan, asset } = await createCryptoOffer(adminToken);
+		const { plan, asset, price } = await createCryptoOffer(adminToken);
 		const expiresAt = Date.now() + 1_000;
 
 		const expireRes = await app.request('/api/admin/expire-payment-asset-plan-price', {
@@ -1566,7 +1566,7 @@ describe('Crypto payment administration', () => {
 
 	test('payment offers preview same-plan extension and upgrade discount', async () => {
 		const { adminToken, userToken, userId } = await setupAdminAndUser();
-		const { asset, deployment, price } = await createCryptoOffer(adminToken);
+		const { plan, asset, deployment, price } = await createCryptoOffer(adminToken);
 		await enableCryptoPayments();
 		const wallet = await createLinkedWallet(userId);
 		const assignmentExpiresAt = Date.now() + 30 * 86_400_000;
@@ -1784,7 +1784,7 @@ describe('Crypto payment administration', () => {
 
 	test('payment offers schedule lower sortOrder plan after current higher plan expires', async () => {
 		const { adminToken, userToken, userId } = await setupAdminAndUser();
-		const { plan, asset, deployment } = await createCryptoOffer(adminToken);
+		const { plan, asset, deployment, price } = await createCryptoOffer(adminToken);
 		await enableCryptoPayments();
 		const wallet = await createLinkedWallet(userId);
 
@@ -2039,7 +2039,7 @@ describe('Crypto payment administration', () => {
 
 	test('disabled plans remain assignable but hidden from user payment offers', async () => {
 		const { adminToken, userToken, userId } = await setupAdminAndUser();
-		const { asset, deployment, price } = await createCryptoOffer(adminToken);
+		const { plan, asset, deployment, price } = await createCryptoOffer(adminToken);
 		await enableCryptoPayments();
 		const wallet = await createLinkedWallet(userId);
 
