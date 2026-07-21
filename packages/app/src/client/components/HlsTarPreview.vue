@@ -6,6 +6,7 @@ import HlsVideoPreview from '@/components/HlsVideoPreview.vue';
 import AdSlot from '@/components/AdSlot.vue';
 import PreviewInterstitialAd from '@/components/PreviewInterstitialAd.vue';
 import FileActionBar from '@/components/FileActionBar.vue';
+import StorageQuotaDialog from '@/components/StorageQuotaDialog.vue';
 import { authHeaders } from '@/store/auth';
 import { archiveEntryStreamUrl } from '@/utils/archive-entry-url';
 import { hlsPosterEntryPath, parseHlsAttributeList, parseHlsSessionData } from '../../shared/hls';
@@ -13,7 +14,7 @@ import type { DownloadTransformWorkerMessage, DownloadTransformWorkerRequestInpu
 import { getOpfsTempFile, removeOpfsTempFile } from '@/workers/opfs-temp';
 import { cancelDownloadStatus, completeDownloadStatus, failDownloadStatus, startDownloadStatus, updateDownloadStatus } from '@/store/download-status';
 import { registerDownloadedOpfsFile } from '@/store/download-cleanup';
-import { DownloadCancelledError, resolveSaveTarget, type WorkerDownloadResult } from '@/utils/save-file';
+import { DownloadCancelledError, StorageQuotaExceededError, resolveSaveTarget, type WorkerDownloadResult } from '@/utils/save-file';
 
 const props = defineProps<{
 	fileId: string;
@@ -44,6 +45,7 @@ const downloadProgress = ref<DownloadTransformProgress | null>(null);
 const variants = ref<HlsVariant[]>([]);
 const selectedVariantUrl = ref('');
 const downloadDialogOpen = ref(false);
+const quotaDialog = ref<{ requiredBytes: number; availableBytes: number } | null>(null);
 let downloadTransformWorker: Worker | null = null;
 let downloadTransformRequestId = 0;
 const downloadTransformRequests = new Map<string, {
@@ -147,6 +149,11 @@ async function downloadAsMp4(): Promise<void> {
 	} catch (err) {
 		if (err instanceof DownloadCancelledError) {
 			cancelDownloadStatus(statusId);
+			downloadProgress.value = null;
+			return;
+		}
+		if (err instanceof StorageQuotaExceededError) {
+			quotaDialog.value = { requiredBytes: err.requiredBytes, availableBytes: err.availableBytes };
 			downloadProgress.value = null;
 			return;
 		}
@@ -330,6 +337,13 @@ onBeforeUnmount(() => {
     </div>
   </section>
   <div v-if="downloadError" class="alert alert-error mt-3">{{ downloadError }}</div>
+
+  <StorageQuotaDialog
+    :open="quotaDialog != null"
+    :required-bytes="quotaDialog?.requiredBytes ?? 0"
+    :available-bytes="quotaDialog?.availableBytes ?? 0"
+    @update:open="quotaDialog = null"
+  />
 </template>
 
 <style module lang="scss">

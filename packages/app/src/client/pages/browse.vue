@@ -972,6 +972,7 @@ onUnmounted(revokeInnerObjectUrl);
           :ownerCanDisableFileAds="ownerCanDisableFileAds"
           :isEncrypted="isEncrypted"
           :encryptionKey="encryptionKey ?? undefined"
+          :fileSize="innerMeta?.size ?? null"
           @download="downloadInnerEntry"
           @add-encryption-key="addEncryptionKey"
         />
@@ -1000,7 +1001,7 @@ onUnmounted(revokeInnerObjectUrl);
             :show-ads="true"
             @update:is-moderation-forced-private="fileIsModerationForcedPrivateChanged"
           />
-	          <BrowseDirectory v-else-if="isTargz || isTar" :bucketName="bucketName" :filePath="baseFilePath" :isTargz="isTargz" :isTar="isTar" :entryPath="entryPath ?? ''" :token="autoToken ?? undefined" :fileId="fileId ?? undefined" :ownerCanDisableFileAds="ownerCanDisableFileAds" :isEncrypted="isEncrypted" :encryptionKey="encryptionKey ?? undefined" @add-encryption-key="addEncryptionKey" />
+	          <BrowseDirectory v-else-if="isTargz || isTar" :bucketName="bucketName" :filePath="baseFilePath" :isTargz="isTargz" :isTar="isTar" :entryPath="entryPath ?? ''" :token="autoToken ?? undefined" :fileId="fileId ?? undefined" :ownerCanDisableFileAds="ownerCanDisableFileAds" :isEncrypted="isEncrypted" :encryptionKey="encryptionKey ?? undefined" :fileSize="fileSize" @add-encryption-key="addEncryptionKey" />
 	          <BrowseFile
             v-else
             :bucketName="bucketName"
@@ -1014,6 +1015,7 @@ onUnmounted(revokeInnerObjectUrl);
 	            :showAds="true"
 	            :isEncrypted="isEncrypted"
 	            :encryptionKey="encryptionKey ?? undefined"
+	            :fileSize="fileSize"
 	            @update:isModerationForcedPrivate="fileIsModerationForcedPrivateChanged"
 	            @add-encryption-key="addEncryptionKey"
           />
@@ -1073,7 +1075,7 @@ onUnmounted(revokeInnerObjectUrl);
 
       <!-- ログインなし or ディレクトリ or (非公開 + トークンあり): タブなし -->
       <template v-else>
-	        <BrowseDirectory v-if="isDirectory || isTargz || isTar" :bucketName="bucketName" :filePath="baseFilePath" :isTargz="isTargz" :isTar="isTar" :entryPath="entryPath ?? ''" :token="autoToken ?? undefined" :fileId="fileId ?? undefined" :ownerCanDisableFileAds="ownerCanDisableFileAds" :isEncrypted="isEncrypted" :encryptionKey="encryptionKey ?? undefined" @add-encryption-key="addEncryptionKey" />
+	        <BrowseDirectory v-if="isDirectory || isTargz || isTar" :bucketName="bucketName" :filePath="baseFilePath" :isTargz="isTargz" :isTar="isTar" :entryPath="entryPath ?? ''" :token="autoToken ?? undefined" :fileId="fileId ?? undefined" :ownerCanDisableFileAds="ownerCanDisableFileAds" :isEncrypted="isEncrypted" :encryptionKey="encryptionKey ?? undefined" :fileSize="fileSize" @add-encryption-key="addEncryptionKey" />
         <BrowseFile
           v-else-if="!isDirectory"
           :bucketName="bucketName"
@@ -1087,6 +1089,7 @@ onUnmounted(revokeInnerObjectUrl);
 	          :showAds="true"
 	          :isEncrypted="isEncrypted"
 	          :encryptionKey="encryptionKey ?? undefined"
+	          :fileSize="fileSize"
 	          @update:isModerationForcedPrivate="fileIsModerationForcedPrivateChanged"
 	          @add-encryption-key="addEncryptionKey"
         />

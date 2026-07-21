@@ -28,6 +28,50 @@ export class DownloadCancelledError extends Error {
 	}
 }
 
+/** OPFS のストレージクォータが足りないことを示すエラー。 */
+export class StorageQuotaExceededError extends Error {
+	readonly requiredBytes: number;
+	readonly availableBytes: number;
+
+	constructor(requiredBytes: number, availableBytes: number) {
+		super('Storage quota exceeded');
+		this.name = 'StorageQuotaExceededError';
+		this.requiredBytes = requiredBytes;
+		this.availableBytes = availableBytes;
+	}
+}
+
+/** 1 GiB。このサイズ以上の OPFS ダウンロード前に永続化を要求する。 */
+const PERSIST_THRESHOLD_BYTES = 1024 * 1024 * 1024;
+
+/**
+ * ストレージの永続化を要求する。
+ * 永続化されると、ブラウザがOPFSなどのストレージを多く確保するようになり、自動削除しにくくなる。
+ */
+export async function requestPersistentStorage(): Promise<boolean> {
+	if (!('storage' in navigator) || typeof navigator.storage.persist !== 'function') return false;
+	try {
+		return await navigator.storage.persist();
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * OPFS の空き容量がダウンロードに必要なサイズを満たすか確認する。
+ * 満たさない場合は {@link StorageQuotaExceededError} をスローする。
+ */
+export async function ensureOpfsQuota(requiredBytes: number): Promise<void> {
+	if (!('storage' in navigator) || typeof navigator.storage.estimate !== 'function') return;
+	const estimate = await navigator.storage.estimate();
+	const quota = estimate.quota ?? 0;
+	const usage = estimate.usage ?? 0;
+	const available = quota - usage;
+	if (available < requiredBytes) {
+		throw new StorageQuotaExceededError(requiredBytes, available);
+	}
+}
+
 function extensionFromFilename(filename: string): string {
 	const match = filename.match(/(\.[^./]+)$/);
 	return match?.[1] ?? '';
@@ -78,13 +122,21 @@ export type SaveTarget =
  * - `showSaveFilePicker` 対応時はダイアログを表示し、選ばれたハンドルを返す（OPFS・クォータを回避）。
  * - ユーザーがダイアログをキャンセルした場合は {@link DownloadCancelledError} をスローする（ダウンロード中止）。
  * - 非対応またはキャンセル以外の失敗時は OPFS へフォールバックする。
+ * - OPFS フォールバック時、`requiredBytes` が指定されていれば空き容量を確認し、
+ *   不足していれば {@link StorageQuotaExceededError} をスローする。
  * - OPFS も利用できない場合はエラーをスローする。
  */
-export async function resolveSaveTarget(filename: string, mimeType: string): Promise<SaveTarget> {
+export async function resolveSaveTarget(filename: string, mimeType: string, requiredBytes?: number): Promise<SaveTarget> {
 	const fileHandle = await pickSaveFileHandle(filename, mimeType);
 	if (fileHandle) return { kind: 'picker', fileHandle };
 	if (!('storage' in navigator) || !navigator.storage.getDirectory) {
 		throw new Error('このブラウザはファイルの直接保存および OPFS に対応していないため、ダウンロードできません。');
+	}
+	if (!requiredBytes || requiredBytes >= PERSIST_THRESHOLD_BYTES) {
+		await requestPersistentStorage();
+	}
+	if (requiredBytes != null) {
+		await ensureOpfsQuota(requiredBytes);
 	}
 	return { kind: 'opfs' };
 }

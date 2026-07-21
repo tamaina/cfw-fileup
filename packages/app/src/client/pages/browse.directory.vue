@@ -23,10 +23,11 @@ import type { DownloadTransformWorkerMessage, DownloadTransformWorkerRequestInpu
 import { getOpfsTempFile, removeOpfsTempFile } from '@/workers/opfs-temp';
 import { cancelDownloadStatus, completeDownloadStatus, failDownloadStatus, startDownloadStatus, updateDownloadStatus } from '@/store/download-status';
 import { registerDownloadedOpfsFile } from '@/store/download-cleanup';
-import { DownloadCancelledError, resolveSaveTarget, type WorkerDownloadResult } from '@/utils/save-file';
+import { DownloadCancelledError, StorageQuotaExceededError, resolveSaveTarget, type WorkerDownloadResult } from '@/utils/save-file';
 import { formatBytes } from '@/utils/byte-size';
 import { archiveEntryDownloadUrl } from '@/utils/archive-entry-url';
 import { decryptBlob, importAesCtrKey, multibaseToKey } from '../../shared/encryption';
+import StorageQuotaDialog from '@/components/StorageQuotaDialog.vue';
 import type { DistributiveOmit } from '../../shared/type-hack';
 import { HLS_POSTER_NAME, HLS_TAR_MIME } from '../../shared/hls';
 
@@ -43,6 +44,8 @@ const props = defineProps<{
 	encryptionKey?: string;
 	/** ファイル本体（アーカイブ）がE2E暗号化されているかどうか */
 	isEncrypted?: boolean;
+	/** アーカイブ全体のファイルサイズ（バイト）。OPFS クォータ事前チェックに使う */
+	fileSize?: number | null;
 }>();
 
 const emit = defineEmits<{
@@ -90,6 +93,7 @@ const directoryNextCursor = ref<string | null>(null);
 const directoryHasMore = ref(false);
 const isDragOver = ref(false);
 const deleteError = ref('');
+const quotaDialog = ref<{ requiredBytes: number; availableBytes: number } | null>(null);
 
 type RawArchiveEntry = { id: string; path: string; mimeType: string; size?: number };
 type DirectoryEntry = {
@@ -482,6 +486,11 @@ async function startDirectoryArchiveDownload(format: 'tar' | 'zip'): Promise<voi
 			archiveDownloadProgress.value = null;
 			return;
 		}
+		if (err instanceof StorageQuotaExceededError) {
+			quotaDialog.value = { requiredBytes: err.requiredBytes, availableBytes: err.availableBytes };
+			archiveDownloadProgress.value = null;
+			return;
+		}
 		await cleanupOpfsFile((err as Error & { opfsName?: string }).opfsName);
 		downloadTransformWorker?.terminate();
 		downloadTransformWorker = null;
@@ -521,6 +530,11 @@ async function startEntryArchiveDownload(entry: DisplayEntry): Promise<void> {
 			archiveDownloadProgress.value = null;
 			return;
 		}
+		if (err instanceof StorageQuotaExceededError) {
+			quotaDialog.value = { requiredBytes: err.requiredBytes, availableBytes: err.availableBytes };
+			archiveDownloadProgress.value = null;
+			return;
+		}
 		await cleanupOpfsFile((err as Error & { opfsName?: string }).opfsName);
 		archiveDownloadWorker?.terminate();
 		archiveDownloadWorker = null;
@@ -538,7 +552,7 @@ async function startArchiveToZipDownload(): Promise<void> {
 	const filename = `${archiveBaseNameFromPath(props.filePath)}.zip`;
 	const statusId = String(archiveDownloadRequestId + 1);
 	try {
-		const saveTarget = await resolveSaveTarget(filename, archiveMimeType('zip'));
+		const saveTarget = await resolveSaveTarget(filename, archiveMimeType('zip'), props.fileSize ?? undefined);
 		startDownloadStatus(statusId, filename);
 		const result = await runArchiveDownloadWorker({
 			mode: 'archive-to-zip',
@@ -556,6 +570,11 @@ async function startArchiveToZipDownload(): Promise<void> {
 	} catch (err) {
 		if (err instanceof DownloadCancelledError) {
 			cancelDownloadStatus(statusId);
+			archiveDownloadProgress.value = null;
+			return;
+		}
+		if (err instanceof StorageQuotaExceededError) {
+			quotaDialog.value = { requiredBytes: err.requiredBytes, availableBytes: err.availableBytes };
 			archiveDownloadProgress.value = null;
 			return;
 		}
@@ -608,7 +627,7 @@ async function startFullArchiveDownload(decompress: boolean): Promise<void> {
 	const mimeType = decompress ? 'application/x-tar' : 'application/gzip';
 	const statusId = `download-${archiveDownloadRequestId + 1}`;
 	try {
-		const saveTarget = await resolveSaveTarget(filename, mimeType);
+		const saveTarget = await resolveSaveTarget(filename, mimeType, props.fileSize ?? undefined);
 		startDownloadStatus(statusId, filename);
 		const fileHandle = saveTarget.kind === 'picker' ? saveTarget.fileHandle : undefined;
 		// 暗号化アーカイブ: エントリー単位で復号してから tar / tar.gz を再構築する
@@ -644,6 +663,11 @@ async function startFullArchiveDownload(decompress: boolean): Promise<void> {
 	} catch (err) {
 		if (err instanceof DownloadCancelledError) {
 			cancelDownloadStatus(statusId);
+			archiveDownloadProgress.value = null;
+			return;
+		}
+		if (err instanceof StorageQuotaExceededError) {
+			quotaDialog.value = { requiredBytes: err.requiredBytes, availableBytes: err.availableBytes };
 			archiveDownloadProgress.value = null;
 			return;
 		}
@@ -1866,6 +1890,13 @@ watch([isPartiallySelected, isAllSelected], async () => {
         </form>
       </AlertDialog.Content>
     </AlertDialog.Root>
+
+    <StorageQuotaDialog
+      :open="quotaDialog != null"
+      :required-bytes="quotaDialog?.requiredBytes ?? 0"
+      :available-bytes="quotaDialog?.availableBytes ?? 0"
+      @update:open="quotaDialog = null"
+    />
   </div>
 </template>
 

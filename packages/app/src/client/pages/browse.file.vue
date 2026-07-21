@@ -6,7 +6,7 @@ import type { DownloadTransformWorkerMessage, DownloadTransformWorkerRequestInpu
 import { getOpfsTempFile, removeOpfsTempFile } from '@/workers/opfs-temp';
 import { cancelDownloadStatus, completeDownloadStatus, failDownloadStatus, startDownloadStatus, updateDownloadStatus } from '@/store/download-status';
 import { registerDownloadedOpfsFile } from '@/store/download-cleanup';
-import { DownloadCancelledError, resolveSaveTarget, type WorkerDownloadResult } from '@/utils/save-file';
+import { DownloadCancelledError, StorageQuotaExceededError, resolveSaveTarget, type WorkerDownloadResult } from '@/utils/save-file';
 import MarkdownPreview from '@/components/MarkdownPreview.vue';
 import RawTextPreview from '@/components/RawTextPreview.vue';
 import JsonPreview from '@/components/JsonPreview.vue';
@@ -14,6 +14,7 @@ import HlsVideoPreview from '@/components/HlsVideoPreview.vue';
 import PreviewInterstitialAd from '@/components/PreviewInterstitialAd.vue';
 import FileActionBar from '@/components/FileActionBar.vue';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
+import StorageQuotaDialog from '@/components/StorageQuotaDialog.vue';
 import { parseExifDisplayItems, type ExifDisplayItem } from '@/utils/exif';
 import { AES_CTR_IV_LENGTH, decryptBlob, importAesCtrKey, multibaseToKey } from '../../shared/encryption';
 
@@ -43,6 +44,8 @@ const props = withDefaults(defineProps<{
 	isEncrypted?: boolean;
 	/** 暗号化キー（multibase形式）。指定されるとダウンロード時に復号する */
 	encryptionKey?: string;
+	/** ファイルサイズ（バイト）。OPFS クォータ事前チェックに使う */
+	fileSize?: number | null;
 }>(), {
 	showAds: true,
 });
@@ -94,6 +97,7 @@ const isTextLike = computed(() => {
 const downloadError = ref('');
 const visibleDownloadError = computed(() => props.downloadErrorOverride || downloadError.value);
 const downloadProgress = ref<DownloadTransformProgress | null>(null);
+const quotaDialog = ref<{ requiredBytes: number; availableBytes: number } | null>(null);
 const exifItems = ref<ExifDisplayItem[]>([]);
 const previewAdCompleted = ref(false);
 let downloadTransformWorker: Worker | null = null;
@@ -245,7 +249,7 @@ async function startDecompressedDownload(): Promise<void> {
 	const statusId = String(downloadTransformRequestId + 1);
 	const filename = decompressedFilename(props.filePath);
 	try {
-		const saveTarget = await resolveSaveTarget(filename, 'application/octet-stream');
+		const saveTarget = await resolveSaveTarget(filename, 'application/octet-stream', props.fileSize ?? undefined);
 		startDownloadStatus(statusId, filename);
 		const result = await runDownloadTransformWorker({
 			mode: 'download',
@@ -266,6 +270,11 @@ async function startDecompressedDownload(): Promise<void> {
 			downloadProgress.value = null;
 			return;
 		}
+		if (err instanceof StorageQuotaExceededError) {
+			quotaDialog.value = { requiredBytes: err.requiredBytes, availableBytes: err.availableBytes };
+			downloadProgress.value = null;
+			return;
+		}
 		await cleanupTempFile((err as Error & { opfsName?: string }).opfsName);
 		downloadTransformWorker?.terminate();
 		downloadTransformWorker = null;
@@ -283,7 +292,7 @@ async function startEncryptedDownload(): Promise<void> {
 	const statusId = String(downloadTransformRequestId + 1);
 	const filename = downloadFilename.value;
 	try {
-		const saveTarget = await resolveSaveTarget(filename, props.mimeType ?? 'application/octet-stream');
+		const saveTarget = await resolveSaveTarget(filename, props.mimeType ?? 'application/octet-stream', props.fileSize ?? undefined);
 		startDownloadStatus(statusId, filename);
 		const result = await runDownloadTransformWorker({
 			mode: 'download',
@@ -301,6 +310,11 @@ async function startEncryptedDownload(): Promise<void> {
 	} catch (err) {
 		if (err instanceof DownloadCancelledError) {
 			cancelDownloadStatus(statusId);
+			downloadProgress.value = null;
+			return;
+		}
+		if (err instanceof StorageQuotaExceededError) {
+			quotaDialog.value = { requiredBytes: err.requiredBytes, availableBytes: err.availableBytes };
 			downloadProgress.value = null;
 			return;
 		}
@@ -437,6 +451,12 @@ watch(canShowPreview, () => {
       confirm-label="ダウンロード"
       cancel-label="キャンセル"
       @confirm="confirmEncryptedDownload"
+    />
+    <StorageQuotaDialog
+      :open="quotaDialog != null"
+      :required-bytes="quotaDialog?.requiredBytes ?? 0"
+      :available-bytes="quotaDialog?.availableBytes ?? 0"
+      @update:open="quotaDialog = null"
     />
   </div>
 </template>
