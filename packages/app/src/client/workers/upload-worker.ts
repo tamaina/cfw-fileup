@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 
-import { BgzfTarArchiver, type ArchiveProgress, type TarGzIndex, type TarIndex } from 'bgzf';
+import { BgzfTarArchiver, detectMimeType, type ArchiveProgress, type TarGzIndex, type TarIndex } from 'bgzf';
 import type { FileEntry } from 'bgzf';
 import { createTarArchive } from '../utils/tar-archive';
 import {
@@ -754,6 +754,8 @@ async function* encryptedEntriesAsFileEntries(queue: UploadEntryQueue, key: Cryp
 		if (!entry) break;
 		try {
 			const file = await readResolvedEntryFile(entry);
+			// Detect MIME type from the plaintext file before encryption
+			const originalMimeType = await detectMimeType(entry.path, file);
 			const iv = generateIv();
 			// Stream through the encrypt transform to avoid holding both plaintext
 			// and ciphertext in memory simultaneously (important for large files).
@@ -762,6 +764,7 @@ async function* encryptedEntriesAsFileEntries(queue: UploadEntryQueue, key: Cryp
 			yield {
 				path: entry.path,
 				file: new File([encryptedBlob], entry.path, { type: 'application/octet-stream', lastModified: file.lastModified }),
+				mimeType: originalMimeType,
 			};
 		} finally {
 			queue.markConsumed(entry);

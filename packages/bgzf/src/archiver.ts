@@ -95,6 +95,17 @@ function refineMagicMimeType(path: string, magicMimeType: string | undefined): s
 	return magicMimeType;
 }
 
+/**
+ * Detect the MIME type of a file using magic bytes, extension, and file.type fallback.
+ * Useful for determining the original MIME type before encryption.
+ */
+export async function detectMimeType(path: string, file: File): Promise<string> {
+	const { filetypemime } = await import('magic-bytes.js');
+	const bytes = await readFirstBytes(file.stream(), 4100);
+	const mimes = filetypemime(bytes);
+	return refineMagicMimeType(path, mimes[0]) ?? inferMimeTypeByExtension(path) ?? (file.type || 'application/octet-stream');
+}
+
 class TarArchiverBase<TIdx> {
 	readonly stream: ReadableStream<Uint8Array<ArrayBuffer>>;
 	readonly index: Promise<TIdx[]>;
@@ -123,16 +134,22 @@ class TarArchiverBase<TIdx> {
 	}
 
 	protected static async prepareEntry(
-		{ path, file }: FileEntry,
+		{ path, file, mimeType: explicitMimeType }: FileEntry,
 		filetypemime: MagicBytesModule['filetypemime'],
 		now = Date.now(),
 	): Promise<PreparedEntry> {
-		const bytes = await readFirstBytes(file.stream(), 4100);
-		const mimes = filetypemime(bytes);
+		let mimeType: string;
+		if (explicitMimeType) {
+			mimeType = explicitMimeType;
+		} else {
+			const bytes = await readFirstBytes(file.stream(), 4100);
+			const mimes = filetypemime(bytes);
+			mimeType = refineMagicMimeType(path, mimes[0]) ?? inferMimeTypeByExtension(path) ?? (file.type || 'application/octet-stream');
+		}
 		return {
 			path,
 			file,
-			mimeType: refineMagicMimeType(path, mimes[0]) ?? inferMimeTypeByExtension(path) ?? (file.type || 'application/octet-stream'),
+			mimeType,
 			mtime: file.lastModified || now,
 		};
 	}

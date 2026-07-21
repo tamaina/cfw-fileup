@@ -2,6 +2,8 @@
 export interface FileEntry {
 	path: string;
 	file: File;
+	/** Explicit MIME type hint. When provided (e.g. for encrypted entries where magic-byte detection is impossible), this takes priority over detection. */
+	mimeType?: string;
 }
 
 /** Index entry for a file within a BGZF-compressed tar archive. */
