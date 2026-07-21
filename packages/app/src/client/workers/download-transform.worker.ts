@@ -1,7 +1,12 @@
 import { createBgzfDecompressor, isBgzf } from 'bgzf';
 import { Conversion, HLS_FORMATS, Input, Mp4OutputFormat, Output, StreamTarget, UrlSource, type StreamTargetChunk } from 'mediabunny';
 import { createOpfsTempFile } from './opfs-temp';
+import { DownloadStalledError, fetchWithTimeout, runWithRetry, withInactivityTimeout } from './download-resilience';
 import { createAesCtrDecryptTransform, importAesCtrKey, multibaseToKey } from '../../shared/encryption';
+
+const DOWNLOAD_MAX_ATTEMPTS = 4;
+const DOWNLOAD_REQUEST_TIMEOUT_MS = 30_000;
+const DOWNLOAD_INACTIVITY_TIMEOUT_MS = 30_000;
 
 export type DownloadTransformWorkerRequest =
 	{
@@ -37,6 +42,9 @@ export type DownloadTransformProgress = {
 	currentFile: string;
 	completedBytes?: number;
 	totalBytes?: number;
+	attempt?: number;
+	maxAttempts?: number;
+	networkStalled?: boolean;
 };
 
 export type DownloadTransformWorkerMessage =
@@ -150,36 +158,83 @@ function tempExtension(filename: string): string {
 }
 
 async function writeDownload(fileHandle: FileSystemFileHandle, request: Extract<DownloadTransformWorkerRequest, { mode: 'download' }>): Promise<void> {
-	const writable = await fileHandle.createWritable();
-	try {
-		progress(request.id, { phase: 'reading', processedFiles: 0, totalFiles: 1, currentFile: request.filename });
-		const res = await fetch(request.url, { headers: request.authHeaders });
-		if (!res.ok || !res.body) throw new Error(`Failed to fetch file: HTTP ${res.status}`);
-		const totalBytes = Number(res.headers.get('Content-Length')) || 0;
-		let completedBytes = 0;
-		const progressBody = totalBytes > 0
-			? withByteProgress(res.body, (bytes) => {
+	await runWithRetry(async (attempt) => {
+		const writable = await fileHandle.createWritable();
+		try {
+			progress(request.id, {
+				phase: 'reading', processedFiles: 0, totalFiles: 1, currentFile: request.filename,
+				completedBytes: 0, attempt, maxAttempts: DOWNLOAD_MAX_ATTEMPTS,
+			});
+			const res = await fetchWithTimeout(request.url, { headers: request.authHeaders }, DOWNLOAD_REQUEST_TIMEOUT_MS);
+			if (!res.ok) {
+				await res.body?.cancel().catch(() => {});
+				throw new DownloadHttpError(res.status);
+			}
+			if (!res.body) throw new PermanentDownloadError('Response body is empty');
+
+			const totalBytes = Number(res.headers.get('Content-Length')) || 0;
+			let completedBytes = 0;
+			const monitoredBody = withInactivityTimeout(res.body, DOWNLOAD_INACTIVITY_TIMEOUT_MS, () => {
+				progress(request.id, {
+					phase: 'reading', processedFiles: 0, totalFiles: 1, currentFile: request.filename,
+					completedBytes, totalBytes, attempt, maxAttempts: DOWNLOAD_MAX_ATTEMPTS, networkStalled: true,
+				});
+			});
+			const progressBody = withByteProgress(monitoredBody, (bytes) => {
 				completedBytes += bytes;
-				progress(request.id, { phase: 'reading', processedFiles: 0, totalFiles: 1, currentFile: request.filename, completedBytes, totalBytes });
-			})
-			: res.body;
-		// Decrypt first if a key is provided, then apply the (de)compression transform.
-		let stream: ReadableStream<Uint8Array<ArrayBuffer>> = progressBody;
-		if (request.encryptionKey) {
-			const rawKey = multibaseToKey(request.encryptionKey);
-			if (!rawKey) throw new Error('Invalid encryption key');
-			const cryptoKey = await importAesCtrKey(rawKey, ['decrypt']);
-			stream = stream.pipeThrough(createAesCtrDecryptTransform(cryptoKey)) as ReadableStream<Uint8Array<ArrayBuffer>>;
+				progress(request.id, {
+					phase: 'reading', processedFiles: 0, totalFiles: 1, currentFile: request.filename,
+					completedBytes, totalBytes, attempt, maxAttempts: DOWNLOAD_MAX_ATTEMPTS,
+				});
+			});
+
+			// A retry restarts this entire pipeline and recreates the writable file, so
+			// encrypted and compressed downloads cannot leave mixed-attempt output.
+			let stream: ReadableStream<Uint8Array<ArrayBuffer>> = progressBody;
+			if (request.encryptionKey) {
+				const rawKey = multibaseToKey(request.encryptionKey);
+				if (!rawKey) throw new PermanentDownloadError('Invalid encryption key');
+				const cryptoKey = await importAesCtrKey(rawKey, ['decrypt']);
+				stream = stream.pipeThrough(createAesCtrDecryptTransform(cryptoKey)) as ReadableStream<Uint8Array<ArrayBuffer>>;
+			}
+			stream = await transformStream(stream, request.transform);
+			progress(request.id, {
+				phase: 'writing', processedFiles: 0, totalFiles: 1, currentFile: request.filename,
+				completedBytes, totalBytes, attempt, maxAttempts: DOWNLOAD_MAX_ATTEMPTS,
+			});
+			await pipeToWritable(stream, writable);
+			await writable.close();
+			progress(request.id, {
+				phase: 'done', processedFiles: 1, totalFiles: 1, currentFile: '',
+				completedBytes: totalBytes || completedBytes, totalBytes, attempt, maxAttempts: DOWNLOAD_MAX_ATTEMPTS,
+			});
+		} catch (error) {
+			await writable.abort().catch(() => {});
+			throw error;
 		}
-		stream = await transformStream(stream, request.transform);
-		progress(request.id, { phase: 'writing', processedFiles: 0, totalFiles: 1, currentFile: request.filename, completedBytes, totalBytes });
-		await pipeToWritable(stream, writable);
-		await writable.close();
-		progress(request.id, { phase: 'done', processedFiles: 1, totalFiles: 1, currentFile: '', completedBytes: totalBytes, totalBytes });
-	} catch (err) {
-		await writable.abort().catch(() => {});
-		throw err;
+	}, {
+		maxAttempts: DOWNLOAD_MAX_ATTEMPTS,
+		shouldRetry: isRetryableDownloadError,
+		delayMs: failedAttempt => Math.min(2 ** (failedAttempt - 1) * 1000, 16_000),
+		onRetry(error, failedAttempt, delayMs) {
+			console.warn(`[download-transform] Attempt ${failedAttempt} failed; retrying in ${delayMs}ms`, error);
+		},
+	});
+}
+
+class PermanentDownloadError extends Error {}
+
+class DownloadHttpError extends Error {
+	constructor(readonly status: number) {
+		super(`Failed to fetch file: HTTP ${status}`);
 	}
+}
+
+function isRetryableDownloadError(error: unknown): boolean {
+	if (error instanceof PermanentDownloadError) return false;
+	if (error instanceof DownloadHttpError) return error.status === 408 || error.status === 429 || error.status >= 500;
+	if (error instanceof DownloadStalledError || error instanceof TypeError) return true;
+	return error instanceof DOMException && (error.name === 'AbortError' || error.name === 'NetworkError');
 }
 
 function withByteProgress(
