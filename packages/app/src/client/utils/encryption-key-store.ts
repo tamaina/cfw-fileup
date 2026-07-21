@@ -80,6 +80,25 @@ export async function getEncryptionKey(fileId: string): Promise<string | null> {
 	});
 }
 
+/**
+ * bucketName + path で暗号化キーを検索する。
+ * fileId が未取得の場合（合言葉ファイルでトークンなし等）のフォールバック。
+ */
+export async function getEncryptionKeyByLocation(bucketName: string, path: string): Promise<string | null> {
+	const db = await openDb();
+	return await new Promise((resolve, reject) => {
+		const tx = db.transaction(STORE_NAME, 'readonly');
+		const store = tx.objectStore(STORE_NAME);
+		const request = store.getAll();
+		request.onsuccess = () => {
+			const records = request.result as KeyRecord[];
+			const match = records.find(r => r.bucketName === bucketName && r.path === path);
+			resolve(match?.keyMultibase ?? null);
+		};
+		request.onerror = () => reject(request.error);
+	});
+}
+
 export async function deleteEncryptionKey(fileId: string): Promise<void> {
 	const db = await openDb();
 	await new Promise<void>((resolve, reject) => {

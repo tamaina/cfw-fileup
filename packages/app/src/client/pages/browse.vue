@@ -20,7 +20,7 @@ import { hasMimeTypeMismatch as detectMimeTypeMismatch, inferMimeTypeByExtension
 import { HLS_TAR_MIME } from '../../shared/hls';
 import { ENCRYPTION_URL_FRAGMENT_KEY } from '../../shared/const';
 import { decryptBlob, importAesCtrKey, multibaseToKey } from '../../shared/encryption';
-import { saveEncryptionKey, getEncryptionKey } from '@/utils/encryption-key-store';
+import { saveEncryptionKey, getEncryptionKey, getEncryptionKeyByLocation } from '@/utils/encryption-key-store';
 
 const props = withDefaults(defineProps<{
 	bucketName: string;
@@ -591,8 +591,8 @@ async function fetchMeta(): Promise<void> {
 		isEncrypted.value = data.isEncrypted ?? false;
 
 		// Resolve encryption key: URL fragment takes priority, then IndexedDB
-		if (data.isEncrypted && data.fileId) {
-			await resolveEncryptionKey(data.fileId);
+		if (data.isEncrypted) {
+			await resolveEncryptionKey(data.fileId ?? null);
 		}
 
 		if (apiMetaRes.ok) {
@@ -771,7 +771,7 @@ function tokenDeleted(tokenId: string) {
 }
 
 /** Parse encryption key from URL fragment (#key=z...) or load from IndexedDB */
-async function resolveEncryptionKey(resolvedFileId: string): Promise<void> {
+async function resolveEncryptionKey(resolvedFileId: string | null): Promise<void> {
 	// 1. Check URL fragment
 	const hash = window.location.hash;
 	if (hash) {
@@ -781,16 +781,24 @@ async function resolveEncryptionKey(resolvedFileId: string): Promise<void> {
 			encryptionKey.value = fragmentKey;
 			// Persist to IndexedDB for future visits
 			// 閲覧ページへリンクできるよう、保存先バケットとパスも記録する
-			await saveEncryptionKey(resolvedFileId, fragmentKey, { bucketName: props.bucketName, path: baseFilePath.value }).catch(() => {});
+			if (resolvedFileId) {
+				await saveEncryptionKey(resolvedFileId, fragmentKey, { bucketName: props.bucketName, path: baseFilePath.value }).catch(() => {});
+			}
 			return;
 		}
 	}
-	// 2. Load from IndexedDB
-	const stored = await getEncryptionKey(resolvedFileId).catch(() => null);
-	if (stored) {
-		encryptionKey.value = stored;
-		// NOTE: IDBから復元した鍵はURLに自動書き込みしない。
-		// ブラウザ履歴に鍵が残るのを防ぐため。共有リンクが必要な場合はユーザーが明示的にコピーする。
+	// 2. Load from IndexedDB by fileId
+	if (resolvedFileId) {
+		const stored = await getEncryptionKey(resolvedFileId).catch(() => null);
+		if (stored) {
+			encryptionKey.value = stored;
+			return;
+		}
+	}
+	// 3. Fallback: search IndexedDB by bucketName + path (fileId未取得の場合)
+	const storedByLocation = await getEncryptionKeyByLocation(props.bucketName, baseFilePath.value).catch(() => null);
+	if (storedByLocation) {
+		encryptionKey.value = storedByLocation;
 	}
 }
 
@@ -817,7 +825,7 @@ async function addEncryptionKey(key: string): Promise<void> {
 }
 
 onMounted(fetchBrowseTerms);
-watch(() => [props.bucketName, props.filePath], () => {
+watch(() => [props.bucketName, props.filePath], ([, newPath], [, oldPath]) => {
 	activeTab.value = 'info';
 	autoToken.value = null;
 	autoTokenId.value = null;
@@ -827,7 +835,16 @@ watch(() => [props.bucketName, props.filePath], () => {
 	fileId.value = null;
 	fileBucketId.value = null;
 	isEncrypted.value = false;
-	encryptionKey.value = null;
+	// 同じアーカイブ内のエントリー間移動では暗号化キーを保持する
+	const baseOf = (p: string | undefined) => {
+		if (!p) return null;
+		const segs = p.split('/');
+		const idx = segs.findIndex(s => decodePathSegment(s) === archiveEntryMarker);
+		return idx === -1 ? p : segs.slice(0, idx).join('/');
+	};
+	if (baseOf(oldPath) !== baseOf(newPath)) {
+		encryptionKey.value = null;
+	}
 	fileMimeType.value = null;
 	fileExtensionMimeType.value = null;
 	hasMimeTypeMismatch.value = false;

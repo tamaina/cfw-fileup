@@ -81,7 +81,8 @@ const downloadUrl = computed(() => {
 });
 
 function archiveEntryBrowseUrl(path: string): string {
-	return `/v/${props.bucketName}/${props.filePath}/${encodeURIComponent(':entries')}/${encodeURIComponent(path)}`;
+	const base = `/v/${props.bucketName}/${props.filePath}/${encodeURIComponent(':entries')}/${encodeURIComponent(path)}`;
+	return props.token ? `${base}?token=${props.token}` : base;
 }
 
 const entries = ref<DisplayEntry[]>([]);
