@@ -237,3 +237,75 @@ describe('AES-256-CTR streaming transforms', () => {
 		expect(decryptedData).toEqual(plaintext);
 	});
 });
+
+describe('AES-CTR decrypt buffer limit', () => {
+	test('errors when buffer exceeds maxBufferBytes persistently', async () => {
+		const rawKey = generateRawKey();
+		const iv = generateIv();
+		const encKey = await importAesCtrKey(rawKey, ['encrypt']);
+		const decKey = await importAesCtrKey(rawKey, ['decrypt']);
+
+		const plaintext = crypto.getRandomValues(new Uint8Array(200));
+		const encrypted = await encryptBlob(new Blob([plaintext]), encKey, iv);
+		const encryptedData = new Uint8Array(await encrypted.arrayBuffer());
+		const ciphertext = encryptedData.slice(AES_CTR_IV_LENGTH);
+
+		// Use a tiny buffer-limit (2 bytes) and feed 3-byte chunks.
+		// Since 3-byte chunks never reach 16-byte alignment, the buffer grows
+		// without being processed: 3 → warn1, 6 → warn2, 9 → warn3, 12 → warn4 → error.
+		const stream = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(iv.slice());
+				for (let i = 0; i < ciphertext.length; i += 3) {
+					controller.enqueue(ciphertext.slice(i, Math.min(i + 3, ciphertext.length)));
+				}
+				controller.close();
+			},
+		});
+
+		const reader = stream.pipeThrough(createAesCtrDecryptTransform(decKey, 2)).getReader();
+		await expect(async () => {
+			while (true) {
+				const { done } = await reader.read();
+				if (done) break;
+			}
+		}).rejects.toThrow(/buffer exceeded/i);
+	});
+
+	test('succeeds with default buffer limit for normal data', async () => {
+		const rawKey = generateRawKey();
+		const iv = generateIv();
+		const encKey = await importAesCtrKey(rawKey, ['encrypt']);
+		const decKey = await importAesCtrKey(rawKey, ['decrypt']);
+
+		const plaintext = crypto.getRandomValues(new Uint8Array(500));
+		const encrypted = await encryptBlob(new Blob([plaintext]), encKey, iv);
+		const encryptedData = new Uint8Array(await encrypted.arrayBuffer());
+
+		// Feed in moderate chunks (64 bytes) — well within default 1MB limit
+		const stream = new ReadableStream<Uint8Array>({
+			start(controller) {
+				for (let i = 0; i < encryptedData.length; i += 64) {
+					controller.enqueue(encryptedData.slice(i, Math.min(i + 64, encryptedData.length)));
+				}
+				controller.close();
+			},
+		});
+
+		const chunks: Uint8Array[] = [];
+		const reader = stream.pipeThrough(createAesCtrDecryptTransform(decKey)).getReader();
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			chunks.push(value);
+		}
+		const total = chunks.reduce((sum, c) => sum + c.length, 0);
+		const result = new Uint8Array(total);
+		let offset = 0;
+		for (const chunk of chunks) {
+			result.set(chunk, offset);
+			offset += chunk.length;
+		}
+		expect(result).toEqual(plaintext);
+	});
+});

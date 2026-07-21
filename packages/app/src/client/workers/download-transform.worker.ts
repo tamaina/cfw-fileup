@@ -37,6 +37,10 @@ export type DownloadTransformProgress = {
 	currentFile: string;
 	completedBytes?: number;
 	totalBytes?: number;
+	/** Current internal buffer size in bytes (for diagnostics). */
+	bufferBytes?: number;
+	/** True when the network appears stalled (no progress for an extended period). */
+	networkStalled?: boolean;
 };
 
 export type DownloadTransformWorkerMessage =
@@ -149,12 +153,63 @@ function tempExtension(filename: string): string {
 	return match?.[1] ?? '';
 }
 
+/**
+ * Fetch with timeout and exponential-backoff retry for transient errors.
+ * Retries on HTTP 5xx, 408, 429, and network/abort errors.
+ */
+async function fetchWithRetry(
+	url: string,
+	headers: Record<string, string>,
+	maxRetries = 3,
+	timeoutMs = 30_000,
+): Promise<Response> {
+	let lastError: unknown;
+	for (let attempt = 0; attempt <= maxRetries; attempt++) {
+		const controller = new AbortController();
+		const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+		try {
+			const res = await fetch(url, { headers, signal: controller.signal });
+			clearTimeout(timeoutId);
+
+			if (res.ok) return res;
+
+			// Retry on transient server errors
+			if (res.status >= 500 || res.status === 408 || res.status === 429) {
+				lastError = new Error(`HTTP ${res.status}`);
+				if (attempt < maxRetries) {
+					const delay = Math.min(2 ** attempt * 1000, 16_000);
+					await new Promise(resolve => setTimeout(resolve, delay));
+					continue;
+				}
+			}
+
+			throw new Error(`Failed to fetch file: HTTP ${res.status}`);
+		} catch (err) {
+			clearTimeout(timeoutId);
+			lastError = err;
+
+			// Don't retry on non-transient errors (e.g. HTTP 4xx thrown above)
+			if (err instanceof Error && err.message.startsWith('Failed to fetch file: HTTP')) {
+				throw err;
+			}
+
+			if (attempt < maxRetries) {
+				const delay = Math.min(2 ** attempt * 1000, 16_000);
+				console.warn(`[download-transform] Fetch attempt ${attempt + 1} failed, retrying in ${delay}ms...`, err);
+				await new Promise(resolve => setTimeout(resolve, delay));
+				continue;
+			}
+		}
+	}
+	throw lastError instanceof Error ? lastError : new Error('Fetch failed after retries');
+}
+
 async function writeDownload(fileHandle: FileSystemFileHandle, request: Extract<DownloadTransformWorkerRequest, { mode: 'download' }>): Promise<void> {
 	const writable = await fileHandle.createWritable();
 	try {
 		progress(request.id, { phase: 'reading', processedFiles: 0, totalFiles: 1, currentFile: request.filename });
-		const res = await fetch(request.url, { headers: request.authHeaders });
-		if (!res.ok || !res.body) throw new Error(`Failed to fetch file: HTTP ${res.status}`);
+		const res = await fetchWithRetry(request.url, request.authHeaders);
+		if (!res.body) throw new Error('Response body is empty');
 		const totalBytes = Number(res.headers.get('Content-Length')) || 0;
 		let completedBytes = 0;
 		const progressBody = totalBytes > 0

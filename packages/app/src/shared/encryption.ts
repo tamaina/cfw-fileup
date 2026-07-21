@@ -179,14 +179,27 @@ export function createAesCtrEncryptTransform(key: CryptoKey, iv: Uint8Array<Arra
 	});
 }
 
+/** Default maximum buffer size for AES-CTR decrypt transform (1 MB). */
+export const AES_CTR_DECRYPT_MAX_BUFFER_BYTES = 1024 * 1024;
+
 /**
  * Create a TransformStream that decrypts AES-256-CTR data.
  * Expects the IV (16 bytes) at the beginning of the input stream.
+ *
+ * @param key - The AES-CTR CryptoKey for decryption.
+ * @param maxBufferBytes - Maximum allowed buffer size before raising an error.
+ *   Defaults to {@link AES_CTR_DECRYPT_MAX_BUFFER_BYTES} (1 MB).
+ *   On very slow networks the unaligned remainder can accumulate; this limit
+ *   prevents unbounded memory growth.
  */
-export function createAesCtrDecryptTransform(key: CryptoKey): TransformStream<Uint8Array, Uint8Array> {
+export function createAesCtrDecryptTransform(
+	key: CryptoKey,
+	maxBufferBytes: number = AES_CTR_DECRYPT_MAX_BUFFER_BYTES,
+): TransformStream<Uint8Array, Uint8Array> {
 	let iv: Uint8Array | null = null;
 	let buffer = new Uint8Array(0);
 	let bytesProcessed = 0;
+	let bufferWarningCount = 0;
 
 	return new TransformStream<Uint8Array, Uint8Array>({
 		async transform(chunk, controller) {
@@ -208,6 +221,21 @@ export function createAesCtrDecryptTransform(key: CryptoKey): TransformStream<Ui
 				buffer = next;
 			}
 
+			// Monitor buffer size to prevent unbounded memory growth on slow networks
+			if (buffer.length > maxBufferBytes) {
+				bufferWarningCount++;
+				if (bufferWarningCount > 3) {
+					controller.error(new Error(
+						`AES-CTR decrypt buffer exceeded ${maxBufferBytes} bytes (current: ${buffer.length}). `
+						+ 'Network may be too slow or the server stopped sending data. Please try again.',
+					));
+					return;
+				}
+				console.warn(
+					`[AES-CTR] Buffer size warning (${bufferWarningCount}/3): ${buffer.length} / ${maxBufferBytes} bytes. Network may be congested.`,
+				);
+			}
+
 			// Decrypt all complete 16-byte blocks
 			const alignedLength = buffer.length - (buffer.length % 16);
 			if (alignedLength > 0) {
@@ -220,6 +248,8 @@ export function createAesCtrDecryptTransform(key: CryptoKey): TransformStream<Ui
 				controller.enqueue(new Uint8Array(decrypted));
 				buffer = buffer.slice(alignedLength);
 				bytesProcessed += alignedLength;
+				// Reset warning count on successful progress
+				bufferWarningCount = Math.max(0, bufferWarningCount - 1);
 			}
 		},
 		async flush(controller) {
