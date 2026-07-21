@@ -6,7 +6,7 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import FileVisibilitySettings from '@/components/FileVisibilitySettings.vue';
 import InfiniteTableRow from '@/components/InfiniteTableRow.vue';
 import { apiPost } from '@/utils/api';
-import { ENCRYPTION_URL_FRAGMENT_KEY } from '../../shared/const';
+import { ENCRYPTION_URL_FRAGMENT_KEY, TOKEN_URL_FRAGMENT_KEY } from '../../shared/const';
 import type { FileVisibility } from '../../shared/file-visibility';
 
 const props = defineProps<{
@@ -137,13 +137,12 @@ async function createToken(): Promise<void> {
 
 function viewUrl(token?: string): string {
 	const url = new URL(`/v/${props.bucketName}/${props.filePath}`, location.origin);
-	if (token) url.searchParams.set('token', token);
-	// 暗号化ファイルの共有URLには復号キーをフラグメントとして付加する（サーバーには送信されない）
-	if (props.encryptionKey) {
-		const params = new URLSearchParams(url.hash.slice(1));
-		params.set(ENCRYPTION_URL_FRAGMENT_KEY, props.encryptionKey);
-		url.hash = params.toString();
-	}
+	// トークン・復号キーはハッシュフラグメントに付加する（サーバーには送信されない）
+	const params = new URLSearchParams();
+	if (token) params.set(TOKEN_URL_FRAGMENT_KEY, token);
+	if (props.encryptionKey) params.set(ENCRYPTION_URL_FRAGMENT_KEY, props.encryptionKey);
+	const hashStr = params.toString();
+	if (hashStr) url.hash = hashStr;
 	return url.toString();
 }
 

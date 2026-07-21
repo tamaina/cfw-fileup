@@ -15,7 +15,7 @@ import InfiniteTableRow from '@/components/InfiniteTableRow.vue';
 import AdSlot from '@/components/AdSlot.vue';
 import InputDialog from '@/components/InputDialog.vue';
 import MoveEntryDialog from '@/components/MoveEntryDialog.vue';
-import { MAX_DIRECTORY_NAME_LENGTH, MAX_FILE_PATH_LENGTH } from '../../shared/const';
+import { MAX_DIRECTORY_NAME_LENGTH, MAX_FILE_PATH_LENGTH, TOKEN_URL_FRAGMENT_KEY, ENCRYPTION_URL_FRAGMENT_KEY } from '../../shared/const';
 import { pathSegmentNameValidation } from '../../shared/name-validation';
 import { UploadTree } from '@/utils/upload-tree';
 import type { ArchiveDownloadProgress } from '@/workers/archive-download.worker';
@@ -80,9 +80,18 @@ const downloadUrl = computed(() => {
 	return props.token ? `${base}?token=${props.token}` : base;
 });
 
+/** 閲覧ページ用のハッシュフラグメントを構築する（トークン・暗号化キー） */
+function buildBrowseHash(): string {
+	const params = new URLSearchParams();
+	if (props.token) params.set(TOKEN_URL_FRAGMENT_KEY, props.token);
+	if (props.encryptionKey) params.set(ENCRYPTION_URL_FRAGMENT_KEY, props.encryptionKey);
+	const str = params.toString();
+	return str ? `#${str}` : '';
+}
+
 function archiveEntryBrowseUrl(path: string): string {
 	const base = `/v/${props.bucketName}/${props.filePath}/${encodeURIComponent(':entries')}/${encodeURIComponent(path)}`;
-	return props.token ? `${base}?token=${props.token}` : base;
+	return `${base}${buildBrowseHash()}`;
 }
 
 const entries = ref<DisplayEntry[]>([]);
@@ -1001,7 +1010,7 @@ function navigateArchiveUp(): void {
 	parts.pop();
 	const newPath = parts.length === 0 ? '' : parts.join('/') + '/';
 	if (newPath === '') {
-		mainRouter.pushByPath(`/v/${props.bucketName}/${props.filePath}`);
+		mainRouter.pushByPath(`/v/${props.bucketName}/${props.filePath}${buildBrowseHash()}`);
 	} else {
 		mainRouter.pushByPath(archiveEntryBrowseUrl(newPath));
 	}
@@ -1072,9 +1081,10 @@ function parentPath(): string | null {
 	}
 	const parts = props.filePath.replace(/\/$/, '').split('/');
 	parts.pop();
-	return parts.length === 0
+	const base = parts.length === 0
 		? `/v/${props.bucketName}/`
 		: `/v/${props.bucketName}/${parts.join('/')}/`;
+	return `${base}${buildBrowseHash()}`;
 }
 
 async function goUpload(): Promise<void> {

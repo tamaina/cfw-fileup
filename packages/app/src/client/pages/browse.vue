@@ -18,7 +18,7 @@ import { archiveEntryDownloadUrl, archiveEntryStreamUrl } from '@/utils/archive-
 import { createBgzfDecompressor } from 'bgzf';
 import { hasMimeTypeMismatch as detectMimeTypeMismatch, inferMimeTypeByExtension, isExecutableMimeType, selectStoredOrSniffedMimeType } from '../../shared/mime-by-extension';
 import { HLS_TAR_MIME } from '../../shared/hls';
-import { ENCRYPTION_URL_FRAGMENT_KEY } from '../../shared/const';
+import { ENCRYPTION_URL_FRAGMENT_KEY, TOKEN_URL_FRAGMENT_KEY } from '../../shared/const';
 import { decryptBlob, importAesCtrKey, multibaseToKey } from '../../shared/encryption';
 import { saveEncryptionKey, getEncryptionKey, getEncryptionKeyByLocation } from '@/utils/encryption-key-store';
 
@@ -71,9 +71,9 @@ const entryPath = computed(() => {
 	return archiveRoute.value.entryPath;
 });
 const queryToken = computed(() => {
-	const qs = mainRouter.currentRef.value?._parsedRoute?.queryString;
-	if (!qs) return null;
-	return new URLSearchParams(qs).get('token');
+	const hash = mainRouter.currentRef.value?._parsedRoute?.hash;
+	if (!hash) return null;
+	return new URLSearchParams(hash).get(TOKEN_URL_FRAGMENT_KEY);
 });
 
 const isEntryFile = computed(() => entryPath.value !== null && !entryPath.value.endsWith('/'));
@@ -301,6 +301,7 @@ const breadcrumbs = computed(() => {
 	const parts = baseFilePath.value ? baseFilePath.value.replace(/\/$/, '').split('/') : [];
 	const result: { name: string; link: string | null }[] = [];
 	const hasEntry = entryPath.value !== null;
+	const hash = buildHashFragment();
 
 	result.push({
 		name: props.bucketName,
@@ -315,7 +316,7 @@ const breadcrumbs = computed(() => {
 			link: isLast && !hasEntry
 				? null
 				: isLast && hasEntry
-					? `/v/${props.bucketName}/${parts.slice(0, i + 1).join('/')}`
+					? `/v/${props.bucketName}/${parts.slice(0, i + 1).join('/')}${hash}`
 					: `/v/${props.bucketName}/${pathSoFar}`,
 		});
 	}
@@ -327,7 +328,7 @@ const breadcrumbs = computed(() => {
 			const innerSoFar = innerParts.slice(0, i + 1).join('/');
 			result.push({
 				name: innerParts[i],
-				link: isLast ? null : `/v/${props.bucketName}/${baseFilePath.value}/${encodeURIComponent(':entries')}/${encodeURIComponent(innerSoFar + '/')}`,
+				link: isLast ? null : `/v/${props.bucketName}/${baseFilePath.value}/${encodeURIComponent(':entries')}/${encodeURIComponent(innerSoFar + '/')}${hash}`,
 			});
 		}
 	}
@@ -543,7 +544,8 @@ async function fetchMeta(): Promise<void> {
 		const metaUrl = new URL('/api/files/meta', location.origin);
 		metaUrl.searchParams.set('bucketName', props.bucketName);
 		metaUrl.searchParams.set('path', baseFilePath.value);
-		if (queryToken.value) metaUrl.searchParams.set('token', queryToken.value);
+		const metaToken = queryToken.value ?? autoToken.value;
+		if (metaToken) metaUrl.searchParams.set('token', metaToken);
 		const [metaRes, apiMetaRes] = await Promise.all([
 			fetch(metaUrl, { headers: authHeaders() }),
 			fetch('/api/meta'),
@@ -814,6 +816,27 @@ function writeKeyToUrlFragment(key: string): void {
 	} catch { /* ignore */ }
 }
 
+/** URLフラグメントに #token=xxx を書き込む（既存の他のパラメータは保持） */
+function writeTokenToUrlFragment(token: string): void {
+	try {
+		const url = new URL(window.location.href);
+		const params = new URLSearchParams(url.hash.slice(1));
+		if (params.get(TOKEN_URL_FRAGMENT_KEY) === token) return;
+		params.set(TOKEN_URL_FRAGMENT_KEY, token);
+		url.hash = params.toString();
+		window.history.replaceState(null, '', url.toString());
+	} catch { /* ignore */ }
+}
+
+/** 現在のトークンと暗号化キーからハッシュフラグメント文字列を構築する（ナビゲーションリンク用） */
+function buildHashFragment(): string {
+	const params = new URLSearchParams();
+	if (autoToken.value) params.set(TOKEN_URL_FRAGMENT_KEY, autoToken.value);
+	if (encryptionKey.value) params.set(ENCRYPTION_URL_FRAGMENT_KEY, encryptionKey.value);
+	const str = params.toString();
+	return str ? `#${str}` : '';
+}
+
 /** ダイアログから復号キーを追加: 状態反映 + IndexedDB保存 + URLフラグメント書き込み */
 async function addEncryptionKey(key: string): Promise<void> {
 	encryptionKey.value = key;
@@ -823,6 +846,11 @@ async function addEncryptionKey(key: string): Promise<void> {
 	}
 	writeKeyToUrlFragment(key);
 }
+
+// トークンが設定されたらURLフラグメントに書き込む（ナビゲーションで引き継げるように）
+watch(() => autoToken.value, (token) => {
+	if (token) writeTokenToUrlFragment(token);
+});
 
 onMounted(fetchBrowseTerms);
 watch(() => [props.bucketName, props.filePath], ([, newPath], [, oldPath]) => {

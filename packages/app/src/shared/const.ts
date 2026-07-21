@@ -18,3 +18,6 @@ export const ENCRYPTION_KEY_MULTICODEC = 0xa2;
 
 /** URL fragment key prefix for encrypted file links, e.g. #key=z... */
 export const ENCRYPTION_URL_FRAGMENT_KEY = 'key';
+
+/** URL fragment key for access tokens, e.g. #token=xxx */
+export const TOKEN_URL_FRAGMENT_KEY = 'token';
