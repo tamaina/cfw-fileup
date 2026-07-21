@@ -129,112 +129,76 @@ describe('ActivityPub routes', () => {
 		const href = `https://example.test/a/files/${fileId}`;
 		expect(res.headers.get('Link')).toContain(`<${href}>; rel="alternate"; type="application/activity+json"`);
 		expect(res.headers.get('Cache-Control')).toBe('public, max-age=10800');
-		expect(res.headers.get('X-Cache')).toBe('MISS');
 		expect(await res.text()).toContain(`<link rel="alternate" type="application/activity+json" href="${href}">`);
 	});
 
-	test('serves /v file pages from resolve route cache while keeping short external cache headers', async () => {
+	test('serves /v file pages with correct cache headers', async () => {
 		const { fileId } = await setupPublicFile('cached-view.txt');
 		const requestUrl = 'https://example.test/v/ap_bucket/cached-view.txt';
 
-		const firstRes = await app.request(requestUrl, {}, envWithAssets());
-		expect(firstRes.status).toBe(200);
-		expect(firstRes.headers.get('X-Cache')).toBe('MISS');
-		expect(firstRes.headers.get('Cache-Control')).toBe('public, max-age=10800');
-		expect(await firstRes.text()).toContain(`/a/files/${fileId}`);
-		await new Promise(resolve => setTimeout(resolve, 0));
-
-		const secondRes = await app.request(requestUrl, {}, envWithAssets());
-		expect(secondRes.status).toBe(200);
-		expect(secondRes.headers.get('X-Cache')).toBe('HIT');
-		expect(secondRes.headers.get('Cache-Control')).toBe('public, max-age=10800');
-		expect(await secondRes.text()).toContain(`/a/files/${fileId}`);
+		const res = await app.request(requestUrl, {}, envWithAssets());
+		expect(res.status).toBe(200);
+		expect(res.headers.get('Cache-Control')).toBe('public, max-age=10800');
+		expect(await res.text()).toContain(`/a/files/${fileId}`);
 	});
 
-	test('normalizes resolve route cache keys by ignoring query strings', async () => {
+	test('serves /v file pages regardless of query strings', async () => {
 		const { fileId } = await setupPublicFile('query-cache.txt');
 		const requestUrl = 'https://example.test/v/ap_bucket/query-cache.txt';
 
 		const firstRes = await app.request(`${requestUrl}?utm_source=first`, {}, envWithAssets());
 		expect(firstRes.status).toBe(200);
-		expect(firstRes.headers.get('X-Cache')).toBe('MISS');
 		expect(await firstRes.text()).toContain(`/a/files/${fileId}`);
-		await new Promise(resolve => setTimeout(resolve, 0));
 
 		const secondRes = await app.request(`${requestUrl}?utm_source=second`, {}, envWithAssets());
 		expect(secondRes.status).toBe(200);
-		expect(secondRes.headers.get('X-Cache')).toBe('HIT');
 		expect(await secondRes.text()).toContain(`/a/files/${fileId}`);
 	});
 
-	test('keeps resolve route cache scoped by origin', async () => {
+	test('serves /v file pages for different origins', async () => {
 		const { fileId } = await setupPublicFile('origin-cache.txt');
 		const path = '/v/ap_bucket/origin-cache.txt';
 
 		const firstRes = await app.request(`https://example.test${path}`, {}, envWithAssets());
-		expect(firstRes.headers.get('X-Cache')).toBe('MISS');
 		expect(await firstRes.text()).toContain(`https://example.test/a/files/${fileId}`);
-		await new Promise(resolve => setTimeout(resolve, 0));
 
 		const otherOriginRes = await app.request(`https://alt.example.test${path}`, {}, envWithAssets());
-		expect(otherOriginRes.headers.get('X-Cache')).toBe('MISS');
 		expect(await otherOriginRes.text()).toContain(`https://alt.example.test/a/files/${fileId}`);
-		await new Promise(resolve => setTimeout(resolve, 0));
-
-		const cachedFirstOriginRes = await app.request(`https://example.test${path}`, {}, envWithAssets());
-		expect(cachedFirstOriginRes.headers.get('X-Cache')).toBe('HIT');
-		expect(await cachedFirstOriginRes.text()).toContain(`https://example.test/a/files/${fileId}`);
 	});
 
-	test('serves ActivityPub file notes from resolve route cache', async () => {
+	test('serves ActivityPub file notes with correct cache headers', async () => {
 		const { fileId } = await setupPublicFile('cached-note.txt');
 
-		const firstRes = await app.request(`https://example.test/a/files/${fileId}`, activityJsonRequest, env);
-		expect(firstRes.status).toBe(200);
-		expect(firstRes.headers.get('X-Cache')).toBe('MISS');
-		expect(firstRes.headers.get('Cache-Control')).toBe('public, max-age=300');
-		await firstRes.text();
-		await new Promise(resolve => setTimeout(resolve, 0));
-
-		const secondRes = await app.request(`https://example.test/a/files/${fileId}`, activityJsonRequest, env);
-		expect(secondRes.status).toBe(200);
-		expect(secondRes.headers.get('X-Cache')).toBe('HIT');
-		const note = await secondRes.json() as Record<string, unknown>;
+		const res = await app.request(`https://example.test/a/files/${fileId}`, activityJsonRequest, env);
+		expect(res.status).toBe(200);
+		expect(res.headers.get('Cache-Control')).toBe('public, max-age=300');
+		const note = await res.json() as Record<string, unknown>;
 		expect(note).not.toHaveProperty('url');
 	});
 
-	test('keeps ActivityPub JSON cache separate from browser redirects', async () => {
+	test('keeps ActivityPub JSON separate from browser redirects via Vary', async () => {
 		const { fileId } = await setupPublicFile('cache-variant.txt');
 		const noteUrl = `https://example.test/a/files/${fileId}`;
 
-		const firstJsonRes = await app.request(noteUrl, activityJsonRequest, env);
-		expect(firstJsonRes.status).toBe(200);
-		expect(firstJsonRes.headers.get('X-Cache')).toBe('MISS');
-		await firstJsonRes.text();
-		await new Promise(resolve => setTimeout(resolve, 0));
+		const jsonRes = await app.request(noteUrl, activityJsonRequest, env);
+		expect(jsonRes.status).toBe(200);
+		expect(jsonRes.headers.get('Vary')).toBe('Accept');
 
 		const browserRes = await app.request(noteUrl, {
 			headers: { Accept: 'text/html' },
 			redirect: 'manual',
 		}, env);
 		expect(browserRes.status).toBe(302);
-		expect(browserRes.headers.get('X-Cache')).toBeNull();
 		expect(browserRes.headers.get('Vary')).toBe('Accept');
 		expect(browserRes.headers.get('Location')).toBe('https://example.test/v/ap_bucket/cache-variant.txt');
-
-		const secondJsonRes = await app.request(noteUrl, activityJsonRequest, env);
-		expect(secondJsonRes.status).toBe(200);
-		expect(secondJsonRes.headers.get('X-Cache')).toBe('HIT');
 	});
 
 	test('purges /v and /a file resolve caches when a file is deleted', async () => {
 		const { token, bucketId, fileId } = await setupPublicFile('delete-cached.txt');
 
 		const viewRes = await app.request('https://example.test/v/ap_bucket/delete-cached.txt', {}, envWithAssets());
-		expect(viewRes.headers.get('X-Cache')).toBe('MISS');
 		await viewRes.text();
 		const noteRes = await app.request(`https://example.test/a/files/${fileId}`, activityJsonRequest, env);
-		expect(noteRes.headers.get('X-Cache')).toBe('MISS');
 		await noteRes.text();
 		await new Promise(resolve => setTimeout(resolve, 0));
 
@@ -248,7 +212,6 @@ describe('ActivityPub routes', () => {
 
 		const afterDeleteViewRes = await app.request('https://example.test/v/ap_bucket/delete-cached.txt', {}, envWithAssets());
 		expect(afterDeleteViewRes.status).toBe(200);
-		expect(afterDeleteViewRes.headers.get('X-Cache')).toBe('MISS');
 		expect(afterDeleteViewRes.headers.get('Link')).toBeNull();
 		expect(await afterDeleteViewRes.text()).not.toContain(`/a/files/${fileId}`);
 
@@ -272,7 +235,6 @@ describe('ActivityPub routes', () => {
 		await new Promise(resolve => setTimeout(resolve, 0));
 
 		const viewRes = await app.request('https://example.test/v/ap_bucket/unlist-cached.txt', {}, envWithAssets());
-		expect(viewRes.headers.get('X-Cache')).toBe('MISS');
 		expect(viewRes.headers.get('Link')).toBeNull();
 		expect(await viewRes.text()).not.toContain(`/a/files/${fileId}`);
 
@@ -297,7 +259,6 @@ describe('ActivityPub routes', () => {
 		await new Promise(resolve => setTimeout(resolve, 0));
 
 		const viewRes = await app.request(`${viewUrl}?preview=2`, {}, envWithAssets());
-		expect(viewRes.headers.get('X-Cache')).toBe('MISS');
 		expect(viewRes.headers.get('Link')).toBeNull();
 		expect(await viewRes.text()).not.toContain(`/a/files/${fileId}`);
 
@@ -328,12 +289,10 @@ describe('ActivityPub routes', () => {
 		await new Promise(resolve => setTimeout(resolve, 0));
 
 		const oldRes = await app.request(oldUrl, {}, envWithAssets());
-		expect(oldRes.headers.get('X-Cache')).toBe('MISS');
 		expect(oldRes.headers.get('Link')).toBeNull();
 		await oldRes.text();
 
 		const newRes = await app.request(newUrl, {}, envWithAssets());
-		expect(newRes.headers.get('X-Cache')).toBe('MISS');
 		expect(newRes.headers.get('Link')).toContain(`/a/files/${fileId}`);
 		expect(await newRes.text()).toContain(`/a/files/${fileId}`);
 	});
@@ -343,7 +302,6 @@ describe('ActivityPub routes', () => {
 
 		const firstRes = await app.request(`https://example.test/a/buckets/${bucketId}`, {}, env);
 		expect(firstRes.status).toBe(200);
-		expect(firstRes.headers.get('X-Cache')).toBe('MISS');
 		await firstRes.text();
 		await new Promise(resolve => setTimeout(resolve, 0));
 
@@ -486,7 +444,6 @@ describe('ActivityPub routes', () => {
 		await new Promise(resolve => setTimeout(resolve, 0));
 
 		const viewRes = await app.request(viewUrl, {}, envWithAssets());
-		expect(viewRes.headers.get('X-Cache')).toBe('MISS');
 		expect(viewRes.headers.get('Link')).toBeNull();
 		await viewRes.text();
 
@@ -522,7 +479,6 @@ describe('ActivityPub routes', () => {
 		await new Promise(resolve => setTimeout(resolve, 0));
 
 		const viewRes = await app.request(viewUrl, {}, envWithAssets());
-		expect(viewRes.headers.get('X-Cache')).toBe('MISS');
 		expect(viewRes.headers.get('Link')).toBeNull();
 		await viewRes.text();
 
@@ -558,7 +514,6 @@ describe('ActivityPub routes', () => {
 		await new Promise(resolve => setTimeout(resolve, 0));
 
 		const viewRes = await app.request(viewUrl, {}, envWithAssets());
-		expect(viewRes.headers.get('X-Cache')).toBe('MISS');
 		expect(viewRes.headers.get('Link')).toBeNull();
 		await viewRes.text();
 
@@ -595,7 +550,6 @@ describe('ActivityPub routes', () => {
 		await new Promise(resolve => setTimeout(resolve, 0));
 
 		const viewRes = await app.request(viewUrl, {}, envWithAssets());
-		expect(viewRes.headers.get('X-Cache')).toBe('MISS');
 		expect(viewRes.headers.get('Link')).toBeNull();
 		await viewRes.text();
 

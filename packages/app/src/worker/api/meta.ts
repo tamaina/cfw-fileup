@@ -6,11 +6,9 @@ import { canAcceptCryptoPayments } from '../utils/crypto-payments';
 import { getPaymentChainRpcUrl } from '../utils/payment-rpc';
 import { isTurnstileConfigured } from '../utils/turnstile';
 import { DEFAULT_APP_NAME, DEFAULT_BILLING_RESIDENCY_STATEMENT } from '../../shared/app-settings';
-import { runBackgroundTask } from '../utils/background-task';
 import { isGoogleAuthConfigured } from './google-auth';
 
 const app = new Hono<{ Bindings: Env }>();
-const metaCacheName = 'api-meta-response';
 const metaCacheMaxAgeSeconds = 10;
 const metaSettingKeys = [
 	'app_name',
@@ -52,26 +50,7 @@ function createMetaResponse(data: MetaResponse): Response {
 	});
 }
 
-function createMetaCacheRequest(request: Request): Request {
-	const url = new URL(request.url);
-	url.search = '';
-	return new Request(url.toString(), { method: 'GET' });
-}
-
 app.get('/meta', async (c) => {
-	const cacheRequest = createMetaCacheRequest(c.req.raw);
-	const cache = await caches.open(metaCacheName);
-	const cached = await cache.match(cacheRequest);
-	if (cached !== undefined) {
-		const headers = new Headers(cached.headers);
-		headers.set('X-Cache', 'HIT');
-		return new Response(cached.body, {
-			status: cached.status,
-			statusText: cached.statusText,
-			headers,
-		});
-	}
-
 	const db = getDb(c.env);
 
 	try {
@@ -94,7 +73,7 @@ app.get('/meta', async (c) => {
 				.where(eq(paymentChains.isEnabled, true))
 			: [];
 
-		const response = createMetaResponse({
+		return createMetaResponse({
 			appName,
 			registrationEnabled: mode !== 'closed',
 			passphraseRequired: mode === 'passphrase',
@@ -117,19 +96,6 @@ app.get('/meta', async (c) => {
 				.map(chain => chain.chainId)
 				.filter(chainId => getPaymentChainRpcUrl(c.env, chainId) !== null),
 		});
-		const headers = new Headers(response.headers);
-		headers.set('X-Cache', 'MISS');
-		const responseWithCacheHeader = new Response(response.body, {
-			status: response.status,
-			statusText: response.statusText,
-			headers,
-		});
-		runBackgroundTask(
-			promise => c.executionCtx.waitUntil(promise),
-			cache.put(cacheRequest, responseWithCacheHeader.clone()),
-			'Failed to put meta response into cache:',
-		);
-		return responseWithCacheHeader;
 	} catch {
 		return createMetaResponse({
 			appName: DEFAULT_APP_NAME,

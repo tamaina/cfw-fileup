@@ -1,7 +1,7 @@
 import { Hono, type Context } from 'hono';
 import { and, eq } from 'drizzle-orm';
 import { buckets, files, tarFiles, targzFiles } from '../scheme/index';
-import { deleteResolveRouteCache, resolveRouteCache } from '../middleware/resolve-route-cache';
+import { resolveRouteCache, purgeWorkersCacheByPathPrefixes } from '../middleware/resolve-route-cache';
 import { getDb } from '../utils/db';
 import { fileMutationEvents, runMutationTask, type FileReference } from '../events/file-mutations';
 import { getAppName } from '../utils/app-name';
@@ -188,50 +188,59 @@ function getArchiveEntryViewCachePath(bucketName: string, filePath: string, entr
 	return `${getViewCachePath(bucketName, filePath)}/${encodeURIComponent(':entries')}/${encodeURIComponent(entryPath)}`;
 }
 
-function purgeViewCache(env: Env, origin: string, bucketName: string, file: FileReference): Promise<Array<PromiseSettledResult<boolean>>> {
-	return Promise.allSettled([
-		deleteResolveRouteCache(env, getViewCachePath(bucketName, file.path), origin),
-		...(file.entryPaths ?? []).map(entryPath => deleteResolveRouteCache(env, getArchiveEntryViewCachePath(bucketName, file.path, entryPath), origin)),
-	]);
-}
-
 function registerViewHtmlCachePurgeListeners(): void {
 	if (viewHtmlCachePurgeListenersRegistered) return;
 	viewHtmlCachePurgeListenersRegistered = true;
 
-	fileMutationEvents.on('file:deleted', ({ env, origin, waitUntil, bucket, files }) => {
-		const promise = Promise.allSettled(files.map(file => purgeViewCache(env, origin, bucket.name, file))).then(() => undefined);
+	fileMutationEvents.on('file:deleted', ({ waitUntil, bucket, files }) => {
+		const promise = purgeWorkersCacheByPathPrefixes(files.flatMap(file => [
+			getViewCachePath(bucket.name, file.path),
+			...(file.entryPaths ?? []).map(entryPath => getArchiveEntryViewCachePath(bucket.name, file.path, entryPath)),
+		]));
 		runMutationTask(waitUntil, promise, 'Failed to purge /v deleted file cache:');
 	});
 
-	fileMutationEvents.on('file:updated', ({ env, origin, waitUntil, bucket, files }) => {
-		const promise = Promise.allSettled(files.map(file => purgeViewCache(env, origin, bucket.name, file))).then(() => undefined);
+	fileMutationEvents.on('file:updated', ({ waitUntil, bucket, files }) => {
+		const promise = purgeWorkersCacheByPathPrefixes(files.flatMap(file => [
+			getViewCachePath(bucket.name, file.path),
+			...(file.entryPaths ?? []).map(entryPath => getArchiveEntryViewCachePath(bucket.name, file.path, entryPath)),
+		]));
 		runMutationTask(waitUntil, promise, 'Failed to purge /v updated file cache:');
 	});
 
-	fileMutationEvents.on('file:moved', ({ env, origin, waitUntil, sourceBucket, targetBucket, files }) => {
-		const promise = Promise.allSettled(files.flatMap(file => [
-			purgeViewCache(env, origin, sourceBucket.name, file),
-			purgeViewCache(env, origin, targetBucket.name, { id: file.id, path: file.nextPath, entryPaths: file.entryPaths }),
-		])).then(() => undefined);
+	fileMutationEvents.on('file:moved', ({ waitUntil, sourceBucket, targetBucket, files }) => {
+		const promise = purgeWorkersCacheByPathPrefixes(files.flatMap(file => [
+			getViewCachePath(sourceBucket.name, file.path),
+			...(file.entryPaths ?? []).map(entryPath => getArchiveEntryViewCachePath(sourceBucket.name, file.path, entryPath)),
+			getViewCachePath(targetBucket.name, file.nextPath),
+			...(file.entryPaths ?? []).map(entryPath => getArchiveEntryViewCachePath(targetBucket.name, file.nextPath, entryPath)),
+		]));
 		runMutationTask(waitUntil, promise, 'Failed to purge /v moved file cache:');
 	});
 
-	fileMutationEvents.on('directory:deleted', ({ env, origin, waitUntil, bucket, files }) => {
-		const promise = Promise.allSettled(files.map(file => purgeViewCache(env, origin, bucket.name, file))).then(() => undefined);
+	fileMutationEvents.on('directory:deleted', ({ waitUntil, bucket, files }) => {
+		const promise = purgeWorkersCacheByPathPrefixes(files.flatMap(file => [
+			getViewCachePath(bucket.name, file.path),
+			...(file.entryPaths ?? []).map(entryPath => getArchiveEntryViewCachePath(bucket.name, file.path, entryPath)),
+		]));
 		runMutationTask(waitUntil, promise, 'Failed to purge /v deleted directory cache:');
 	});
 
-	fileMutationEvents.on('directory:moved', ({ env, origin, waitUntil, sourceBucket, targetBucket, files }) => {
-		const promise = Promise.allSettled(files.flatMap(file => [
-			purgeViewCache(env, origin, sourceBucket.name, file),
-			purgeViewCache(env, origin, targetBucket.name, { id: file.id, path: file.nextPath, entryPaths: file.entryPaths }),
-		])).then(() => undefined);
+	fileMutationEvents.on('directory:moved', ({ waitUntil, sourceBucket, targetBucket, files }) => {
+		const promise = purgeWorkersCacheByPathPrefixes(files.flatMap(file => [
+			getViewCachePath(sourceBucket.name, file.path),
+			...(file.entryPaths ?? []).map(entryPath => getArchiveEntryViewCachePath(sourceBucket.name, file.path, entryPath)),
+			getViewCachePath(targetBucket.name, file.nextPath),
+			...(file.entryPaths ?? []).map(entryPath => getArchiveEntryViewCachePath(targetBucket.name, file.nextPath, entryPath)),
+		]));
 		runMutationTask(waitUntil, promise, 'Failed to purge /v moved directory cache:');
 	});
 
-	fileMutationEvents.on('bucket:deleted', ({ env, origin, waitUntil, bucket, files }) => {
-		const promise = Promise.allSettled(files.map(file => purgeViewCache(env, origin, bucket.name, file))).then(() => undefined);
+	fileMutationEvents.on('bucket:deleted', ({ waitUntil, bucket, files }) => {
+		const promise = purgeWorkersCacheByPathPrefixes(files.flatMap(file => [
+			getViewCachePath(bucket.name, file.path),
+			...(file.entryPaths ?? []).map(entryPath => getArchiveEntryViewCachePath(bucket.name, file.path, entryPath)),
+		]));
 		runMutationTask(waitUntil, promise, 'Failed to purge /v deleted bucket cache:');
 	});
 }

@@ -4,7 +4,7 @@ import { parseEaidx } from '../../shared/eaid-x';
 import { buckets, files, tarFiles, targzFiles } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { apiError } from '../utils/api-error';
-import { deleteResolveRouteCache, resolveRouteCache } from '../middleware/resolve-route-cache';
+import { resolveRouteCache, purgeWorkersCacheByPathPrefixes } from '../middleware/resolve-route-cache';
 import { fileMutationEvents, runMutationTask, type FileReference } from '../events/file-mutations';
 import { getAppName } from '../utils/app-name';
 import { getPublicFile } from '../utils/public-file';
@@ -18,8 +18,6 @@ type AppContext = Context<{ Bindings: Env }>;
 const activityJsonContentType = 'application/activity+json; charset=utf-8';
 const publicAddress = 'https://www.w3.org/ns/activitystreams#Public';
 const activityPubCacheMaxAgeSeconds = 5 * 60;
-const activityPubJsonCacheVariant = 'activity-json';
-const activityPubBrowserCacheVariant = 'browser';
 let activityPubCachePurgeListenersRegistered = false;
 
 function originFromRequest(request: Request): string {
@@ -42,11 +40,6 @@ function redirectToFilePage(c: AppContext, url: string): Response {
 function acceptsActivityJson(request: Request): boolean {
 	const accept = request.headers.get('Accept')?.toLowerCase() ?? '';
 	return accept.includes('application/activity+json') || accept.includes('application/ld+json');
-}
-
-function activityPubCacheVariant(request: Request): string {
-	if (!new URL(request.url).pathname.startsWith('/a/files/')) return '';
-	return acceptsActivityJson(request) ? activityPubJsonCacheVariant : activityPubBrowserCacheVariant;
 }
 
 function basename(path: string): string {
@@ -192,54 +185,60 @@ function getActivityPubEntryCachePath(fileId: string, entryPath: string): string
 	return `${getActivityPubFileCachePath(fileId)}/${encodeURIComponent(':entries')}/${encodeURIComponent(entryPath)}`;
 }
 
-function purgeActivityPubFileCache(env: Env, origin: string, file: FileReference): Promise<Array<PromiseSettledResult<boolean>>> {
-	const deleteFileCache = (path: string) => [
-		deleteResolveRouteCache(env, path, origin),
-		deleteResolveRouteCache(env, path, origin, activityPubJsonCacheVariant),
-		deleteResolveRouteCache(env, path, origin, activityPubBrowserCacheVariant),
-	];
-	return Promise.allSettled([
-		...deleteFileCache(getActivityPubFileCachePath(file.id)),
-		...(file.entryPaths ?? []).flatMap(entryPath => deleteFileCache(getActivityPubEntryCachePath(file.id, entryPath))),
-	]);
-}
-
 function registerActivityPubCachePurgeListeners(): void {
 	if (activityPubCachePurgeListenersRegistered) return;
 	activityPubCachePurgeListenersRegistered = true;
 
-	fileMutationEvents.on('file:deleted', ({ env, origin, waitUntil, files }) => {
-		const promise = Promise.allSettled(files.map(file => purgeActivityPubFileCache(env, origin, file))).then(() => undefined);
+	fileMutationEvents.on('file:deleted', ({ waitUntil, files }) => {
+		const promise = purgeWorkersCacheByPathPrefixes(files.flatMap(file => [
+			getActivityPubFileCachePath(file.id),
+			...(file.entryPaths ?? []).map(entryPath => getActivityPubEntryCachePath(file.id, entryPath)),
+		]));
 		runMutationTask(waitUntil, promise, 'Failed to purge /a deleted file cache:');
 	});
 
-	fileMutationEvents.on('file:updated', ({ env, origin, waitUntil, files }) => {
-		const promise = Promise.allSettled(files.map(file => purgeActivityPubFileCache(env, origin, file))).then(() => undefined);
+	fileMutationEvents.on('file:updated', ({ waitUntil, files }) => {
+		const promise = purgeWorkersCacheByPathPrefixes(files.flatMap(file => [
+			getActivityPubFileCachePath(file.id),
+			...(file.entryPaths ?? []).map(entryPath => getActivityPubEntryCachePath(file.id, entryPath)),
+		]));
 		runMutationTask(waitUntil, promise, 'Failed to purge /a updated file cache:');
 	});
 
-	fileMutationEvents.on('file:moved', ({ env, origin, waitUntil, files }) => {
-		const promise = Promise.allSettled(files.map(file => purgeActivityPubFileCache(env, origin, file))).then(() => undefined);
+	fileMutationEvents.on('file:moved', ({ waitUntil, files }) => {
+		const promise = purgeWorkersCacheByPathPrefixes(files.flatMap(file => [
+			getActivityPubFileCachePath(file.id),
+			...(file.entryPaths ?? []).map(entryPath => getActivityPubEntryCachePath(file.id, entryPath)),
+		]));
 		runMutationTask(waitUntil, promise, 'Failed to purge /a moved file cache:');
 	});
 
-	fileMutationEvents.on('directory:deleted', ({ env, origin, waitUntil, files }) => {
-		const promise = Promise.allSettled(files.map(file => purgeActivityPubFileCache(env, origin, file))).then(() => undefined);
+	fileMutationEvents.on('directory:deleted', ({ waitUntil, files }) => {
+		const promise = purgeWorkersCacheByPathPrefixes(files.flatMap(file => [
+			getActivityPubFileCachePath(file.id),
+			...(file.entryPaths ?? []).map(entryPath => getActivityPubEntryCachePath(file.id, entryPath)),
+		]));
 		runMutationTask(waitUntil, promise, 'Failed to purge /a deleted directory cache:');
 	});
 
-	fileMutationEvents.on('directory:moved', ({ env, origin, waitUntil, files }) => {
-		const promise = Promise.allSettled(files.map(file => purgeActivityPubFileCache(env, origin, file))).then(() => undefined);
+	fileMutationEvents.on('directory:moved', ({ waitUntil, files }) => {
+		const promise = purgeWorkersCacheByPathPrefixes(files.flatMap(file => [
+			getActivityPubFileCachePath(file.id),
+			...(file.entryPaths ?? []).map(entryPath => getActivityPubEntryCachePath(file.id, entryPath)),
+		]));
 		runMutationTask(waitUntil, promise, 'Failed to purge /a moved directory cache:');
 	});
 
-	fileMutationEvents.on('bucket:deleted', ({ env, origin, waitUntil, bucket, files }) => {
-		const promise = Promise.allSettled([
-			deleteResolveRouteCache(env, `/a/buckets/${encodeURIComponent(bucket.id)}`, origin),
-			deleteResolveRouteCache(env, `/a/buckets/${encodeURIComponent(bucket.id)}/outbox`, origin),
-			deleteResolveRouteCache(env, `/a/buckets/${encodeURIComponent(bucket.id)}/followers`, origin),
-			...files.map(file => purgeActivityPubFileCache(env, origin, file)),
-		]).then(() => undefined);
+	fileMutationEvents.on('bucket:deleted', ({ waitUntil, bucket, files }) => {
+		const promise = purgeWorkersCacheByPathPrefixes([
+			`/a/buckets/${encodeURIComponent(bucket.id)}`,
+			`/a/buckets/${encodeURIComponent(bucket.id)}/outbox`,
+			`/a/buckets/${encodeURIComponent(bucket.id)}/followers`,
+			...files.flatMap(file => [
+				getActivityPubFileCachePath(file.id),
+				...(file.entryPaths ?? []).map(entryPath => getActivityPubEntryCachePath(file.id, entryPath)),
+			]),
+		]);
 		runMutationTask(waitUntil, promise, 'Failed to purge /a deleted bucket cache:');
 	});
 }
@@ -248,7 +247,6 @@ registerActivityPubCachePurgeListeners();
 
 app.use('/a/*', resolveRouteCache({
 	externalMaxAgeSeconds: activityPubCacheMaxAgeSeconds,
-	cacheKeyVariant: activityPubCacheVariant,
 }));
 
 app.get('/a/buckets/:bucketId', async (c) => {
