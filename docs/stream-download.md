@@ -11,7 +11,7 @@
 - v2 プロトコルで受信確認する。旧 SW と新クライアントの混在時は従来の保存方式へフォールバックする。
 - seek を使う HLS → MP4 は `sequential=false` で従来の保存方式を使う。
 
-出力全体を OPFS に置く必要はなくなるが、既存の Range 読み込みバッファやアーカイブ内の復号処理用バッファまでなくなるわけではない。タブ内の画面移動は継続できるが、タブを閉じる・再読み込みすると生成処理が止まるため、処理中は beforeunload で確認する。
+出力全体を OPFS に置く必要はなくなるが、Range 読み込みバッファや復号のチャンクバッファは残る。アーカイブの復号保存は各ファイルの Blob 化をせず、IV の16バイトを除いたサイズで tar ヘッダーを作り、復号チャンクを順次出力する。入力は4 MiB単位のRange取得で、失敗した区間だけ最大4回取得する。タブ内の画面移動は継続できるが、タブを閉じる・再読み込みすると生成処理が止まるため、処理中は beforeunload で確認する。
 
 アプリの完了表示は生成ストリームを書き終えたことを表す。OSへの保存完了や最終的なファイル名はブラウザのダウンロード管理に委ねる。
 
@@ -22,7 +22,7 @@
 - Chromium: BGZF 展開、通常 gzip への再圧縮、tar/ZIP 生成の保存内容一致、生成側 abort 時のダウンロード失敗（E2E 5件）。
 - SW の URL 失効・キャンセル伝播・保存先フォールバックと既存 Range 再試行テスト（計21件）。
 - 全体・client・SW の型チェック、本番 Vite/PWA ビルド成功。対象 ESLint はエラーなし（警告あり）。
-- E2E の共通 signup はローカルのパスフレーズ不一致で403を返すが、このテストは認証不要の固定データを使うため影響しない。
+- E2E の共通 signup はローカルのパスフレーズ不一致で403、テスト用設定の未初期化D1では500を返す。保存テストは認証不要の固定データを使うため通過しているが、DB・認証の動作を検証した結果ではない。
 - Safari、および GB 単位の長時間保存は未検証。
 
 ## 途中完了の再現と回帰テスト
@@ -39,3 +39,15 @@ TMPDIR=/var/tmp STREAM_DOWNLOAD_DEFAULT_TIMEOUTS=1 STREAM_DOWNLOAD_IDLE_MS=35000
 ```
 
 テストの「別タブに移動」は bringToFront を使うが、Playwright はページの focus / visibility をエミュレートするため、実ブラウザのバックグラウンド制限すべてを再現するものではない。OSによるタブ破棄・プロセス強制終了からの継続や、Safari の動作は保証していない。
+
+
+## 暗号化アーカイブの復号保存
+
+`archive-decrypt` では単一 fetch とエントリー単位の `Response.blob()` を廃止した。大きな動画を全量保持する必要がなくなり、入力の一時的な切断は既存の Range 再試行で回復する。HTTP 206・Content-Range・If-Range による整合性確認を使い、未完の区間を出力へ重複して渡さない。保存先の中止は入力取得も中止する。入力・復号エラーは対象エントリー名と元のエラーを保持する。
+
+単体テストでは空ファイル・非整列サイズ・複数エントリーの内容とpadding、ファイル全量を読む前の出力開始、中止通知、入力エラーの保持を確認する。`playwright.archive.config.ts` では実SW・復号Workerを通し、9個の暗号化エントリー（9個目は5 MiB）について tar、BGZF→tar、BGZF→通常gzip をChromiumとFirefoxで検証する。最初の入力レスポンスを故意に短くし、再取得後の9個すべての内容一致を確認した（6件成功）。ユーザーの動画そのものや実際の非表示タブによる制限は、この試験では再現していない。
+
+```sh
+TMPDIR=/var/tmp pnpm --filter app exec vitest run test/decrypted-tar.test.ts test/download-resilience.test.ts
+TMPDIR=/var/tmp pnpm --filter app exec playwright test --config playwright.archive.config.ts
+```

@@ -183,12 +183,12 @@ export function createAesCtrEncryptTransform(key: CryptoKey, iv: Uint8Array<Arra
  * Create a TransformStream that decrypts AES-256-CTR data.
  * Expects the IV (16 bytes) at the beginning of the input stream.
  */
-export function createAesCtrDecryptTransform(key: CryptoKey): TransformStream<Uint8Array, Uint8Array> {
+export function createAesCtrDecryptTransform(key: CryptoKey): TransformStream<Uint8Array, Uint8Array<ArrayBuffer>> {
 	let iv: Uint8Array | null = null;
 	let buffer = new Uint8Array(0);
 	let bytesProcessed = 0;
 
-	return new TransformStream<Uint8Array, Uint8Array>({
+	return new TransformStream<Uint8Array, Uint8Array<ArrayBuffer>>({
 		async transform(chunk, controller) {
 			// Accumulate until we have the IV
 			if (!iv) {

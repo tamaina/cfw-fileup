@@ -1,7 +1,9 @@
-import { createTarHeader, parseTarStream, createBgzfDecompressor, isBgzf, TarArchiver, type FileEntry } from 'bgzf';
+import { createTarHeader, parseTarStream, createBgzfDecompressor, isBgzf } from 'bgzf';
 import { ZipWriter } from '@zip.js/zip.js';
-import { createOpfsTempFile } from './opfs-temp';
 import { createAesCtrDecryptTransform, importAesCtrKey, multibaseToKey } from '../../shared/encryption';
+import { createDecryptedTarStream } from './decrypted-tar';
+import { createRangedDownloadStream } from './download-resilience';
+import { createOpfsTempFile } from './opfs-temp';
 
 type ArchiveFormat = 'tar' | 'zip';
 
@@ -368,37 +370,35 @@ async function writeDecryptedArchive(fileHandle: FileSystemFileHandle | Writable
 	if (!rawKey) throw new Error('Invalid encryption key');
 	const cryptoKey = await importAesCtrKey(rawKey, ['decrypt']);
 
-	const res = await fetch(archiveDownloadUrl(request), { headers: request.authHeaders });
-	if (!res.ok || !res.body) throw new Error(`Failed to fetch archive: HTTP ${res.status}`);
-	const tarStream = request.isTargz
-		? await createTarStreamFromGzip(res.body)
-		: res.body;
-
-	let processedFiles = 0;
-	const entries = (async function* (): AsyncGenerator<FileEntry> {
-		for await (const entry of parseTarStream(tarStream)) {
-			progress(request.id, { phase: 'reading', processedFiles, totalFiles: 0, currentFile: entry.name });
-			const decryptedStream = entry.stream.pipeThrough(createAesCtrDecryptTransform(cryptoKey));
-			const blob = await new Response(decryptedStream).blob();
-			processedFiles++;
-			progress(request.id, { phase: 'writing', processedFiles, totalFiles: 0, currentFile: entry.name });
-			yield { path: entry.name, file: new File([blob], entry.name, { type: 'application/octet-stream' }) };
-		}
-	})();
-
 	const writable = (fileHandle instanceof WritableStream ? fileHandle : await fileHandle.createWritable()).getWriter();
+	const inputAbort = new AbortController();
+	const input = createRangedDownloadStream(archiveDownloadUrl(request), { headers: request.authHeaders, signal: inputAbort.signal }, {
+		rangeSize: 4 * 1024 * 1024,
+		maxAttempts: 4,
+		requestTimeoutMs: 30_000,
+		inactivityTimeoutMs: 30_000,
+		onRetry(error, rangeStart, nextAttempt, delayMs) {
+			console.warn('[archive-decrypt] Retrying input range', { rangeStart, nextAttempt, delayMs, error });
+		},
+	});
+	let processedFiles = 0;
 	try {
-		const archiver = await TarArchiver.createFromEntries(entries);
+		const tarStream = request.isTargz ? await createTarStreamFromGzip(input) : input;
+		const decrypted = createDecryptedTarStream(tarStream, cryptoKey, (name, completed) => {
+			processedFiles = completed;
+			progress(request.id, { phase: 'writing', processedFiles, totalFiles: 0, currentFile: name });
+		}, reason => inputAbort.abort(reason));
 		const outputGzip = request.isTargz && !request.decompress;
-		const stream: ReadableStream<Uint8Array<ArrayBuffer>> = outputGzip
-			? archiver.stream.pipeThrough(new CompressionStream('gzip'))
-			: archiver.stream;
+		const stream = outputGzip ? decrypted.pipeThrough(new CompressionStream('gzip')) : decrypted;
 		await pipeToWritable(stream, writable);
 		await writable.close();
 		progress(request.id, { phase: 'done', processedFiles, totalFiles: processedFiles, currentFile: '' });
 	} catch (err) {
-		await writable.abort().catch(() => {});
+		await writable.abort(err).catch(() => {});
 		throw err;
+	} finally {
+		inputAbort.abort();
+		writable.releaseLock();
 	}
 }
 
