@@ -21,6 +21,7 @@ export type DownloadTransformWorkerRequest =
 		readonly authHeaders: Record<string, string>;
 		/** 指定すると OPFS の代わりにこのハンドルへ直接書き込む（構造化複製で渡される） */
 		readonly fileHandle?: FileSystemFileHandle;
+		readonly writable?: WritableStream<Uint8Array>;
 	} | {
 		readonly id: string;
 		readonly mode: 'hls-to-mp4';
@@ -30,6 +31,7 @@ export type DownloadTransformWorkerRequest =
 		readonly authHeaders: Record<string, string>;
 		/** 指定すると OPFS の代わりにこのハンドルへ直接書き込む（構造化複製で渡される） */
 		readonly fileHandle?: FileSystemFileHandle;
+		readonly writable?: WritableStream<Uint8Array>;
 	};
 
 export type DownloadTransformWorkerRequestInput = DownloadTransformWorkerRequest extends infer T
@@ -62,6 +64,11 @@ async function handleRequest(request: DownloadTransformWorkerRequest): Promise<v
 	let opfsName: string | undefined;
 	try {
 		const mimeType = request.mode === 'download' ? request.mimeType : 'video/mp4';
+		if (request.mode === 'download' && request.writable) {
+			await writeDownload(request.writable, request);
+			post({ type: 'done', id: request.id, savedDirectly: true, filename: request.filename, mimeType });
+			return;
+		}
 		if (request.fileHandle) {
 			// showSaveFilePicker で得たハンドルへ直接書き込む（OPFS・クォータを経由しない）
 			if (request.mode === 'download') {
@@ -81,6 +88,7 @@ async function handleRequest(request: DownloadTransformWorkerRequest): Promise<v
 		}
 		post({ type: 'done', id: request.id, opfsName, savedDirectly: false, filename: request.filename, mimeType });
 	} catch (err) {
+		if (request.writable && !request.writable.locked) await request.writable.abort(err).catch(() => {});
 		console.error('Download transform worker failed', err, {
 			mode: request.mode,
 			filename: request.filename,
@@ -159,8 +167,8 @@ function tempExtension(filename: string): string {
 	return match?.[1] ?? '';
 }
 
-async function writeDownload(fileHandle: FileSystemFileHandle, request: Extract<DownloadTransformWorkerRequest, { mode: 'download' }>): Promise<void> {
-	const writable = await fileHandle.createWritable();
+async function writeDownload(fileHandle: FileSystemFileHandle | WritableStream<Uint8Array>, request: Extract<DownloadTransformWorkerRequest, { mode: 'download' }>): Promise<void> {
+	const writable = (fileHandle instanceof WritableStream ? fileHandle : await fileHandle.createWritable()).getWriter();
 	let completedBytes = 0;
 	let totalBytes = 0;
 	let attempt = 1;
@@ -248,27 +256,34 @@ async function peekStream(stream: ReadableStream<Uint8Array<ArrayBuffer>>): Prom
 	const first = await reader.read();
 	reader.releaseLock();
 	if (first.done || !first.value) throw new Error('Download is empty');
+	const remaining = stream.getReader();
 	const rebuilt = new ReadableStream<Uint8Array<ArrayBuffer>>({
 		start(controller) {
 			controller.enqueue(first.value!);
-			void stream.pipeTo(new WritableStream({
-				write(chunk) {
-					controller.enqueue(chunk);
-				},
-				close() {
+		},
+		async pull(controller) {
+			try {
+				const next = await remaining.read();
+				if (next.done) {
+					remaining.releaseLock();
 					controller.close();
-				},
-				abort(reason) {
-					controller.error(reason);
-				},
-			})).catch(error => controller.error(error));
+				} else {
+					controller.enqueue(next.value);
+				}
+			} catch (error) {
+				remaining.releaseLock();
+				controller.error(error);
+			}
+		},
+		async cancel(reason) {
+			try { await remaining.cancel(reason); } finally { remaining.releaseLock(); }
 		},
 	});
 	const gzip = first.value.length >= 2 && first.value[0] === 0x1f && first.value[1] === 0x8b;
 	return { rebuilt, gzip, bgzf: gzip && isBgzf(first.value) };
 }
 
-async function pipeToWritable(stream: ReadableStream<Uint8Array<ArrayBuffer>>, writable: FileSystemWritableFileStream): Promise<void> {
+async function pipeToWritable(stream: ReadableStream<Uint8Array<ArrayBuffer>>, writable: WritableStreamDefaultWriter<Uint8Array>): Promise<void> {
 	const reader = stream.getReader();
 	try {
 		while (true) {
@@ -276,6 +291,9 @@ async function pipeToWritable(stream: ReadableStream<Uint8Array<ArrayBuffer>>, w
 			if (done) break;
 			await writable.write(value);
 		}
+	} catch (error) {
+		await reader.cancel(error).catch(() => {});
+		throw error;
 	} finally {
 		reader.releaseLock();
 	}

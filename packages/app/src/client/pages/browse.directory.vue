@@ -429,6 +429,7 @@ async function startDirectoryArchiveDownload(format: 'tar' | 'zip'): Promise<voi
 			authHeaders: authHeaders(),
 			filename,
 			fileHandle: saveTarget.kind === 'picker' ? saveTarget.fileHandle : undefined,
+			writable: saveTarget.kind === 'stream' ? saveTarget.writable : undefined,
 		});
 		downloadId = id;
 		currentDownloadId = id;
@@ -479,6 +480,7 @@ async function startEntryArchiveDownload(entry: DisplayEntry): Promise<void> {
 			authHeaders: authHeaders(),
 			filename,
 			fileHandle: saveTarget.kind === 'picker' ? saveTarget.fileHandle : undefined,
+			writable: saveTarget.kind === 'stream' ? saveTarget.writable : undefined,
 		});
 		downloadId = id;
 		currentDownloadId = id;
@@ -528,6 +530,7 @@ async function startArchiveToZipDownload(): Promise<void> {
 			encryptionKey: props.isEncrypted ? props.encryptionKey : undefined,
 			authHeaders: authHeaders(),
 			fileHandle: saveTarget.kind === 'picker' ? saveTarget.fileHandle : undefined,
+			writable: saveTarget.kind === 'stream' ? saveTarget.writable : undefined,
 		});
 		downloadId = id;
 		currentDownloadId = id;
@@ -612,6 +615,7 @@ async function startFullArchiveDownload(decompress: boolean): Promise<void> {
 				filename,
 				encryptionKey: props.encryptionKey,
 				authHeaders: authHeaders(),
+				writable: saveTarget.kind === 'stream' ? saveTarget.writable : undefined,
 				fileHandle,
 			});
 			downloadId = id;
@@ -633,6 +637,7 @@ async function startFullArchiveDownload(decompress: boolean): Promise<void> {
 			mimeType,
 			transform: decompress ? 'decompress-gzip' : 'recompress-bgzf',
 			authHeaders: authHeaders(),
+			writable: saveTarget.kind === 'stream' ? saveTarget.writable : undefined,
 			fileHandle,
 		});
 		downloadId = id;

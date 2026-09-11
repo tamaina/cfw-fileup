@@ -31,6 +31,7 @@ type ArchiveDownloadWorkerDirectoryRequest = {
 	readonly filename: string;
 	/** 指定すると OPFS の代わりにこのハンドルへ直接書き込む（構造化複製で渡される） */
 	readonly fileHandle?: FileSystemFileHandle;
+	readonly writable?: WritableStream<Uint8Array>;
 };
 
 type ArchiveDownloadWorkerToZipRequest = {
@@ -45,6 +46,7 @@ type ArchiveDownloadWorkerToZipRequest = {
 	readonly authHeaders: Record<string, string>;
 	/** 指定すると OPFS の代わりにこのハンドルへ直接書き込む（構造化複製で渡される） */
 	readonly fileHandle?: FileSystemFileHandle;
+	readonly writable?: WritableStream<Uint8Array>;
 };
 
 type ArchiveDownloadWorkerDecryptRequest = {
@@ -61,6 +63,7 @@ type ArchiveDownloadWorkerDecryptRequest = {
 	readonly authHeaders: Record<string, string>;
 	/** 指定すると OPFS の代わりにこのハンドルへ直接書き込む（構造化複製で渡される） */
 	readonly fileHandle?: FileSystemFileHandle;
+	readonly writable?: WritableStream<Uint8Array>;
 };
 
 export type ArchiveDownloadWorkerRequest = ArchiveDownloadWorkerDirectoryRequest | ArchiveDownloadWorkerToZipRequest | ArchiveDownloadWorkerDecryptRequest;
@@ -89,10 +92,10 @@ self.onmessage = (event: MessageEvent<ArchiveDownloadWorkerRequest>) => {
 async function handleRequest(request: ArchiveDownloadWorkerRequest): Promise<void> {
 	let opfsName: string | undefined;
 	try {
-		const savedDirectly = request.fileHandle != null;
-		let fileHandle: FileSystemFileHandle;
-		if (request.fileHandle) {
-			fileHandle = request.fileHandle;
+		const savedDirectly = request.fileHandle != null || request.writable != null;
+		let fileHandle: FileSystemFileHandle | WritableStream<Uint8Array>;
+		if (request.writable || request.fileHandle) {
+			fileHandle = request.writable ?? request.fileHandle!;
 		} else {
 			const tempFile = await createOpfsTempFile(request.id, opfsExtension(request));
 			opfsName = tempFile.opfsName;
@@ -125,6 +128,7 @@ async function handleRequest(request: ArchiveDownloadWorkerRequest): Promise<voi
 			return;
 		}
 	} catch (err) {
+		if (request.writable && !request.writable.locked) await request.writable.abort(err).catch(() => {});
 		console.error('Archive download worker failed', err, {
 			mode: request.mode,
 			filename: request.filename,
@@ -214,7 +218,7 @@ async function fetchFile(fileId: string, headers: Record<string, string>): Promi
 
 async function pipeToWritable(
 	stream: ReadableStream<Uint8Array<ArrayBuffer>>,
-	writable: FileSystemWritableFileStream,
+	writable: WritableStreamDefaultWriter<Uint8Array>,
 	onChunk?: (bytes: number) => void,
 ): Promise<void> {
 	const reader = stream.getReader();
@@ -225,6 +229,9 @@ async function pipeToWritable(
 			await writable.write(value);
 			onChunk?.(value.byteLength);
 		}
+	} catch (error) {
+		await reader.cancel(error).catch(() => {});
+		throw error;
 	} finally {
 		reader.releaseLock();
 	}
@@ -243,11 +250,11 @@ function withByteProgress(
 }
 
 async function writeTar(
-	fileHandle: FileSystemFileHandle,
+	fileHandle: FileSystemFileHandle | WritableStream<Uint8Array>,
 	files: Array<{ path: string; fileId: string; size: number }>,
 	request: Extract<ArchiveDownloadWorkerRequest, { mode: 'directory' }>,
 ): Promise<void> {
-	const writable = await fileHandle.createWritable();
+	const writable = (fileHandle instanceof WritableStream ? fileHandle : await fileHandle.createWritable()).getWriter();
 	let processedFiles = 0;
 	let completedBytes = 0;
 	const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
@@ -281,11 +288,11 @@ async function writeTar(
 }
 
 async function writeZip(
-	fileHandle: FileSystemFileHandle,
+	fileHandle: FileSystemFileHandle | WritableStream<Uint8Array>,
 	files: Array<{ path: string; fileId: string; size: number }>,
 	request: Extract<ArchiveDownloadWorkerRequest, { mode: 'directory' }>,
 ): Promise<void> {
-	const writable = await fileHandle.createWritable();
+	const writable = fileHandle instanceof WritableStream ? fileHandle : await fileHandle.createWritable();
 	const zipWriter = new ZipWriter(writable, { bufferedWrite: false });
 	let processedFiles = 0;
 	let completedBytes = 0;
@@ -310,8 +317,7 @@ async function writeZip(
 		await zipWriter.close();
 		progress(request.id, { phase: 'done', processedFiles, totalFiles: files.length, currentFile: '', completedBytes: totalBytes, totalBytes });
 	} catch (err) {
-		await zipWriter.close().catch(() => {});
-		await writable.abort().catch(() => {});
+		await writable.abort(err).catch(() => {});
 		throw err;
 	}
 }
@@ -321,8 +327,8 @@ function archiveDownloadUrl(request: { fileId: string; token?: string }): string
 	return request.token ? `${base}?token=${encodeURIComponent(request.token)}` : base;
 }
 
-async function writeArchiveAsZip(fileHandle: FileSystemFileHandle, request: Extract<ArchiveDownloadWorkerRequest, { mode: 'archive-to-zip' }>): Promise<void> {
-	const writable = await fileHandle.createWritable();
+async function writeArchiveAsZip(fileHandle: FileSystemFileHandle | WritableStream<Uint8Array>, request: Extract<ArchiveDownloadWorkerRequest, { mode: 'archive-to-zip' }>): Promise<void> {
+	const writable = fileHandle instanceof WritableStream ? fileHandle : await fileHandle.createWritable();
 	const zipWriter = new ZipWriter(writable, { bufferedWrite: false });
 	let processedFiles = 0;
 	let cryptoKey: CryptoKey | null = null;
@@ -350,15 +356,14 @@ async function writeArchiveAsZip(fileHandle: FileSystemFileHandle, request: Extr
 		await zipWriter.close();
 		progress(request.id, { phase: 'done', processedFiles, totalFiles: processedFiles, currentFile: '' });
 	} catch (err) {
-		await zipWriter.close().catch(() => {});
-		await writable.abort().catch(() => {});
+		await writable.abort(err).catch(() => {});
 		throw err;
 	}
 }
 
 /** tar 内の各エントリーを復号して、新しい tar / tar.gz アーカイブとして書き出す。
  *  tar.gz は BGZF ではなく標準 gzip で出力する（bsdtar 互換性のため）。 */
-async function writeDecryptedArchive(fileHandle: FileSystemFileHandle, request: Extract<ArchiveDownloadWorkerRequest, { mode: 'archive-decrypt' }>): Promise<void> {
+async function writeDecryptedArchive(fileHandle: FileSystemFileHandle | WritableStream<Uint8Array>, request: Extract<ArchiveDownloadWorkerRequest, { mode: 'archive-decrypt' }>): Promise<void> {
 	const rawKey = multibaseToKey(request.encryptionKey);
 	if (!rawKey) throw new Error('Invalid encryption key');
 	const cryptoKey = await importAesCtrKey(rawKey, ['decrypt']);
@@ -381,7 +386,7 @@ async function writeDecryptedArchive(fileHandle: FileSystemFileHandle, request: 
 		}
 	})();
 
-	const writable = await fileHandle.createWritable();
+	const writable = (fileHandle instanceof WritableStream ? fileHandle : await fileHandle.createWritable()).getWriter();
 	try {
 		const archiver = await TarArchiver.createFromEntries(entries);
 		const outputGzip = request.isTargz && !request.decompress;
@@ -413,20 +418,27 @@ async function peekArchiveStream(stream: ReadableStream<Uint8Array<ArrayBuffer>>
 	const first = await reader.read();
 	reader.releaseLock();
 	if (first.done || !first.value) throw new Error('Archive is empty');
+	const remaining = stream.getReader();
 	const rebuilt = new ReadableStream<Uint8Array<ArrayBuffer>>({
 		start(controller) {
 			controller.enqueue(first.value!);
-			void stream.pipeTo(new WritableStream({
-				write(chunk) {
-					controller.enqueue(chunk);
-				},
-				close() {
+		},
+		async pull(controller) {
+			try {
+				const next = await remaining.read();
+				if (next.done) {
+					remaining.releaseLock();
 					controller.close();
-				},
-				abort(reason) {
-					controller.error(reason);
-				},
-			})).catch(error => controller.error(error));
+				} else {
+					controller.enqueue(next.value);
+				}
+			} catch (error) {
+				remaining.releaseLock();
+				controller.error(error);
+			}
+		},
+		async cancel(reason) {
+			try { await remaining.cancel(reason); } finally { remaining.releaseLock(); }
 		},
 	});
 	const gzip = first.value.length >= 2 && first.value[0] === 0x1f && first.value[1] === 0x8b;

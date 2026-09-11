@@ -224,6 +224,7 @@ async function startDecompressedDownload(): Promise<void> {
 			encryptionKey: props.encryptionKey,
 			authHeaders: authHeaders(),
 			fileHandle: saveTarget.kind === 'picker' ? saveTarget.fileHandle : undefined,
+			writable: saveTarget.kind === 'stream' ? saveTarget.writable : undefined,
 		});
 		downloadId = id;
 		currentDownloadId = id;
@@ -273,6 +274,7 @@ async function startEncryptedDownload(): Promise<void> {
 			encryptionKey: props.encryptionKey,
 			authHeaders: authHeaders(),
 			fileHandle: saveTarget.kind === 'picker' ? saveTarget.fileHandle : undefined,
+			writable: saveTarget.kind === 'stream' ? saveTarget.writable : undefined,
 		});
 		downloadId = id;
 		currentDownloadId = id;

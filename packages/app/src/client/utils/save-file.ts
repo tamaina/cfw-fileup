@@ -1,9 +1,10 @@
+import { createStreamDownload } from './stream-download';
 /**
- * File System Access API (`showSaveFilePicker`) を使った直接保存の補助ユーティリティ。
+ * SW ストリーム保存・File System Access API・OPFS の保存先選択。
  *
  * ダウンロード時、対応ブラウザでは OPFS を経由せずユーザーが選んだ保存先に直接書き込むことで、
  * OPFS のストレージクォータ超過 (issue #131) を回避する。
- * 非対応・失敗時は呼び出し側で OPFS へのフォールバックを行う。
+ * 順次出力では SW の attachment Response を優先し、利用できなければ直接保存・OPFS の順に試す。
  */
 
 type ShowSaveFilePickerWindow = Window & {
@@ -111,13 +112,17 @@ export type WorkerDownloadResult = {
 	readonly mimeType: string;
 };
 
-/** 保存先の解決結果。picker が使えればそのハンドル、使えなければ OPFS へフォールバック。 */
+/** 保存先の解決結果。順次出力は stream、seek が必要な出力は picker / OPFS。 */
 export type SaveTarget =
 	| { readonly kind: 'picker'; readonly fileHandle: FileSystemFileHandle }
-	| { readonly kind: 'opfs' };
+	| { readonly kind: 'opfs' }
+	| { readonly kind: 'stream'; readonly writable: WritableStream<Uint8Array> };
 
 /**
  * ダウンロードの保存先を決定する。
+ *
+ * - 順次出力では既存 SW へのストリーム転送を優先する。
+ * - seek が必要な MP4 などは sequential=false を指定する。
  *
  * - `showSaveFilePicker` 対応時はダイアログを表示し、選ばれたハンドルを返す（OPFS・クォータを回避）。
  * - ユーザーがダイアログをキャンセルした場合は {@link DownloadCancelledError} をスローする（ダウンロード中止）。
@@ -126,7 +131,11 @@ export type SaveTarget =
  *   不足していれば {@link StorageQuotaExceededError} をスローする。
  * - OPFS も利用できない場合はエラーをスローする。
  */
-export async function resolveSaveTarget(filename: string, mimeType: string, requiredBytes?: number): Promise<SaveTarget> {
+export async function resolveSaveTarget(filename: string, mimeType: string, requiredBytes?: number, sequential = true): Promise<SaveTarget> {
+	if (sequential) {
+		const writable = await createStreamDownload(filename);
+		if (writable) return { kind: 'stream', writable };
+	}
 	const fileHandle = await pickSaveFileHandle(filename, mimeType);
 	if (fileHandle) return { kind: 'picker', fileHandle };
 	if (!('storage' in navigator) || !navigator.storage.getDirectory) {

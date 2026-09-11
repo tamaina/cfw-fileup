@@ -1,3 +1,4 @@
+import { installStreamDownloads } from './stream-download';
 import { putShareTargetPayload, type ShareTargetFileEntry } from '../shared/share-target-store';
 
 declare global {
@@ -8,6 +9,8 @@ declare global {
 
 const sw = self as unknown as ServiceWorkerGlobalScope;
 void self.__WB_MANIFEST;
+
+installStreamDownloads(sw);
 
 sw.skipWaiting();
 sw.addEventListener('activate', (event) => {

@@ -1,3 +1,4 @@
+import { finishStreamDownload } from '@/utils/stream-download';
 /**
  * ダウンロード用 Worker のライフサイクルをコンポーネント外で管理するモジュール。
  *
@@ -15,6 +16,7 @@ import type { WorkerDownloadResult } from '@/utils/save-file';
 import { updateDownloadStatus } from '@/store/download-status';
 
 type PendingRequest = {
+	worker: 'transform' | 'archive';
 	resolve: (value: WorkerDownloadResult) => void;
 	reject: (error: Error & { opfsName?: string }) => void;
 };
@@ -52,6 +54,8 @@ function getDownloadTransformWorker(): Worker {
 			pending.reject(error);
 		}
 	};
+	downloadTransformWorker.onerror = () => terminateDownloadTransformWorker();
+	downloadTransformWorker.onmessageerror = () => terminateDownloadTransformWorker();
 	return downloadTransformWorker;
 }
 
@@ -79,6 +83,8 @@ function getArchiveDownloadWorker(): Worker {
 			pending.reject(error);
 		}
 	};
+	archiveDownloadWorker.onerror = () => terminateArchiveDownloadWorker();
+	archiveDownloadWorker.onmessageerror = () => terminateArchiveDownloadWorker();
 	return archiveDownloadWorker;
 }
 
@@ -91,10 +97,21 @@ function getArchiveDownloadWorker(): Worker {
 export function runDownloadTransform(request: DownloadTransformWorkerRequestInput): { id: string; promise: Promise<WorkerDownloadResult> } {
 	const id = String(++requestId);
 	const promise = new Promise<WorkerDownloadResult>((resolve, reject) => {
-		pendingRequests.set(id, { resolve, reject });
-		getDownloadTransformWorker().postMessage({ ...request, id });
+		pendingRequests.set(id, { resolve, reject, worker: 'transform' });
+		try {
+			getDownloadTransformWorker().postMessage({ ...request, id }, request.writable ? [request.writable] : []);
+		} catch (error) {
+			pendingRequests.delete(id);
+			reject(error);
+		}
 	});
-	return { id, promise };
+	return { id, promise: promise.then(result => {
+		finishStreamDownload(request.writable);
+		return result;
+	}, error => {
+		finishStreamDownload(request.writable, true);
+		throw error;
+	}) };
 }
 
 /**
@@ -103,10 +120,21 @@ export function runDownloadTransform(request: DownloadTransformWorkerRequestInpu
 export function runArchiveDownload(request: DistributiveOmit<ArchiveDownloadWorkerRequest, 'id'>): { id: string; promise: Promise<WorkerDownloadResult> } {
 	const id = String(++requestId);
 	const promise = new Promise<WorkerDownloadResult>((resolve, reject) => {
-		pendingRequests.set(id, { resolve, reject });
-		getArchiveDownloadWorker().postMessage({ ...request, id });
+		pendingRequests.set(id, { resolve, reject, worker: 'archive' });
+		try {
+			getArchiveDownloadWorker().postMessage({ ...request, id }, request.writable ? [request.writable] : []);
+		} catch (error) {
+			pendingRequests.delete(id);
+			reject(error);
+		}
 	});
-	return { id, promise };
+	return { id, promise: promise.then(result => {
+		finishStreamDownload(request.writable);
+		return result;
+	}, error => {
+		finishStreamDownload(request.writable, true);
+		throw error;
+	}) };
 }
 
 /**
@@ -126,12 +154,23 @@ export function removeProgressCallback(id: string): void {
  * エラー時に Worker を再起動する（古い Worker を terminate して次回生成し直す）。
  * Worker が壊れた状態のまま再利用しないための安全策。
  */
+function rejectWorkerRequests(worker: PendingRequest['worker']): void {
+	for (const [id, pending] of pendingRequests) {
+		if (pending.worker !== worker) continue;
+		pendingRequests.delete(id);
+		progressCallbacks.delete(id);
+		pending.reject(new Error('ダウンロード処理が中断されました。再度お試しください。'));
+	}
+}
+
 export function terminateDownloadTransformWorker(): void {
+	rejectWorkerRequests('transform');
 	downloadTransformWorker?.terminate();
 	downloadTransformWorker = null;
 }
 
 export function terminateArchiveDownloadWorker(): void {
+	rejectWorkerRequests('archive');
 	archiveDownloadWorker?.terminate();
 	archiveDownloadWorker = null;
 }

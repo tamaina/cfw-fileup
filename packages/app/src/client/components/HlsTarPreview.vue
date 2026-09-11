@@ -98,7 +98,7 @@ async function downloadAsMp4(): Promise<void> {
 	}
 	let downloadId: string | null = null;
 	try {
-		const saveTarget = await resolveSaveTarget(videoFilename.value, 'video/mp4');
+		const saveTarget = await resolveSaveTarget(videoFilename.value, 'video/mp4', undefined, false);
 		const { id, promise } = runDownloadTransform({
 			mode: 'hls-to-mp4',
 			url: selectedDownloadUrl.value,
