@@ -243,8 +243,13 @@ async function listFiles(c: { env: Env; req: { header(name: string): string | un
 			GROUP BY sort_type, type, name
 		)
 		SELECT * FROM grouped
-		WHERE (? IS NULL OR sort_type > ? OR (sort_type = ? AND (name > ? OR (name = ? AND key > ?))))
-		ORDER BY sort_type ASC, name ASC, key ASC
+		WHERE (? IS NULL OR sort_type > ? OR (sort_type = ? AND (
+			(sort_type = 0 AND (name > ? OR (name = ? AND key > ?)))
+			OR (sort_type = 1 AND key < ?)
+		)))
+		ORDER BY sort_type ASC, CASE WHEN sort_type = 0 THEN name END ASC,
+			CASE WHEN sort_type = 0 THEN key END ASC,
+			CASE WHEN sort_type = 1 THEN key END DESC
 		LIMIT ?
 	`;
 	const restArgs = [
@@ -256,7 +261,7 @@ async function listFiles(c: { env: Env; req: { header(name: string): string | un
 		childStart, childStart, childStart, childStart, childStart,
 		bucket.id, prefixLike, normalizedPath,
 		...publicExtraBind,
-		cursorSortType, cursorSortType, cursorSortType, cursorName, cursorName, cursorKey,
+		cursorSortType, cursorSortType, cursorSortType, cursorName, cursorName, cursorKey, cursorKey,
 		limit + 1,
 	];
 	const rows = (await c.env.DB.prepare(sqlText).bind(...restArgs).all<RawFileListEntry>()).results;

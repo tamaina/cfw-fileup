@@ -246,6 +246,62 @@ describe('POST /api/files/ls', () => {
 		expect(ownerBody.items).toContainEqual(expect.objectContaining({ name: 'unlisted.txt', fileId: unlistedFileId, isListed: false }));
 	});
 
+	test.each(['GET', 'POST'])('%s listing paginates files by descending ID', async (method) => {
+		const { token, bucketId } = await setupUserAndBucket();
+		const ids = [];
+		for (const path of ['z.txt', 'a.txt', 'm.txt']) {
+			ids.push(await createClosedFile({ token, bucketId, path }));
+		}
+		const actual: string[] = [];
+		let cursor: string | null = null;
+		for (let page = 0; page < ids.length; page++) {
+			const input = { bucketName: 'test_bucket', limit: 1, cursor };
+			const response = method === 'POST'
+				? await app.request('/api/files/ls', { method, headers: authHeaders(token), body: JSON.stringify(input) }, env)
+				: await app.request(`/api/files/ls?bucketName=test_bucket&limit=1${cursor ? `&cursor=${cursor}` : ''}`, {}, env);
+			expect(response.status).toBe(200);
+			const body = await response.json() as { items: { fileId: string }[]; nextCursor: string | null; hasMore: boolean };
+			actual.push(...body.items.map(entry => entry.fileId));
+			expect(body.hasMore).toBe(page < ids.length - 1);
+			cursor = body.nextCursor;
+		}
+		expect(actual).toEqual(ids.sort().reverse());
+		expect(cursor).toBeNull();
+	});
+
+	test.each(['tar', 'targz'])('%s archive listing follows physical entry order', async (format) => {
+		const { token, bucketId } = await setupUserAndBucket();
+		const opened = await app.request('/api/files/create/open', {
+			method: 'POST', headers: authHeaders(token),
+			body: JSON.stringify({ bucketId, path: 'archive.tar' }),
+		}, env);
+		const { fileId } = await opened.json() as { fileId: string };
+		const entries = [
+			{ path: 'dir/a.txt', position: 2 },
+			{ path: 'dir/z.txt', position: 0 },
+			{ path: 'dir/m.txt', position: 1 },
+		].map(({ path, position }) => format === 'tar'
+			? { path, mimeType: 'text/plain', offset: 512 + position * 1024, size: 1 }
+			: { path, mimeType: 'text/plain', aStart: position === 2 ? 512 : 0, aFirstEnd: position === 2 ? 1024 : 512,
+							aFinalStart: position === 2 ? 512 : 0, aEnd: position === 2 ? 1024 : 512,
+							rStartOffset: position === 1 ? 1024 : 512, rEndOffset: 0 });
+		const indexed = await app.request(`/api/files/create/${format}-index`, {
+			method: 'POST', headers: authHeaders(token), body: JSON.stringify({ fileId, files: entries }),
+		}, env);
+		expect(indexed.status).toBe(200);
+		await env.R2.put(fileId, new Uint8Array(4096));
+		const closed = await app.request('/api/files/create/close', {
+			method: 'POST', headers: authHeaders(token), body: JSON.stringify({ fileId, visibility: 'public' }),
+		}, env);
+		expect(closed.status).toBe(200);
+		for (const suffix of ['?list', '?list=dir/']) {
+			const response = await app.request(`/d/${fileId}${suffix}`, {}, env);
+			expect(response.status).toBe(200);
+			const body = await response.json() as { path: string }[];
+			expect(body.map(entry => entry.path)).toEqual(['dir/z.txt', 'dir/m.txt', 'dir/a.txt']);
+		}
+	});
+
 	test('lists direct entries with cursor pagination', async () => {
 		const { token, bucketId } = await setupUserAndBucket();
 		await app.request('/api/directories/create', {

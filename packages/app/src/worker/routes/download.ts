@@ -1,5 +1,5 @@
 import { Hono, type Context } from 'hono';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, asc, sql } from 'drizzle-orm';
 import { createBgzfBlock } from 'bgzf';
 import parseRange from 'range-parser';
 import { aidxRegExp, genEaidx, parseEaidx } from '../../shared/eaid-x';
@@ -711,14 +711,14 @@ async function handleDownload(c: AppContext, entryPath: string | null): Promise<
 				listPath
 					? and(eq(targzFiles.fileId, file.id), likePrefix(targzFiles.path, listPath))
 					: eq(targzFiles.fileId, file.id),
-			);
+			).orderBy(asc(targzFiles.aStart), asc(targzFiles.rStartOffset), asc(targzFiles.id));
 			return c.json(index);
 		} else {
 			const index = await db.select().from(tarFiles).where(
 				listPath
 					? and(eq(tarFiles.fileId, file.id), likePrefix(tarFiles.path, listPath))
 					: eq(tarFiles.fileId, file.id),
-			);
+			).orderBy(asc(tarFiles.offset), asc(tarFiles.id));
 			return c.json(index);
 		}
 	}
