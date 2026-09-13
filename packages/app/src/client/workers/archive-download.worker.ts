@@ -1,7 +1,7 @@
 import { createTarHeader, parseTarStream, isBgzf } from 'bgzf';
 import { ZipWriter } from '@zip.js/zip.js';
 import { importAesCtrKey, multibaseToKey } from '../../shared/encryption';
-import { DOWNLOAD_RANGE_BYTES, PIPELINE_WINDOW, PROCESS_JOB_BYTES } from './download-processing';
+import { DOWNLOAD_RANGE_BYTES, PROCESS_JOB_BYTES } from './download-processing';
 import { DownloadPipeline, parallelDecrypt, parallelBgzf } from './download-pipeline';
 import { createDecryptedTarStream } from './decrypted-tar';
 import { createRangedDownloadStream } from './download-resilience';
@@ -351,8 +351,8 @@ async function writeArchiveAsZip(fileHandle: FileSystemFileHandle | WritableStre
 	try {
 		progress(request.id, { phase: 'reading', processedFiles: 0, totalFiles: 0, currentFile: request.filename });
 		const input = createRangedDownloadStream(archiveDownloadUrl(request), { headers: request.authHeaders, signal: pipeline.abort.signal }, {
-			rangeSize: DOWNLOAD_RANGE_BYTES, maxBufferedRanges: PIPELINE_WINDOW,
-			staging: 'opfs', readChunkSize: PROCESS_JOB_BYTES, onCleanup: cleanup => pipeline.trackCleanup(cleanup), acquireNetwork: () => pipeline.network(),
+			rangeSize: DOWNLOAD_RANGE_BYTES, maxBufferedRanges: 1,
+			readChunkSize: PROCESS_JOB_BYTES, onCleanup: cleanup => pipeline.trackCleanup(cleanup), acquireNetwork: () => pipeline.network(),
 			maxAttempts: 4, requestTimeoutMs: 30_000, inactivityTimeoutMs: 30_000,
 		});
 		const tarStream = request.isTargz
@@ -386,8 +386,8 @@ async function writeDecryptedArchive(fileHandle: FileSystemFileHandle | Writable
 	const inputAbort = new AbortController();
 	const input = createRangedDownloadStream(archiveDownloadUrl(request), { headers: request.authHeaders, signal: AbortSignal.any([inputAbort.signal, pipeline.abort.signal]) }, {
 		rangeSize: DOWNLOAD_RANGE_BYTES,
-		maxBufferedRanges: PIPELINE_WINDOW,
-		staging: 'opfs', readChunkSize: PROCESS_JOB_BYTES, onCleanup: cleanup => pipeline.trackCleanup(cleanup),
+		maxBufferedRanges: 1,
+		readChunkSize: PROCESS_JOB_BYTES, onCleanup: cleanup => pipeline.trackCleanup(cleanup),
 		acquireNetwork: () => pipeline.network(),
 		maxAttempts: 4,
 		requestTimeoutMs: 30_000,

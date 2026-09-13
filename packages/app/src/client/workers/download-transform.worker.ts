@@ -4,7 +4,7 @@ import { importAesCtrKey, multibaseToKey } from '../../shared/encryption';
 import { createOpfsTempFile } from './opfs-temp';
 import { createRangedDownloadStream } from './download-resilience';
 import { DownloadPipeline, parallelDecrypt, parallelBgzf } from './download-pipeline';
-import { DOWNLOAD_RANGE_BYTES, PIPELINE_WINDOW, PROCESS_JOB_BYTES } from './download-processing';
+import { DOWNLOAD_RANGE_BYTES, PROCESS_JOB_BYTES } from './download-processing';
 
 const DOWNLOAD_MAX_ATTEMPTS = 4;
 const DOWNLOAD_RANGE_SIZE = DOWNLOAD_RANGE_BYTES;
@@ -186,8 +186,8 @@ async function writeDownload(fileHandle: FileSystemFileHandle | WritableStream<U
 			completedBytes, totalBytes, attempt, maxAttempts: DOWNLOAD_MAX_ATTEMPTS,
 		});
 		let stream = createRangedDownloadStream(request.url, { headers: request.authHeaders, signal: pipeline.abort.signal }, {
-			maxBufferedRanges: PIPELINE_WINDOW,
-			staging: 'opfs', readChunkSize: PROCESS_JOB_BYTES, onCleanup: cleanup => pipeline.trackCleanup(cleanup),
+			maxBufferedRanges: 1,
+			readChunkSize: PROCESS_JOB_BYTES, onCleanup: cleanup => pipeline.trackCleanup(cleanup),
 			acquireNetwork: () => pipeline.network(),
 			rangeSize: DOWNLOAD_RANGE_SIZE,
 			maxAttempts: DOWNLOAD_MAX_ATTEMPTS,

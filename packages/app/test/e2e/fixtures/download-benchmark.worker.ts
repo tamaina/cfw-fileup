@@ -25,7 +25,7 @@ self.onmessage = async (event: MessageEvent<{
 		const key = await importAesCtrKey(new Uint8Array(32).fill(9));
 		let stream = createRangedDownloadStream(request.url, { signal: pipeline?.abort.signal }, {
 			rangeSize: !pipeline && request.kind === 'archive' ? 4 * 1024 * 1024 : 32 * 1024 * 1024,
-			staging: pipeline ? 'opfs' : undefined,
+			staging: request.mode === 'opfs' ? 'opfs' : undefined,
 			readChunkSize: pipeline ? 1024 * 1024 : undefined,
 			onCleanup: cleanup => pipeline?.trackCleanup(cleanup),
 			onQueue: (bytes, disk) => { if (disk) peakDiskBytes = Math.max(peakDiskBytes, bytes); },

@@ -31,6 +31,11 @@ for (const limit of [1, 3]) {
 	for (const kind of ['encrypted', 'bgzf', 'archive'] as const) {
 		test(`parallel download ${kind}, limit ${limit}`, async ({ page, context }) => {
 			const input = kind === 'encrypted' ? encrypted : kind === 'bgzf' ? bgzf : archive;
+			// These paths stream output: any OPFS access would be unintended input staging.
+			await context.route(/\/(download-transform|archive-download)\.worker\.ts(?:\?|$)/, async route => {
+				const response = await route.fetch();
+				await route.fulfill({ response, body: `Object.defineProperty(navigator.storage, 'getDirectory', { value() { throw new Error('Input staging must not use OPFS'); } });\n` + await response.text() });
+			});
 			await context.route('**/d/parallel-fixture', async route => {
 				const match = route.request().headers().range.match(/bytes=(\d+)-(\d+)/)!;
 				const start = Number(match[1]);

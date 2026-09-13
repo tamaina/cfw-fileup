@@ -282,3 +282,31 @@ test('processing worker failure retains the network lease until cleanup acknowle
 	release(); await pipeline.finish();
 	await vi.waitFor(() => expect(scheduler.snapshot().sessions).toBe(0));
 });
+
+test('32 MiB RAM range queue stops fetching while downstream is stalled', async () => {
+	const size = 32 * 1024 * 1024;
+	const requests: number[] = [];
+	vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => {
+		const start = Number(new Headers(init.headers).get('Range')!.match(/bytes=(\d+)/)![1]);
+		requests.push(start);
+		return new Response(new Uint8Array(size), { status: 206, headers: { 'Content-Range': `bytes ${start}-${start + size - 1}/${size * 3}`, ETag: '"ram"' } });
+	}));
+	let peak = 0;
+	let cleanup!: Promise<void>;
+	const reader = createRangedDownloadStream('/ram', {}, {
+		rangeSize: size, readChunkSize: 1024 * 1024, maxBufferedRanges: 1,
+		maxAttempts: 1, requestTimeoutMs: 1000, inactivityTimeoutMs: 1000,
+		onQueue(bytes, disk) { expect(disk).toBe(false); peak = Math.max(peak, bytes); },
+		onCleanup(promise) { cleanup = promise; },
+	}).getReader();
+	await reader.read();
+	await new Promise(resolve => setTimeout(resolve, 20));
+	expect(requests).toEqual([0]);
+	for (let i = 1; i < 32; i++) await reader.read();
+	await reader.read();
+	await new Promise(resolve => setTimeout(resolve, 20));
+	expect(requests).toEqual([0, size]);
+	expect(peak).toBe(size);
+	await reader.cancel(); await cleanup;
+	expect(requests).toHaveLength(2);
+});

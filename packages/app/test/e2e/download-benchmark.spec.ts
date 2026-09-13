@@ -88,13 +88,13 @@ for (const scenario of ['fast', 'slow-network', 'slow-save']) {
 			test.setTimeout(120_000);
 			await page.goto('/');
 			const results = [];
-			for (const mode of ['baseline', 'copy-only', 'parallel']) {
+			for (const mode of ['baseline', 'copy-only', 'opfs', 'parallel']) {
 				const result = await page.evaluate(async ({ mode, kind, url, source, slowSave }) => {
 					const schedulerPath = '/src/client/store/download-scheduler.ts';
 					const { DownloadScheduler } = await import(/* @vite-ignore */ schedulerPath);
 					const broker = new DownloadScheduler(3, navigator.hardwareConcurrency);
 					const worker = new Worker('/test/e2e/fixtures/download-benchmark.worker.ts', { type: 'module' });
-					const port = mode === 'parallel' ? broker.connect('benchmark') : undefined;
+					const port = (mode === 'parallel' || mode === 'opfs') ? broker.connect('benchmark') : undefined;
 					try {
 						const result = await new Promise<Record<string, unknown>>((resolve, reject) => {
 							worker.onmessage = event => event.data.error ? reject(new Error(event.data.error)) : resolve(event.data);
