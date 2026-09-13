@@ -49,8 +49,8 @@ test.beforeEach(async ({ page }) => {
 	await page.waitForFunction(() => !!navigator.serviceWorker.controller);
 });
 
-async function startDownload(page: import('@playwright/test').Page, filename: string): Promise<void> {
-	await page.evaluate(async (filename) => {
+async function startDownload(page: import('@playwright/test').Page, filename: string, initialWrite = true): Promise<void> {
+	await page.evaluate(async ({ filename, initialWrite }) => {
 		const path = '/client.js';
 		const { createStreamDownload, finishStreamDownload } = await import(/* @vite-ignore */ path);
 		const writable = await createStreamDownload(filename);
@@ -84,8 +84,8 @@ async function startDownload(page: import('@playwright/test').Page, filename: st
 				finishStreamDownload(writable, true);
 			},
 		};
-		await window.streamTest.write(1);
-	}, filename);
+		if (initialWrite) await window.streamTest.write(1);
+	}, { filename, initialWrite });
 }
 
 test('retains the entire download across an idle period and another tab', async ({ page, context }) => {
@@ -128,4 +128,15 @@ test('successive downloads retain complete contents', async ({ page }) => {
 		if (!path) throw new Error('Missing downloaded file');
 		expect(await readFile(path)).toEqual(Buffer.alloc(65536, 1));
 	}
+});
+
+test('requests the download before producing bytes and preserves the complete payload', async ({ page, browserName }) => {
+	const started = page.waitForEvent('download');
+	await startDownload(page, 'preparing.bin', false);
+	// Firefox exposes its download UI only after the first body bytes arrive.
+	if (browserName === 'chromium') await started;
+	await page.evaluate(async () => { await window.streamTest.write(7); await window.streamTest.close(); });
+	const download = await started;
+	expect(await download.failure()).toBeNull();
+	expect(await readFile((await download.path())!)).toEqual(Buffer.alloc(65536, 7));
 });

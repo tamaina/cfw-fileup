@@ -141,7 +141,7 @@ describe('stream download keepalive lifecycle', () => {
 					if (data.type === 'stream-download-v2') port.onmessage?.({ data: { type: 'ready', path: '/__stream-download/1234-abcd' } });
 				},
 			} } });
-			vi.stubGlobal('document', { createElement: () => ({ remove: vi.fn() }), body: { append: vi.fn() } });
+			vi.stubGlobal('document', { createElement: () => ({ remove: vi.fn() }), body: { append: () => port.onmessage?.({ data: { type: 'started' } }) } });
 			vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() });
 			const { createStreamDownload, finishStreamDownload } = await import('../src/client/utils/stream-download');
 			const writable = await createStreamDownload('test.bin');
@@ -154,4 +154,29 @@ describe('stream download keepalive lifecycle', () => {
 			expect(messages).toHaveLength(3);
 		});
 	}
+});
+
+test('waits for initial SW activation and download fetch before starting the producer', async () => {
+	vi.useFakeTimers();
+	const port = { onmessage: null as null | ((event: { data: unknown }) => void), postMessage: vi.fn(), close: vi.fn() };
+	const sw = Object.assign(new EventTarget(), { controller: null as null | { postMessage: typeof postMessage } });
+	const postMessage = vi.fn(() => port.onmessage?.({ data: { type: 'ready', path: '/__stream-download/1234-abcd' } }));
+	const append = vi.fn();
+	vi.stubGlobal('navigator', { serviceWorker: sw });
+	vi.stubGlobal('MessageChannel', class { port1 = port; port2 = {}; });
+	vi.stubGlobal('document', { createElement: () => ({}), body: { append } });
+	vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() });
+	try {
+		const { createStreamDownload, finishStreamDownload } = await import('../src/client/utils/stream-download');
+		let returned = false;
+		const pending = createStreamDownload('pending.bin').then(value => { returned = true; return value; });
+		await vi.advanceTimersByTimeAsync(100);
+		expect(postMessage).not.toHaveBeenCalled();
+		sw.controller = { postMessage }; sw.dispatchEvent(new Event('controllerchange'));
+		await vi.advanceTimersByTimeAsync(0);
+		expect(append).toHaveBeenCalledOnce(); expect(returned).toBe(false);
+		port.onmessage?.({ data: { type: 'started' } });
+		const writable = await pending; expect(writable).not.toBeNull();
+		finishStreamDownload(writable ?? undefined);
+	} finally { vi.unstubAllGlobals(); }
 });

@@ -18,6 +18,7 @@ const props = withDefaults(defineProps<{
 	bucketId: string | null;
 	downloadUrl: string;
 	downloadFilename: string;
+	downloadDisabled?: boolean;
 	isOwner?: boolean;
 	isModerationForcedPrivate?: boolean;
 	reportPath?: string;
@@ -211,7 +212,11 @@ function submitKeyDialog(): void {
 <template>
   <div>
     <div class="card file-actions">
-      <a v-if="showDownloadAction" :href="downloadUrl" :download="downloadFilename" class="btn btn-primary" @click="emit('download', $event)">
+      <button v-if="showDownloadAction && downloadDisabled" type="button" class="btn btn-primary" disabled>
+        <Download :size="16" :stroke-width="2" aria-hidden="true" />
+        ダウンロード
+      </button>
+      <a v-else-if="showDownloadAction" :href="downloadUrl" :download="downloadFilename" class="btn btn-primary" @click="emit('download', $event)">
         <Download :size="16" :stroke-width="2" aria-hidden="true" />
         ダウンロード
       </a>

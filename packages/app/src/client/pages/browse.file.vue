@@ -97,6 +97,7 @@ const isTextLike = computed(() => {
 
 const downloadError = ref('');
 const visibleDownloadError = computed(() => props.downloadErrorOverride || downloadError.value);
+const downloadBusy = ref(false);
 const downloadProgress = ref<DownloadTransformProgress | null>(null);
 const quotaDialog = ref<{ requiredBytes: number; availableBytes: number } | null>(null);
 const exifItems = ref<ExifDisplayItem[]>([]);
@@ -209,10 +210,12 @@ function completePreviewAd(): void {
 }
 
 async function startDecompressedDownload(): Promise<void> {
+	if (downloadBusy.value) return;
 	downloadError.value = '';
 	downloadProgress.value = null;
 	const filename = decompressedFilename(props.filePath);
 	let downloadId: string | null = null;
+	downloadBusy.value = true;
 	try {
 		const saveTarget = await resolveSaveTarget(filename, 'application/octet-stream', props.fileSize ?? undefined);
 		const { id, promise } = runDownloadTransform({
@@ -254,15 +257,19 @@ async function startDecompressedDownload(): Promise<void> {
 		const message = err instanceof Error ? err.message : String(err);
 		if (downloadId) failDownloadStatus(downloadId, message);
 		downloadError.value = message;
+	} finally {
+		downloadBusy.value = false;
 	}
 }
 
 /** 暗号化ファイルのダウンロード: ワーカーで復号してから保存 */
 async function startEncryptedDownload(): Promise<void> {
+	if (downloadBusy.value) return;
 	downloadError.value = '';
 	downloadProgress.value = null;
 	const filename = downloadFilename.value;
 	let downloadId: string | null = null;
+	downloadBusy.value = true;
 	try {
 		const saveTarget = await resolveSaveTarget(filename, props.mimeType ?? 'application/octet-stream', props.fileSize ?? undefined);
 		const { id, promise } = runDownloadTransform({
@@ -304,12 +311,15 @@ async function startEncryptedDownload(): Promise<void> {
 		const message = err instanceof Error ? err.message : String(err);
 		if (downloadId) failDownloadStatus(downloadId, message);
 		downloadError.value = message;
+	} finally {
+		downloadBusy.value = false;
 	}
 }
 
 const encryptedDownloadConfirmOpen = ref(false);
 
 function handleDownloadClick(event: MouseEvent): void {
+	if (downloadBusy.value) { event.preventDefault(); return; }
 	// 暗号化アーカイブエントリーで鍵あり: 親(browse.vue)が復号してダウンロードする
 	if (props.isEncrypted && props.encryptionKey && props.downloadUrlOverride) {
 		emit('download', event);
@@ -372,6 +382,7 @@ watch(canShowPreview, () => {
       :bucket-id="bucketId"
       :download-url="downloadUrl"
       :download-filename="downloadFilename"
+      :download-disabled="downloadBusy"
       :is-owner="isOwner"
       :is-moderation-forced-private="isModerationForcedPrivate"
       :report-path="reportPath"
@@ -382,7 +393,7 @@ watch(canShowPreview, () => {
       @update:is-moderation-forced-private="emit('update:isModerationForcedPrivate', $event)"
       @add-encryption-key="emit('addEncryptionKey', $event)"
     >
-      <button v-if="!hideManagement && isGz" type="button" class="btn btn-secondary" :disabled="downloadProgress != null" @click="startDecompressedDownload">
+      <button v-if="!hideManagement && isGz" type="button" class="btn btn-secondary" :disabled="downloadBusy" @click="startDecompressedDownload">
         <PackageOpen :size="16" :stroke-width="2" aria-hidden="true" />
         展開してダウンロード
       </button>

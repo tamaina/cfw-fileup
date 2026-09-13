@@ -12,7 +12,20 @@ function beforeUnload(event: BeforeUnloadEvent): void {
 
 /** SW が受信できた場合だけストリーム保存を選ぶ。旧 SW・非対応環境は従来保存へ戻す。 */
 export async function createStreamDownload(filename: string): Promise<WritableStream<Uint8Array> | null> {
-	const controller = navigator.serviceWorker?.controller;
+	const serviceWorker = navigator.serviceWorker;
+	if (!serviceWorker) return null;
+	// 初回訪問のSW有効化を待ち、準備中というだけで全量OPFS保存へ戻さない。
+	const controller = serviceWorker.controller ?? await new Promise<ServiceWorker | null>(resolve => {
+		const ready = () => {
+			if (!serviceWorker.controller) return;
+			clearTimeout(timer);
+			serviceWorker.removeEventListener('controllerchange', ready);
+			resolve(serviceWorker.controller);
+		};
+		const timer = setTimeout(() => { serviceWorker.removeEventListener('controllerchange', ready); resolve(null); }, 3000);
+		serviceWorker.addEventListener('controllerchange', ready);
+		ready();
+	});
 	if (!controller) return null;
 	try {
 		const probe = new WritableStream();
@@ -56,12 +69,16 @@ export async function createStreamDownload(filename: string): Promise<WritableSt
 					channel.port1.close();
 					return;
 				}
+				if (data?.type === 'started' && registered) {
+					clearTimeout(timer);
+					resolve();
+					return;
+				}
 				if (data?.type !== 'ready' || typeof data.path !== 'string' || !/^\/__stream-download\/[a-f0-9-]+$/.test(data.path)) return;
-				clearTimeout(timer);
 				registered = true;
 				frame.src = data.path;
 				document.body.append(frame);
-				resolve();
+				// HTTP取得がSWへ届いてから生成処理へ進む。本文の生成は待たない。
 			};
 			try {
 				controller.postMessage({ type: 'stream-download-v2', stream: stream.readable, filename }, [stream.readable, channel.port2]);

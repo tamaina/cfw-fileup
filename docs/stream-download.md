@@ -3,15 +3,15 @@
 展開・BGZF 再圧縮・復号・tar/ZIP 生成の順次出力は、既存の Service Worker に渡し、ブラウザのダウンロードとして保存する。StreamSaver.js と同じ attachment Response の方式を独立実装しており、同ライブラリの依存追加や外部の中継ページは不要。
 
 - `resolveSaveTarget` が `TransformStream` を作り、Readable 側を既存 SW に転送する。
-- SW の受信確認後、一度だけ使えるランダムな `/__stream-download/<uuid>` へ非表示 iframe を遷移させ、Writable 側を処理用 Web Worker に転送する。
+- SW の受信確認後、一度だけ使えるランダムな `/__stream-download/<uuid>` へ非表示 iframe を遷移させる。SW がそのGETを受け取った開始通知を待ってから、Writable 側を処理用 Web Worker に転送する。対象解決や本文生成を待って開始要求を出すことはしない。
 - SW は `Content-Disposition: attachment` / `Cache-Control: no-store` を付けて返す。変換後サイズが不明なので Content-Length は付けない。
 - 未使用の URL は30秒で破棄する。ブラウザ側の中止はストリームの cancel で伝播し、生成側の失敗はページが保持する TransformStream の controller からレスポンスを失敗させる。Writable 側の転送先 Worker が強制終了しても中止できる。
-- SW が未制御・旧版・転送非対応の場合は、保存ダイアログ、OPFS の順にフォールバックする。開始後の失敗では別方式へ自動再試行しない。
+- 初回訪問でSWがまだ未制御なら最大3秒、有効化を待つ。有効化できない・旧版・転送非対応の場合は、保存ダイアログ、OPFS の順にフォールバックする。開始後の失敗では別方式へ自動再試行しない。
 - 保存中は `waitUntil` で SW の仕事を保持し、10秒ごとに継続通知を送る。完了・中止・ページ離脱で通知を止める。SW の寿命保持はレスポンスの終端・エラー・キャンセルまで継続する。
 - v2 プロトコルで受信確認する。旧 SW と新クライアントの混在時は従来の保存方式へフォールバックする。
 - seek を使う HLS → MP4 は `sequential=false` で従来の保存方式を使う。
 
-出力全体を OPFS に置く必要はなくなるが、Range 読み込みバッファや復号のチャンクバッファは残る。アーカイブの復号保存は各ファイルの Blob 化をせず、IV の16バイトを除いたサイズで tar ヘッダーを作り、復号チャンクを順次出力する。入力は4 MiB単位のRange取得で、失敗した区間だけ最大4回取得する。タブ内の画面移動は継続できるが、タブを閉じる・再読み込みすると生成処理が止まるため、処理中は beforeunload で確認する。
+出力全体を OPFS に置く必要はなくなるが、Range 読み込みバッファや復号のチャンクバッファは残る。アーカイブの復号保存は各ファイルの Blob 化をせず、IV の16バイトを除いたサイズで tar ヘッダーを作り、復号チャンクを順次出力する。入力は32 MiB単位の直列Range取得とOPFSキューで、失敗した区間だけ最大4回取得する。タブ内の画面移動は継続できるが、タブを閉じる・再読み込みすると生成処理が止まるため、処理中は beforeunload で確認する。
 
 アプリの完了表示は生成ストリームを書き終えたことを表す。OSへの保存完了や最終的なファイル名はブラウザのダウンロード管理に委ねる。
 
@@ -51,3 +51,14 @@ TMPDIR=/var/tmp STREAM_DOWNLOAD_DEFAULT_TIMEOUTS=1 STREAM_DOWNLOAD_IDLE_MS=35000
 TMPDIR=/var/tmp pnpm --filter app exec vitest run test/decrypted-tar.test.ts test/download-resilience.test.ts
 TMPDIR=/var/tmp pnpm --filter app exec playwright test --config playwright.archive.config.ts
 ```
+
+
+## 準備中の開始表示
+
+通常ファイルの復号・展開、アーカイブ復号・ZIP変換、ディレクトリtar/ZIP生成のボタンは、進捗コールバックとは別の実行中フラグで管理する。クリックから保存先準備・対象解決・取得・保存完了まで無効にし、成功・失敗・取消で解除する。
+
+Chromiumでは、本文を一切出力せずにブラウザのdownloadイベントが発火することを確認した。Firefoxでは同じattachment応答でも最初の本文が届くまでdownloadイベントが発火しなかった。開始要求自体は準備中に送信済みだが、Firefoxのブラウザ側DL表示まで同時にすることは今回の実装では保証できない。picker/OPFSの保存フォールバックも、ブラウザのDL一覧に表示される時点は各方式の動作に従う。
+
+`download-ux.spec.ts` は取得応答を意図的に保留し、実Vueコンポーネントのボタンが直ちに無効になること、Chromiumの本文前DL開始、成功後の出力内容、失敗後のボタン復帰を検査する。`stream-download-lifetime.spec.ts` は未出力状態での開始要求と、その後の完全な保存内容を両ブラウザで検査する。
+
+2026-09-13の変更後検証: appユニット133件、UX/lifetime/SW保存E2E計24件が成功（既存のFirefox終了通知制約2件はskip）。client型チェックと本番ビルドも成功した。変更TSのlintはエラー0。Vue専用設定のlintは変更前から存在する `browse.directory.vue` の重複キー・template属性の2エラーが残ることをHEADとの比較で確認した。

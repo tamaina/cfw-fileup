@@ -238,6 +238,7 @@ const selectAllMode = ref(false);
 const selectionPopoverOpen = ref(false);
 const headerCheckbox = ref<HTMLInputElement | null>(null);
 const archiveDownloadError = ref('');
+const archiveDownloadBusy = ref(false);
 const archiveDownloadProgress = ref<ArchiveDownloadProgress | null>(null);
 /** 現在進行中のダウンロード ID（unmount 時に進捗コールバック解除用） */
 let currentDownloadId: string | null = null;
@@ -412,11 +413,13 @@ function archiveMimeType(format: 'tar' | 'zip'): string {
 }
 
 async function startDirectoryArchiveDownload(format: 'tar' | 'zip'): Promise<void> {
+	if (archiveDownloadBusy.value) return;
 	selectionPopoverOpen.value = false;
 	archiveDownloadError.value = '';
 	archiveDownloadProgress.value = null;
 	const filename = `${archiveBaseNameFromPath(props.filePath)}.${format}`;
 	let downloadId: string | null = null;
+	archiveDownloadBusy.value = true;
 	try {
 		const saveTarget = await resolveSaveTarget(filename, archiveMimeType(format));
 		const { id, promise } = runArchiveDownload({
@@ -459,15 +462,19 @@ async function startDirectoryArchiveDownload(format: 'tar' | 'zip'): Promise<voi
 		const message = err instanceof Error ? err.message : String(err);
 		if (downloadId) failDownloadStatus(downloadId, message);
 		archiveDownloadError.value = message;
+	} finally {
+		archiveDownloadBusy.value = false;
 	}
 }
 
 async function startEntryArchiveDownload(entry: DisplayEntry): Promise<void> {
+	if (archiveDownloadBusy.value) return;
 	if (!entry.isDir) return;
 	archiveDownloadError.value = '';
 	archiveDownloadProgress.value = null;
 	const filename = `${entry.name}.zip`;
 	let downloadId: string | null = null;
+	archiveDownloadBusy.value = true;
 	try {
 		const saveTarget = await resolveSaveTarget(filename, archiveMimeType('zip'));
 		const { id, promise } = runArchiveDownload({
@@ -510,15 +517,19 @@ async function startEntryArchiveDownload(entry: DisplayEntry): Promise<void> {
 		const message = err instanceof Error ? err.message : String(err);
 		if (downloadId) failDownloadStatus(downloadId, message);
 		archiveDownloadError.value = message;
+	} finally {
+		archiveDownloadBusy.value = false;
 	}
 }
 
 async function startArchiveToZipDownload(): Promise<void> {
+	if (archiveDownloadBusy.value) return;
 	archiveDownloadError.value = '';
 	archiveDownloadProgress.value = null;
 	if (!props.fileId) return;
 	const filename = `${archiveBaseNameFromPath(props.filePath)}.zip`;
 	let downloadId: string | null = null;
+	archiveDownloadBusy.value = true;
 	try {
 		const saveTarget = await resolveSaveTarget(filename, archiveMimeType('zip'), props.fileSize ?? undefined);
 		const { id, promise } = runArchiveDownload({
@@ -560,6 +571,8 @@ async function startArchiveToZipDownload(): Promise<void> {
 		const message = err instanceof Error ? err.message : String(err);
 		if (downloadId) failDownloadStatus(downloadId, message);
 		archiveDownloadError.value = message;
+	} finally {
+		archiveDownloadBusy.value = false;
 	}
 }
 
@@ -594,6 +607,7 @@ function confirmEncryptedArchiveDownload(): void {
 }
 
 async function startFullArchiveDownload(decompress: boolean): Promise<void> {
+	if (archiveDownloadBusy.value) return;
 	archiveDownloadError.value = '';
 	archiveDownloadProgress.value = null;
 	if (!props.fileId) return;
@@ -601,6 +615,7 @@ async function startFullArchiveDownload(decompress: boolean): Promise<void> {
 	const filename = `${baseName}${decompress ? '.tar' : '.tar.gz'}`;
 	const mimeType = decompress ? 'application/x-tar' : 'application/gzip';
 	let downloadId: string | null = null;
+	archiveDownloadBusy.value = true;
 	try {
 		const saveTarget = await resolveSaveTarget(filename, mimeType, props.fileSize ?? undefined);
 		const fileHandle = saveTarget.kind === 'picker' ? saveTarget.fileHandle : undefined;
@@ -669,6 +684,8 @@ async function startFullArchiveDownload(decompress: boolean): Promise<void> {
 		const message = err instanceof Error ? err.message : String(err);
 		if (downloadId) failDownloadStatus(downloadId, message);
 		archiveDownloadError.value = message;
+	} finally {
+		archiveDownloadBusy.value = false;
 	}
 }
 
@@ -1336,7 +1353,7 @@ watch([isPartiallySelected, isAllSelected], async () => {
     <div class="card file-actions flex gap-2 items-center mb-3 flex-wrap">
       <!-- アーカイブ操作 -->
       <template v-if="isArchive" class="flex gap-2 items-center mb-3 flex-wrap">
-        <button v-if="isTargz" type="button" class="btn btn-primary" :disabled="archiveDownloadProgress != null" @click="requestFullArchiveDownload(false)">
+        <button v-if="isTargz" type="button" class="btn btn-primary" :disabled="archiveDownloadBusy" @click="requestFullArchiveDownload(false)">
           <Download :size="16" :stroke-width="2" aria-hidden="true" />
           ダウンロード (.tar.gz)
         </button>
@@ -1344,15 +1361,15 @@ watch([isPartiallySelected, isAllSelected], async () => {
           <Download :size="16" :stroke-width="2" aria-hidden="true" />
           ダウンロード
         </a>
-        <button v-else type="button" class="btn btn-primary" :disabled="archiveDownloadProgress != null" @click="requestFullArchiveDownload(true)">
+        <button v-else type="button" class="btn btn-primary" :disabled="archiveDownloadBusy" @click="requestFullArchiveDownload(true)">
           <Download :size="16" :stroke-width="2" aria-hidden="true" />
           ダウンロード
         </button>
-        <button v-if="isTargz" type="button" class="btn btn-secondary" :disabled="archiveDownloadProgress != null" @click="requestFullArchiveDownload(true)">
+        <button v-if="isTargz" type="button" class="btn btn-secondary" :disabled="archiveDownloadBusy" @click="requestFullArchiveDownload(true)">
           <PackageOpen :size="16" :stroke-width="2" aria-hidden="true" />
           展開してダウンロード (.tar)
         </button>
-        <button type="button" class="btn btn-secondary" :disabled="archiveDownloadProgress != null" @click="requestArchiveToZipDownload">
+        <button type="button" class="btn btn-secondary" :disabled="archiveDownloadBusy" @click="requestArchiveToZipDownload">
           <FileArchive :size="16" :stroke-width="2" aria-hidden="true" />
           zipとしてダウンロード
         </button>
@@ -1413,13 +1430,13 @@ watch([isPartiallySelected, isAllSelected], async () => {
                 </Button.Content>
               </Button.Root>
               <div class="action-menu-divider" role="separator" />
-              <Button.Root class="btn btn-ghost w-full" :class="$style.menuItem" :disabled="archiveDownloadProgress != null" @click="startDirectoryArchiveDownload('tar')">
+              <Button.Root class="btn btn-ghost w-full" :class="$style.menuItem" :disabled="archiveDownloadBusy" @click="startDirectoryArchiveDownload('tar')">
                 <Button.Content>
                   <Archive :size="16" :stroke-width="2" aria-hidden="true" />
                   tarとしてダウンロード
                 </Button.Content>
               </Button.Root>
-              <Button.Root class="btn btn-ghost w-full" :class="$style.menuItem" :disabled="archiveDownloadProgress != null" @click="startDirectoryArchiveDownload('zip')">
+              <Button.Root class="btn btn-ghost w-full" :class="$style.menuItem" :disabled="archiveDownloadBusy" @click="startDirectoryArchiveDownload('zip')">
                 <Button.Content>
                   <FileArchive :size="16" :stroke-width="2" aria-hidden="true" />
                   zipとしてダウンロード
@@ -1740,7 +1757,7 @@ watch([isPartiallySelected, isAllSelected], async () => {
                     v-else-if="entry.isDir"
                     class="btn btn-ghost"
                     :class="[$style.gridCardActionButton, $style.gridCardDownloadButton]"
-                    :disabled="archiveDownloadProgress != null"
+                    :disabled="archiveDownloadBusy"
                     :aria-label="`${entry.name}をダウンロード`"
                     title="ダウンロード"
                     @click="(event: Event) => { stopGridActionEvent(event); startEntryArchiveDownload(entry); }"
