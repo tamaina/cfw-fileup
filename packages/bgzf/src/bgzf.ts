@@ -1,72 +1,100 @@
-async function decompressDeflateRaw(data: Uint8Array<ArrayBuffer>): Promise<Uint8Array<ArrayBuffer>> {
-	const ds = new DecompressionStream('deflate-raw');
-	const chunks: Uint8Array[] = [];
-
-	const writePromise = (async () => {
-		const writer = ds.writable.getWriter();
-		await writer.write(data);
-		await writer.close();
-	})();
-
-	const readPromise = (async () => {
-		const reader = ds.readable.getReader();
-		try {
-			// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-			while (true) {
-				const { done, value } = await reader.read();
-				if (done) break;
-				chunks.push(value);
-			}
-		} finally {
-			reader.releaseLock();
-		}
-	})();
-
-	await Promise.all([writePromise, readPromise]);
-
-	const total = chunks.reduce((n, c) => n + c.length, 0);
-	const out = new Uint8Array(total);
-	let offset = 0;
-	for (const c of chunks) { out.set(c, offset); offset += c.length; }
-	return out;
+/** Check the canonical BGZF header emitted by this package. */
+export function isBgzf(bytes: Uint8Array): boolean {
+	return bytes.length >= 18 && bytes[0] === 0x1f && bytes[1] === 0x8b
+		&& bytes[2] === 8 && bytes[3] === 4 && bytes[10] === 6 && bytes[11] === 0
+		&& bytes[12] === 0x42 && bytes[13] === 0x43 && bytes[14] === 2 && bytes[15] === 0;
 }
 
-/** Check BGZF magic: FLG=FEXTRA (0x04), BC subfield (0x42, 0x43). */
-export function isBgzf(bytes: Uint8Array): boolean {
-	return bytes.length >= 18
-		&& bytes[0] === 0x1f && bytes[1] === 0x8b
-		&& bytes[3] === 0x04
-		&& bytes[12] === 0x42 && bytes[13] === 0x43;
+export function bgzfOutputSize(block: Uint8Array): number {
+	if (!isBgzf(block)) throw new Error('Invalid BGZF header');
+	const size = (block[16] | (block[17] << 8)) + 1;
+	if (size < 28 || block.length !== size) throw new Error('Invalid BGZF block size');
+	const output = new DataView(block.buffer, block.byteOffset + size - 4, 4).getUint32(0, true);
+	if (output > 65536) throw new Error('Invalid BGZF output size');
+	return output;
+}
+
+/** Views are valid until the caller transfers their parent buffer. Only carry is copied. */
+export class BgzfBlockDecoder {
+	private carry = new Uint8Array(65536);
+	private carryLength = 0;
+	*push(chunk: Uint8Array<ArrayBuffer>): Generator<Uint8Array<ArrayBuffer>> {
+		let offset = 0;
+		while (offset < chunk.length) {
+			if (this.carryLength > 0) {
+				const target = this.carryLength < 18 ? 18 : (this.carry[16] | (this.carry[17] << 8)) + 1;
+				const take = Math.min(target - this.carryLength, chunk.length - offset);
+				this.carry.set(chunk.subarray(offset, offset + take), this.carryLength);
+				this.carryLength += take;
+				offset += take;
+				if (this.carryLength < 18) break;
+				if (!isBgzf(this.carry)) throw new Error('Invalid BGZF header');
+				const size = (this.carry[16] | (this.carry[17] << 8)) + 1;
+				if (size < 28) throw new Error('Invalid BGZF block size');
+				if (this.carryLength < size) continue;
+				const block = this.carry.subarray(0, size);
+				this.carry = new Uint8Array(65536);
+				this.carryLength = 0;
+				bgzfOutputSize(block);
+				yield block;
+				continue;
+			}
+			if (chunk.length - offset < 18) break;
+			const rest = chunk.subarray(offset);
+			if (!isBgzf(rest)) throw new Error('Invalid BGZF header');
+			const size = (rest[16] | (rest[17] << 8)) + 1;
+			if (size < 28) throw new Error('Invalid BGZF block size');
+			if (rest.length < size) break;
+			const block = rest.subarray(0, size);
+			bgzfOutputSize(block);
+			offset += size;
+			yield block;
+		}
+		if (offset < chunk.length) {
+			this.carry.set(chunk.subarray(offset));
+			this.carryLength = chunk.length - offset;
+		}
+	}
+	finish(): void {
+		if (this.carryLength) throw new Error('Truncated BGZF block');
+	}
+}
+
+/** gzip decoding validates CRC and ISIZE; enforce the output limit while reading too. */
+export async function decompressBgzfBlock(block: Uint8Array<ArrayBuffer>): Promise<Uint8Array<ArrayBuffer>> {
+	const size = bgzfOutputSize(block);
+	const output = new Uint8Array(size);
+	const stream = new Blob([block]).stream().pipeThrough(new DecompressionStream('gzip'));
+	const reader = stream.getReader();
+	let offset = 0;
+	try {
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			if (offset + value.length > size) throw new Error('BGZF output exceeded ISIZE');
+			output.set(value, offset);
+			offset += value.length;
+		}
+		if (offset !== size) throw new Error('BGZF output size mismatch');
+		return output;
+	} catch (error) {
+		await reader.cancel(error).catch(() => {});
+		throw error;
+	} finally {
+		reader.releaseLock();
+	}
 }
 
 export function createBgzfDecompressor(): TransformStream<Uint8Array<ArrayBuffer>, Uint8Array<ArrayBuffer>> {
-	let buf = new Uint8Array(0);
+	const decoder = new BgzfBlockDecoder();
 	return new TransformStream({
 		async transform(chunk, controller) {
-			const merged = new Uint8Array(buf.length + chunk.length);
-			merged.set(buf);
-			merged.set(chunk, buf.length);
-			buf = merged;
-
-			while (buf.length >= 18) {
-				const blockSize = (buf[16] | (buf[17] << 8)) + 1;
-				if (buf.length < blockSize) break;
-
-				const deflateData = buf.slice(18, blockSize - 8);
-				const isize = buf[blockSize - 4]
-					| (buf[blockSize - 3] << 8)
-					| (buf[blockSize - 2] << 16)
-					| (buf[blockSize - 1] << 24);
-				buf = buf.slice(blockSize);
-
-				if (isize === 0) return;
-
-				controller.enqueue(await decompressDeflateRaw(deflateData as Uint8Array<ArrayBuffer>));
+			for (const block of decoder.push(chunk)) {
+				const output = await decompressBgzfBlock(block);
+				if (output.length) controller.enqueue(output);
 			}
 		},
-		flush(controller) {
-			if (buf.length > 0) controller.error(new Error('Truncated BGZF block'));
-		},
+		flush() { decoder.finish(); },
 	});
 }
 

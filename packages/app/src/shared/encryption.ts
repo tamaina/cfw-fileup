@@ -8,8 +8,8 @@
  * The counter is a 128-bit big-endian integer starting from the IV, incremented per 16-byte block.
  */
 
-import { ENCRYPTION_KEY_MULTICODEC } from './const';
 import { base58btc } from 'multiformats/bases/base58';
+import { ENCRYPTION_KEY_MULTICODEC } from './const';
 
 // --- unsigned varint (protobuf/multicodec style) ---
 
@@ -266,4 +266,21 @@ export async function decryptBlob(blob: Blob, key: CryptoKey): Promise<Blob> {
 		ciphertext,
 	);
 	return new Blob([decrypted], { type: blob.type });
+}
+
+/** Offset is relative to ciphertext, excluding the IV. No preceding ciphertext is needed. */
+export async function decryptAesCtrRange(
+	key: CryptoKey, iv: Uint8Array<ArrayBuffer>, ciphertext: Uint8Array<ArrayBuffer>, ciphertextOffset: number,
+): Promise<Uint8Array<ArrayBuffer>> {
+	if (iv.length !== AES_CTR_IV_LENGTH || !Number.isSafeInteger(ciphertextOffset) || ciphertextOffset < 0) {
+		throw new Error('Invalid AES-CTR range');
+	}
+	const skip = ciphertextOffset % AES_CTR_IV_LENGTH;
+	// CTR bytes are independent: discard the keystream prefix for an unaligned range.
+	const input = skip ? new Uint8Array(skip + ciphertext.length) : ciphertext;
+	if (skip) input.set(ciphertext, skip);
+	const output = await crypto.subtle.decrypt(
+		{ name: 'AES-CTR', counter: computeCounter(iv, ciphertextOffset), length: AES_CTR_COUNTER_BITS }, key, input,
+	);
+	return new Uint8Array(output).subarray(skip);
 }

@@ -7,6 +7,7 @@ export function createDecryptedTarStream(
 	key: CryptoKey,
 	onEntry: (name: string, completed: number) => void,
 	cancelSource: (reason?: unknown) => void,
+	decryptSource?: (source: ReadableStream<Uint8Array<ArrayBuffer>>, key: CryptoKey) => ReadableStream<Uint8Array<ArrayBuffer>>,
 ): ReadableStream<Uint8Array<ArrayBuffer>> {
 	const entries = (async function* () {
 		let completed = 0;
@@ -19,10 +20,10 @@ export function createDecryptedTarStream(
 				const size = entry.size - AES_CTR_IV_LENGTH;
 				yield createTarHeader(entry.name, size, Date.now());
 				const decrypt = createAesCtrDecryptTransform(key);
-				const inputDone = entry.stream.pipeTo(decrypt.writable);
+				const inputDone = decryptSource ? Promise.resolve() : entry.stream.pipeTo(decrypt.writable);
 				// read と並行して失敗し得るため、即座に rejection handler を付ける。
 				void inputDone.catch(() => {});
-				const reader = decrypt.readable.getReader();
+				const reader = (decryptSource ? decryptSource(entry.stream, key) : decrypt.readable).getReader();
 				let received = 0;
 				let finished = false;
 				try {

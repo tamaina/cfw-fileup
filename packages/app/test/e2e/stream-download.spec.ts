@@ -88,7 +88,8 @@ for (const format of ['tar', 'zip'] as const) {
 	});
 }
 
-test('SW download: producer abort fails the browser download', async ({ page }) => {
+test('SW download: producer abort fails the browser download', async ({ page, browserName }) => {
+	test.skip(browserName === 'firefox', 'Firefox Playwright download.failure() does not settle on SW response errors; see stream-download-lifetime.spec.ts.');
 	await page.goto('/');
 	await page.evaluate(async () => {
 		await navigator.serviceWorker.ready;

@@ -1,15 +1,17 @@
-import { createBgzfDecompressor, isBgzf } from 'bgzf';
+import { isBgzf } from 'bgzf';
 import { Conversion, HLS_FORMATS, Input, Mp4OutputFormat, Output, StreamTarget, UrlSource, type StreamTargetChunk } from 'mediabunny';
+import { importAesCtrKey, multibaseToKey } from '../../shared/encryption';
 import { createOpfsTempFile } from './opfs-temp';
 import { createRangedDownloadStream } from './download-resilience';
-import { createAesCtrDecryptTransform, importAesCtrKey, multibaseToKey } from '../../shared/encryption';
+import { DownloadPipeline, parallelDecrypt, parallelBgzf } from './download-pipeline';
+import { DOWNLOAD_RANGE_BYTES, PIPELINE_WINDOW, PROCESS_JOB_BYTES } from './download-processing';
 
 const DOWNLOAD_MAX_ATTEMPTS = 4;
-const DOWNLOAD_RANGE_SIZE = 32 * 1024 * 1024;
+const DOWNLOAD_RANGE_SIZE = DOWNLOAD_RANGE_BYTES;
 const DOWNLOAD_REQUEST_TIMEOUT_MS = 30_000;
 const DOWNLOAD_INACTIVITY_TIMEOUT_MS = 30_000;
 
-export type DownloadTransformWorkerRequest =
+export type DownloadTransformWorkerRequest = (
 	{
 		readonly id: string;
 		readonly mode: 'download';
@@ -32,10 +34,10 @@ export type DownloadTransformWorkerRequest =
 		/** 指定すると OPFS の代わりにこのハンドルへ直接書き込む（構造化複製で渡される） */
 		readonly fileHandle?: FileSystemFileHandle;
 		readonly writable?: WritableStream<Uint8Array>;
-	};
+	}) & { readonly pipelinePort: MessagePort };
 
 export type DownloadTransformWorkerRequestInput = DownloadTransformWorkerRequest extends infer T
-	? T extends DownloadTransformWorkerRequest ? Omit<T, 'id'> : never
+	? T extends DownloadTransformWorkerRequest ? Omit<T, 'id' | 'pipelinePort'> : never
 	: never;
 
 export type DownloadTransformProgress = {
@@ -62,30 +64,35 @@ self.onmessage = (event: MessageEvent<DownloadTransformWorkerRequest>) => {
 
 async function handleRequest(request: DownloadTransformWorkerRequest): Promise<void> {
 	let opfsName: string | undefined;
+	const pipeline = new DownloadPipeline(request.pipelinePort);
 	try {
+		if (request.mode === 'download') await pipeline.start();
 		const mimeType = request.mode === 'download' ? request.mimeType : 'video/mp4';
 		if (request.mode === 'download' && request.writable) {
-			await writeDownload(request.writable, request);
+			await writeDownload(request.writable, request, pipeline);
+			await pipeline.finish();
 			post({ type: 'done', id: request.id, savedDirectly: true, filename: request.filename, mimeType });
 			return;
 		}
 		if (request.fileHandle) {
-			// showSaveFilePicker で得たハンドルへ直接書き込む（OPFS・クォータを経由しない）
+			// showSaveFilePicker で得たハンドルへ出力する（出力全体のOPFSコピーを作らない）
 			if (request.mode === 'download') {
-				await writeDownload(request.fileHandle, request);
+				await writeDownload(request.fileHandle, request, pipeline);
 			} else {
 				await writeHlsMp4(request.fileHandle, request);
 			}
+			await pipeline.finish();
 			post({ type: 'done', id: request.id, savedDirectly: true, filename: request.filename, mimeType });
 			return;
 		}
 		const tempFile = await createOpfsTempFile(request.id, tempExtension(request.filename));
 		opfsName = tempFile.opfsName;
 		if (request.mode === 'download') {
-			await writeDownload(tempFile.fileHandle, request);
+			await writeDownload(tempFile.fileHandle, request, pipeline);
 		} else {
 			await writeHlsMp4(tempFile.fileHandle, request);
 		}
+		await pipeline.finish();
 		post({ type: 'done', id: request.id, opfsName, savedDirectly: false, filename: request.filename, mimeType });
 	} catch (err) {
 		if (request.writable && !request.writable.locked) await request.writable.abort(err).catch(() => {});
@@ -94,8 +101,9 @@ async function handleRequest(request: DownloadTransformWorkerRequest): Promise<v
 			filename: request.filename,
 			opfsName,
 		});
+		await pipeline.finish().catch(() => {});
 		post({ type: 'error', id: request.id, error: err instanceof Error ? err.message : String(err), opfsName });
-	}
+	} finally { pipeline.close(); }
 }
 
 async function writeHlsMp4(fileHandle: FileSystemFileHandle, request: Extract<DownloadTransformWorkerRequest, { mode: 'hls-to-mp4' }>): Promise<void> {
@@ -167,7 +175,7 @@ function tempExtension(filename: string): string {
 	return match?.[1] ?? '';
 }
 
-async function writeDownload(fileHandle: FileSystemFileHandle | WritableStream<Uint8Array>, request: Extract<DownloadTransformWorkerRequest, { mode: 'download' }>): Promise<void> {
+async function writeDownload(fileHandle: FileSystemFileHandle | WritableStream<Uint8Array>, request: Extract<DownloadTransformWorkerRequest, { mode: 'download' }>, pipeline: DownloadPipeline): Promise<void> {
 	const writable = (fileHandle instanceof WritableStream ? fileHandle : await fileHandle.createWritable()).getWriter();
 	let completedBytes = 0;
 	let totalBytes = 0;
@@ -177,7 +185,10 @@ async function writeDownload(fileHandle: FileSystemFileHandle | WritableStream<U
 			phase: 'reading', processedFiles: 0, totalFiles: 1, currentFile: request.filename,
 			completedBytes, totalBytes, attempt, maxAttempts: DOWNLOAD_MAX_ATTEMPTS,
 		});
-		let stream = createRangedDownloadStream(request.url, { headers: request.authHeaders }, {
+		let stream = createRangedDownloadStream(request.url, { headers: request.authHeaders, signal: pipeline.abort.signal }, {
+			maxBufferedRanges: PIPELINE_WINDOW,
+			staging: 'opfs', readChunkSize: PROCESS_JOB_BYTES, onCleanup: cleanup => pipeline.trackCleanup(cleanup),
+			acquireNetwork: () => pipeline.network(),
 			rangeSize: DOWNLOAD_RANGE_SIZE,
 			maxAttempts: DOWNLOAD_MAX_ATTEMPTS,
 			requestTimeoutMs: DOWNLOAD_REQUEST_TIMEOUT_MS,
@@ -215,9 +226,9 @@ async function writeDownload(fileHandle: FileSystemFileHandle | WritableStream<U
 			const rawKey = multibaseToKey(request.encryptionKey);
 			if (!rawKey) throw new Error('Invalid encryption key');
 			const cryptoKey = await importAesCtrKey(rawKey, ['decrypt']);
-			stream = stream.pipeThrough(createAesCtrDecryptTransform(cryptoKey)) as ReadableStream<Uint8Array<ArrayBuffer>>;
+			stream = parallelDecrypt(stream, cryptoKey, pipeline, true);
 		}
-		stream = await transformStream(stream, request.transform);
+		stream = await transformStream(stream, request.transform, pipeline, !request.encryptionKey);
 		progress(request.id, {
 			phase: 'writing', processedFiles: 0, totalFiles: 1, currentFile: request.filename,
 			completedBytes, totalBytes, attempt, maxAttempts: DOWNLOAD_MAX_ATTEMPTS,
@@ -234,17 +245,17 @@ async function writeDownload(fileHandle: FileSystemFileHandle | WritableStream<U
 	}
 }
 
-async function transformStream(stream: ReadableStream<Uint8Array<ArrayBuffer>>, transform: Extract<DownloadTransformWorkerRequest, { mode: 'download' }>['transform']): Promise<ReadableStream<Uint8Array<ArrayBuffer>>> {
+async function transformStream(stream: ReadableStream<Uint8Array<ArrayBuffer>>, transform: Extract<DownloadTransformWorkerRequest, { mode: 'download' }>['transform'], pipeline: DownloadPipeline, comparable: boolean): Promise<ReadableStream<Uint8Array<ArrayBuffer>>> {
 	if (transform === 'none') return stream;
 	const { rebuilt, gzip, bgzf } = await peekStream(stream);
 	if (transform === 'decompress-gzip') {
 		if (!gzip) return rebuilt;
 		return bgzf
-			? rebuilt.pipeThrough(createBgzfDecompressor())
+			? parallelBgzf(rebuilt, pipeline, comparable)
 			: rebuilt.pipeThrough(new DecompressionStream('gzip'));
 	}
 	if (!bgzf) return rebuilt;
-	return rebuilt.pipeThrough(createBgzfDecompressor()).pipeThrough(new CompressionStream('gzip'));
+	return parallelBgzf(rebuilt, pipeline, comparable).pipeThrough(new CompressionStream('gzip'));
 }
 
 async function peekStream(stream: ReadableStream<Uint8Array<ArrayBuffer>>): Promise<{
@@ -255,7 +266,7 @@ async function peekStream(stream: ReadableStream<Uint8Array<ArrayBuffer>>): Prom
 	const reader = stream.getReader();
 	const first = await reader.read();
 	reader.releaseLock();
-	if (first.done || !first.value) throw new Error('Download is empty');
+	if (first.done) return { rebuilt: new ReadableStream({ start(c) { c.close(); } }), gzip: false, bgzf: false };
 	const remaining = stream.getReader();
 	const rebuilt = new ReadableStream<Uint8Array<ArrayBuffer>>({
 		start(controller) {

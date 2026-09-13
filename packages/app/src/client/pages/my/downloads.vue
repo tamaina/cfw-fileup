@@ -1,5 +1,13 @@
 <script setup lang="ts">
+import { computed, ref } from 'vue';
 import { downloadStatusHistory, getDownloadStatusPercent, type DownloadStatus } from '@/store/download-status';
+import { browserDownloadConcurrency, setBrowserDownloadConcurrency } from '@/store/browser-download-settings';
+
+const concurrency = ref<number | string>(browserDownloadConcurrency.value);
+const validConcurrency = computed(() => Number.isSafeInteger(Number(concurrency.value)) && Number(concurrency.value) > 0);
+function saveConcurrency(): void {
+	if (validConcurrency.value) setBrowserDownloadConcurrency(Number(concurrency.value));
+}
 
 function phaseLabel(status: DownloadStatus): string {
 	if (status.error) return 'エラー';
@@ -30,6 +38,16 @@ function formatDate(timestamp: number): string {
     <div class="section-header">
       <h2 class="section-title">マイダウンロード</h2>
     </div>
+
+    <form class="card" :class="$style.settings" @submit.prevent="saveConcurrency">
+      <label for="download-concurrency">ダウンロードの変換並列数の上限</label>
+      <p class="col-muted">復号・解凍の上限です（初期値3）。通信はこのタブ全体で1本に固定し、32MiBずつ取得します。変換数は処理速度に応じて自動調整します。</p>
+      <div class="flex gap-2">
+        <input id="download-concurrency" v-model="concurrency" type="number" min="1" step="1" :max="Number.MAX_SAFE_INTEGER" class="form-input" :aria-invalid="!validConcurrency" required>
+        <button type="submit" class="btn btn-primary" :disabled="!validConcurrency">保存</button>
+      </div>
+      <p v-if="!validConcurrency" class="text-danger">1以上の整数を入力してください。</p>
+    </form>
 
     <div v-if="downloadStatusHistory.length === 0" class="empty-state">
       <p>このブラウザから実行したダウンロードはありません。</p>
@@ -78,6 +96,12 @@ function formatDate(timestamp: number): string {
 </template>
 
 <style module lang="scss">
+.settings {
+  margin-bottom: 16px;
+
+  input { max-width: 160px; }
+}
+
 .tableCard {
   padding: 0;
   overflow: hidden;

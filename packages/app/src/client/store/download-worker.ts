@@ -1,4 +1,4 @@
-import { finishStreamDownload } from '@/utils/stream-download';
+import { getDownloadScheduler } from './download-scheduler';
 /**
  * ダウンロード用 Worker のライフサイクルをコンポーネント外で管理するモジュール。
  *
@@ -13,6 +13,7 @@ import type { DownloadTransformWorkerMessage, DownloadTransformWorkerRequestInpu
 import type { ArchiveDownloadWorkerMessage, ArchiveDownloadWorkerRequest } from '@/workers/archive-download.worker';
 import type { DistributiveOmit } from '../../shared/type-hack';
 import type { WorkerDownloadResult } from '@/utils/save-file';
+import { finishStreamDownload } from '@/utils/stream-download';
 import { updateDownloadStatus } from '@/store/download-status';
 
 type PendingRequest = {
@@ -45,6 +46,7 @@ function getDownloadTransformWorker(): Worker {
 		const pending = pendingRequests.get(message.id);
 		if (!pending) return;
 		pendingRequests.delete(message.id);
+		getDownloadScheduler().close(message.id);
 		progressCallbacks.delete(message.id);
 		if (message.type === 'done') {
 			pending.resolve({ opfsName: message.opfsName, savedDirectly: message.savedDirectly, filename: message.filename, mimeType: message.mimeType });
@@ -74,6 +76,7 @@ function getArchiveDownloadWorker(): Worker {
 		const pending = pendingRequests.get(message.id);
 		if (!pending) return;
 		pendingRequests.delete(message.id);
+		getDownloadScheduler().close(message.id);
 		progressCallbacks.delete(message.id);
 		if (message.type === 'done') {
 			pending.resolve({ opfsName: message.opfsName, savedDirectly: message.savedDirectly, filename: message.filename, mimeType: message.mimeType });
@@ -99,9 +102,11 @@ export function runDownloadTransform(request: DownloadTransformWorkerRequestInpu
 	const promise = new Promise<WorkerDownloadResult>((resolve, reject) => {
 		pendingRequests.set(id, { resolve, reject, worker: 'transform' });
 		try {
-			getDownloadTransformWorker().postMessage({ ...request, id }, request.writable ? [request.writable] : []);
+			const pipelinePort = getDownloadScheduler().connect(id);
+			getDownloadTransformWorker().postMessage({ ...request, id, pipelinePort }, request.writable ? [request.writable, pipelinePort] : [pipelinePort]);
 		} catch (error) {
 			pendingRequests.delete(id);
+			getDownloadScheduler().close(id);
 			reject(error);
 		}
 	});
@@ -117,14 +122,16 @@ export function runDownloadTransform(request: DownloadTransformWorkerRequestInpu
 /**
  * archive-download Worker でアーカイブダウンロードを実行する。
  */
-export function runArchiveDownload(request: DistributiveOmit<ArchiveDownloadWorkerRequest, 'id'>): { id: string; promise: Promise<WorkerDownloadResult> } {
+export function runArchiveDownload(request: DistributiveOmit<ArchiveDownloadWorkerRequest, 'id' | 'pipelinePort'>): { id: string; promise: Promise<WorkerDownloadResult> } {
 	const id = String(++requestId);
 	const promise = new Promise<WorkerDownloadResult>((resolve, reject) => {
 		pendingRequests.set(id, { resolve, reject, worker: 'archive' });
 		try {
-			getArchiveDownloadWorker().postMessage({ ...request, id }, request.writable ? [request.writable] : []);
+			const pipelinePort = getDownloadScheduler().connect(id);
+			getArchiveDownloadWorker().postMessage({ ...request, id, pipelinePort }, request.writable ? [request.writable, pipelinePort] : [pipelinePort]);
 		} catch (error) {
 			pendingRequests.delete(id);
+			getDownloadScheduler().close(id);
 			reject(error);
 		}
 	});
@@ -158,6 +165,7 @@ function rejectWorkerRequests(worker: PendingRequest['worker']): void {
 	for (const [id, pending] of pendingRequests) {
 		if (pending.worker !== worker) continue;
 		pendingRequests.delete(id);
+		getDownloadScheduler().close(id);
 		progressCallbacks.delete(id);
 		pending.reject(new Error('ダウンロード処理が中断されました。再度お試しください。'));
 	}
@@ -173,4 +181,9 @@ export function terminateArchiveDownloadWorker(): void {
 	rejectWorkerRequests('archive');
 	archiveDownloadWorker?.terminate();
 	archiveDownloadWorker = null;
+}
+
+/** Internal diagnostics for bounded-memory and concurrency acceptance checks. */
+export function getDownloadDiagnostics() {
+	return getDownloadScheduler().snapshot();
 }
