@@ -1,4 +1,9 @@
 <script setup lang="ts">
+import { runDownloadTransform } from '@/store/download-worker';
+import { resolveSaveTarget, DownloadCancelledError } from '@/utils/save-file';
+import { getOpfsTempFile, removeOpfsTempFile } from '@/workers/opfs-temp';
+import { registerDownloadedOpfsFile } from '@/store/download-cleanup';
+import { startDownloadStatus, completeDownloadStatus, failDownloadStatus } from '@/store/download-status';
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import type { FileVisibility } from '../../shared/file-visibility';
 import { Form, Input } from '@vuetify/v0';
@@ -80,7 +85,7 @@ const isEntryFile = computed(() => entryPath.value !== null && !entryPath.value.
 const isEntryDirectory = computed(() => entryPath.value !== null && entryPath.value.endsWith('/'));
 
 type InnerArchiveEntry =
-	| { type: 'tar'; path: string; mimeType: string; size: number }
+	| { type: 'tar'; path: string; mimeType: string; offset: number; size: number }
 	| { type: 'targz'; path: string; mimeType: string; size?: number; aStart: number; aFirstEnd: number; aFinalStart: number; aEnd: number; rStartOffset: number; rEndOffset: number };
 
 const innerMeta = ref<InnerArchiveEntry | null>(null);
@@ -96,13 +101,15 @@ const innerDownloadUrl = computed(() => {
 	return archiveEntryDownloadUrl(fileId.value, entryPath.value ?? '', autoToken.value);
 });
 // 暗号化アーカイブのエントリーはクライアント側で復号した ObjectURL を使う（復号中や鍵なしの間は空）
+const innerPreviewUnavailable = computed(() => innerMeta.value !== null && (innerMeta.value.size === undefined || innerMeta.value.size > 32 * 1024 * 1024));
 const innerPreviewUrl = computed(() => {
+	if (innerPreviewUnavailable.value) return '';
 	if (isEncrypted.value) return innerObjectUrl.value;
 	return isTargz.value ? innerObjectUrl.value : innerDownloadUrl.value;
 });
 // BrowseFile へのダウンロードURL。復号済みなら ObjectURL、鍵なし時は生のエントリーURL（暗号化されたままのダウンロード用）
 const innerFileDownloadUrl = computed(() => {
-	return innerObjectUrl.value || innerDownloadUrl.value;
+	return innerDownloadUrl.value;
 });
 const innerHlsUrl = computed(() => {
 	if (!fileId.value || !entryPath.value) return undefined;
@@ -265,7 +272,7 @@ async function refreshInnerObjectUrl(): Promise<void> {
 	innerDownloadError.value = '';
 	if (!isEncrypted.value && !isTargz.value) return;
 	if (isEncrypted.value && !encryptionKey.value) return;
-	if (!isEntryFile.value || !innerMeta.value) return;
+	if (!isEntryFile.value || !innerMeta.value || innerPreviewUnavailable.value) return;
 	if (!isInnerImage.value && !isInnerMarkdown.value && !isInnerJson.value && !isInnerTextLike.value) return;
 	try {
 		const blob = await createInnerEntryBlob();
@@ -277,24 +284,47 @@ async function refreshInnerObjectUrl(): Promise<void> {
 	}
 }
 
+const innerDownloadBusy = ref(false);
 async function downloadInnerEntry(event: MouseEvent): Promise<void> {
 	if (!isEncrypted.value && !isTargz.value) return;
-	if (innerObjectUrl.value) return;
+	// Without a key retain the existing encrypted-byte download confirmation.
+	if (isEncrypted.value && !encryptionKey.value) return;
 	event.preventDefault();
+	if (innerDownloadBusy.value) return;
+	const entry = innerMeta.value;
+	if (!entry) return;
+	innerDownloadBusy.value = true;
+	innerDownloadError.value = '';
+	let downloadId: string | undefined;
 	try {
-		const blob = await createInnerEntryBlob();
-		const url = URL.createObjectURL(blob);
-		innerObjectUrl.value = url;
-		const a = document.createElement('a');
-		a.href = url;
-		a.download = innerDownloadFilename.value;
-		document.body.append(a);
-		a.click();
-		a.remove();
+		const filename = innerDownloadFilename.value;
+		const saveTarget = await resolveSaveTarget(filename, entry.mimeType, entry.size);
+		const { id, promise } = runDownloadTransform({
+			mode: 'download', url: archiveDownloadUrl(), filename, mimeType: entry.mimeType,
+			transform: 'none', entry, encryptionKey: isEncrypted.value ? encryptionKey.value ?? undefined : undefined,
+			authHeaders: authHeaders(),
+			fileHandle: saveTarget.kind === 'picker' ? saveTarget.fileHandle : undefined,
+			writable: saveTarget.kind === 'stream' ? saveTarget.writable : undefined,
+		});
+		downloadId = id;
+		startDownloadStatus(id, filename);
+		const result = await promise;
+		if (!result.savedDirectly && result.opfsName) {
+			const file = await getOpfsTempFile(result.opfsName);
+			const url = URL.createObjectURL(file);
+			registerDownloadedOpfsFile(url, result.opfsName);
+			const a = document.createElement('a');
+			a.href = url; a.download = result.filename;
+			document.body.append(a); a.click(); a.remove();
+		}
+		completeDownloadStatus(id);
 	} catch (error) {
-		console.error('Inner archive entry download failed', error, { bucketName: props.bucketName, filePath: props.filePath, innerPath: innerMeta.value?.path });
+		if (error instanceof DownloadCancelledError) return;
+		const opfsName = (error as Error & { opfsName?: string }).opfsName;
+		if (opfsName) await removeOpfsTempFile(opfsName);
 		innerDownloadError.value = error instanceof Error ? error.message : String(error);
-	}
+		if (downloadId) failDownloadStatus(downloadId, innerDownloadError.value);
+	} finally { innerDownloadBusy.value = false; }
 }
 
 const breadcrumbs = computed(() => {
@@ -501,7 +531,7 @@ async function fetchInnerMeta(): Promise<void> {
 		const entry = data.find(e => e.path === entryPath.value);
 		innerMeta.value = entry
 			? 'offset' in entry
-				? { type: 'tar', path: entry.path, mimeType: entry.mimeType, size: entry.size }
+				? { type: 'tar', path: entry.path, mimeType: entry.mimeType, offset: entry.offset, size: entry.size }
 				: { type: 'targz', path: entry.path, mimeType: entry.mimeType, size: entry.size, aStart: entry.aStart, aFirstEnd: entry.aFirstEnd, aFinalStart: entry.aFinalStart, aEnd: entry.aEnd, rStartOffset: entry.rStartOffset, rEndOffset: entry.rEndOffset }
 			: null;
 		innerDetectedMimeType.value = null;
@@ -996,6 +1026,7 @@ onUnmounted(revokeInnerObjectUrl);
 
       <!-- アーカイブ内ファイルビュー (ログイン有無問わず) -->
       <template v-else-if="(isTargz || isTar) && isEntryFile">
+        <p v-if="innerPreviewUnavailable">サイズが大きい、またはサイズが不明なためプレビューできません。ダウンロードは利用できます。</p>
         <BrowseFile
           :bucketName="bucketName"
           :filePath="entryPath ?? ''"
@@ -1004,6 +1035,7 @@ onUnmounted(revokeInnerObjectUrl);
           :token="autoToken ?? undefined"
           :download-url-override="innerFileDownloadUrl"
           :preview-url="innerPreviewUrl"
+          :preview-disabled="innerPreviewUnavailable"
           :download-filename="innerDownloadFilename"
           :download-error-override="innerDownloadError"
           :mime-type="innerDetectedMimeType ?? innerMeta?.mimeType ?? null"

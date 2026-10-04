@@ -30,6 +30,7 @@ const props = withDefaults(defineProps<{
 	token?: string;
 	downloadUrlOverride?: string;
 	previewUrl?: string;
+	previewDisabled?: boolean;
 	downloadFilename?: string;
 	downloadErrorOverride?: string;
 	mimeType?: string | null;
@@ -105,7 +106,7 @@ const previewAdCompleted = ref(false);
 /** 現在進行中のダウンロード ID（unmount 時に進捗コールバック解除用） */
 let currentDownloadId: string | null = null;
 
-const canShowPreview = computed(() => props.showAds === false || previewAdCompleted.value);
+const canShowPreview = computed(() => !props.previewDisabled && (props.showAds === false || previewAdCompleted.value));
 
 /** 暗号化ファイルで鍵が利用できないとき、プレビューを差し止める */
 const encryptedPreviewUnavailable = computed(() => props.isEncrypted === true && !props.encryptionKey);

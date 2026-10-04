@@ -1,6 +1,7 @@
 import { isBgzf } from 'bgzf';
 import { Conversion, HLS_FORMATS, Input, Mp4OutputFormat, Output, StreamTarget, UrlSource, type StreamTargetChunk } from 'mediabunny';
 import { importAesCtrKey, multibaseToKey } from '../../shared/encryption';
+import { createArchiveEntryDownloadStream, type ArchiveEntrySpan } from './archive-entry-download';
 import { createOpfsTempFile } from './opfs-temp';
 import { createRangedDownloadStream } from './download-resilience';
 import { DownloadPipeline, parallelDecrypt, parallelBgzf } from './download-pipeline';
@@ -19,6 +20,7 @@ export type DownloadTransformWorkerRequest = (
 		readonly filename: string;
 		readonly mimeType: string;
 		readonly transform: 'none' | 'decompress-gzip' | 'recompress-bgzf';
+		readonly entry?: ArchiveEntrySpan;
 		readonly encryptionKey?: string;
 		readonly authHeaders: Record<string, string>;
 		/** 指定すると OPFS の代わりにこのハンドルへ直接書き込む（構造化複製で渡される） */
@@ -185,18 +187,18 @@ async function writeDownload(fileHandle: FileSystemFileHandle | WritableStream<U
 			phase: 'reading', processedFiles: 0, totalFiles: 1, currentFile: request.filename,
 			completedBytes, totalBytes, attempt, maxAttempts: DOWNLOAD_MAX_ATTEMPTS,
 		});
-		let stream = createRangedDownloadStream(request.url, { headers: request.authHeaders, signal: pipeline.abort.signal }, {
+		const options = {
 			maxBufferedRanges: 1,
-			readChunkSize: PROCESS_JOB_BYTES, onCleanup: cleanup => pipeline.trackCleanup(cleanup),
+			readChunkSize: PROCESS_JOB_BYTES, onCleanup: (cleanup: Promise<void>) => pipeline.trackCleanup(cleanup),
 			acquireNetwork: () => pipeline.network(),
 			rangeSize: DOWNLOAD_RANGE_SIZE,
 			maxAttempts: DOWNLOAD_MAX_ATTEMPTS,
 			requestTimeoutMs: DOWNLOAD_REQUEST_TIMEOUT_MS,
 			inactivityTimeoutMs: DOWNLOAD_INACTIVITY_TIMEOUT_MS,
-			onMetadata(bytes) {
+			onMetadata(bytes: number) {
 				totalBytes = bytes;
 			},
-			onRangeCommitted(bytes, total) {
+			onRangeCommitted(bytes: number, total: number) {
 				completedBytes = bytes;
 				totalBytes = total;
 				attempt = 1;
@@ -205,14 +207,14 @@ async function writeDownload(fileHandle: FileSystemFileHandle | WritableStream<U
 					completedBytes, totalBytes, attempt, maxAttempts: DOWNLOAD_MAX_ATTEMPTS,
 				});
 			},
-			onStall(_rangeStart, stalledAttempt) {
+			onStall(_rangeStart: number, stalledAttempt: number) {
 				attempt = stalledAttempt;
 				progress(request.id, {
 					phase: 'reading', processedFiles: 0, totalFiles: 1, currentFile: request.filename,
 					completedBytes, totalBytes, attempt, maxAttempts: DOWNLOAD_MAX_ATTEMPTS, networkStalled: true,
 				});
 			},
-			onRetry(error, rangeStart, nextAttempt, delayMs) {
+			onRetry(error: unknown, rangeStart: number, nextAttempt: number, delayMs: number) {
 				attempt = nextAttempt;
 				console.warn(`[download-transform] Range starting at ${rangeStart} failed; retrying attempt ${nextAttempt} in ${delayMs}ms`, error);
 				progress(request.id, {
@@ -220,15 +222,19 @@ async function writeDownload(fileHandle: FileSystemFileHandle | WritableStream<U
 					completedBytes, totalBytes, attempt, maxAttempts: DOWNLOAD_MAX_ATTEMPTS, retrying: true,
 				});
 			},
-		});
+		};
+		const init = { headers: request.authHeaders, signal: pipeline.abort.signal };
+		let stream = request.entry
+			? await createArchiveEntryDownloadStream(request.url, init, request.entry, pipeline, options, request.encryptionKey)
+			: createRangedDownloadStream(request.url, init, options);
 
-		if (request.encryptionKey) {
+		if (request.encryptionKey && !request.entry) {
 			const rawKey = multibaseToKey(request.encryptionKey);
 			if (!rawKey) throw new Error('Invalid encryption key');
 			const cryptoKey = await importAesCtrKey(rawKey, ['decrypt']);
 			stream = parallelDecrypt(stream, cryptoKey, pipeline, true);
 		}
-		stream = await transformStream(stream, request.transform, pipeline, !request.encryptionKey);
+		if (!request.entry) stream = await transformStream(stream, request.transform, pipeline, !request.encryptionKey);
 		progress(request.id, {
 			phase: 'writing', processedFiles: 0, totalFiles: 1, currentFile: request.filename,
 			completedBytes, totalBytes, attempt, maxAttempts: DOWNLOAD_MAX_ATTEMPTS,

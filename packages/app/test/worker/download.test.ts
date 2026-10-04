@@ -1105,3 +1105,56 @@ describe('GET /d/:fileId/%3Aentries/:entryPath (tar.gz individual file)', () => 
 		expect(decompressed).toEqual(concatUint8Arrays([firstPart, middlePart, lastPart]));
 	});
 });
+
+describe('indexed first-span download accounting', () => {
+	async function fixture(bgzf = false) {
+		const owner = await setupBucket('count_entry');
+		const fileId = genEaidx(Date.now());
+		await insertPublicFile({ ...owner, fileId, path: 'archive.tar', body: '0123456789abcdefghij' });
+		await env.DB.prepare('UPDATE files SET is_tar = ?, is_targz = ?, is_download_count_enabled = 1 WHERE id = ?').bind(bgzf ? 0 : 1, bgzf ? 1 : 0, fileId).run();
+		if (bgzf) {
+			await env.DB.prepare('INSERT INTO targz_files (id,file_id,path,mime_type,a_start,a_first_end,a_final_start,a_end,r_start_offset,r_end_offset) VALUES (?,?,?, ?,5,9,9,15,0,0)').bind(genEaidx(Date.now()), fileId, 'nested/file.bin', 'application/octet-stream').run();
+		} else {
+			await env.DB.prepare('INSERT INTO tar_files (id,file_id,path,mime_type,offset,size) VALUES (?,?,?,?,5,10)').bind(genEaidx(Date.now()), fileId, 'nested/file.bin', 'application/octet-stream').run();
+		}
+		return { ...owner, fileId };
+	}
+
+	test.each([false, true])('first span counts once, later spans and invalid hints do not (BGZF=%s)', async bgzf => {
+		const { fileId } = await fixture(bgzf);
+		const url = `/d/${fileId}?entry=nested%2Ffile.bin`;
+		const first = await app.request(url, { headers: { Range: 'bytes=5-9' } }, env);
+		expect(first.status).toBe(206); expect(await first.text()).toBe('56789');
+		expect(await getDownloadCount(fileId)).toBe(1);
+		const next = await app.request(`/d/${fileId}`, { headers: { Range: 'bytes=10-14' } }, env);
+		expect(next.status).toBe(206); await next.arrayBuffer();
+		expect(await getDownloadCount(fileId)).toBe(1);
+		for (const range of ['bytes=6-9', 'bytes=5-15', 'bytes=5-99', 'bytes=5-', 'bytes=5-9,10-14']) {
+			const invalid = await app.request(url, { headers: { Range: range } }, env);
+			expect(invalid.status).toBe(400); await invalid.arrayBuffer();
+		}
+		const missing = await app.request(`/d/${fileId}?entry=missing`, { headers: { Range: 'bytes=5-9' } }, env);
+		expect(missing.status).toBe(400);
+		expect(await getDownloadCount(fileId)).toBe(1);
+	});
+
+	test('index validation follows private-file authentication and excludes owner counts', async () => {
+		const { fileId, token } = await fixture();
+		await env.DB.prepare('UPDATE files SET visibility = \'private\' WHERE id = ?').bind(fileId).run();
+		const denied = await app.request(`/d/${fileId}?entry=nested%2Ffile.bin`, { headers: { Range: 'bytes=5-9' } }, env);
+		expect(denied.status).toBe(403);
+		const allowed = await app.request(`/d/${fileId}?entry=nested%2Ffile.bin`, { headers: { ...authHeaders(token), Range: 'bytes=5-9' } }, env);
+		expect(allowed.status).toBe(206); await allowed.arrayBuffer();
+		expect(await getDownloadCount(fileId)).toBe(0);
+	});
+
+	test('hint at archive start zero counts once and If-Range mismatch cannot become a full download', async () => {
+		const { fileId } = await fixture();
+		await env.DB.prepare('UPDATE tar_files SET offset = 0 WHERE file_id = ?').bind(fileId).run();
+		const first = await app.request(`/d/${fileId}?entry=nested%2Ffile.bin`, { headers: { Range: 'bytes=0-4' } }, env);
+		expect(first.status).toBe(206); await first.arrayBuffer();
+		expect(await getDownloadCount(fileId)).toBe(1);
+		const mismatch = await app.request(`/d/${fileId}?entry=nested%2Ffile.bin`, { headers: { Range: 'bytes=0-4', 'If-Range': '"different"' } }, env);
+		expect(mismatch.status).toBe(400); expect(await getDownloadCount(fileId)).toBe(1);
+	});
+});
