@@ -29,8 +29,8 @@ importers:
         specifier: ^1.0.0
         version: 1.0.0
       '@browser-mc/browser-movie-converter':
-        specifier: ^1.3.0
-        version: 1.3.0
+        specifier: ^1.4.0
+        version: 1.4.0
       '@hono/standard-validator':
         specifier: ^0.2.2
         version: 0.2.2(@standard-schema/spec@1.1.0)(hono@4.12.25)
@@ -95,8 +95,8 @@ importers:
         specifier: ^18.0.5
         version: 18.0.5
       mediabunny:
-        specifier: ^1.46.0
-        version: 1.46.0
+        specifier: ^1.61.1
+        version: 1.61.1
       mrmime:
         specifier: ^2.0.1
         version: 2.0.1
@@ -741,8 +741,8 @@ packages:
   '@browser-mc/browser-image-resizer-ex@1.0.0':
     resolution: {integrity: sha512-5UBbc0d6YyJMiYpA/ZKL4LKPhlL7YOnxjOkwf35C/7Wr6d7aGzOoQzPtQDEaBJ9MRb0I/VeJG61K62Ml22EXmA==}
 
-  '@browser-mc/browser-movie-converter@1.3.0':
-    resolution: {integrity: sha512-0/YzVQZ0GaDNDVQjUdsqba5kdzZaL+mYYQ/XcDvW3knDkx8dhW5b1ofF0WQ60gxW+mSegry+mUm0YrjHvOENPA==}
+  '@browser-mc/browser-movie-converter@1.4.0':
+    resolution: {integrity: sha512-Z80X5+127F9A0vFtttisskBESANGcM2TME9KNZ1/ApFwjdfkBpy/qtVyA8UsunbQRqFD329l+L80NuRCIiwijQ==}
 
   '@browser-mc/exif-transplant@0.0.4':
     resolution: {integrity: sha512-mHrzFKvFFXow4d1w3iMIhIRHH/iFLEwl+rln0wbxl6VD6d7V7nj8K6qGnmkmkWv8tEnngGsMXN1uzfULMxmbAA==}
@@ -750,8 +750,8 @@ packages:
   '@browser-mc/media-container@0.3.1':
     resolution: {integrity: sha512-0fAPfWJQ1gz1tvECyyK2jwWEIl4QRdjeAXL9SNp8m/dbR6yLsZL1Og9zGHW+7e52Hbr648vxWk6WGaDsoXRwCw==}
 
-  '@browser-mc/mediabunny-scene-keyframes@0.0.1':
-    resolution: {integrity: sha512-mK2iT/DIbTRz29mrd/z7u9QBRdyWAmtS4L/abs9RNmgnG6avr5uCZInI69bRnApdQvCa6WfeNaaMn2kXFM6RYw==}
+  '@browser-mc/mediabunny-scene-keyframes@0.1.0':
+    resolution: {integrity: sha512-DYl+8J9V1DEy1amTozLGHTeVDxnzBvg62tsH8c34gDt+c+tCnsoJ1jP6ulTzedeHGY5In8zjqc9cG4RcYAw8aw==}
 
   '@browser-mc/video-codec@0.0.1':
     resolution: {integrity: sha512-bB6te1VW8ULlxte+8h9btTseAEiS0Yjb0/uUezJt5SM6RerS05MgmpY3hFwZKJPiiAaU1QW8m8YXrxErgXohUg==}
@@ -4809,8 +4809,8 @@ packages:
   mdast-util-to-hast@13.2.1:
     resolution: {integrity: sha512-cctsq2wp5vTsLIcaymblUriiTcZd0CwWtCbLvrOzYCDZoWyMNV8sZ7krj09FSnsiJi3WVsHLM4k6Dq/yaPyCXA==}
 
-  mediabunny@1.46.0:
-    resolution: {integrity: sha512-HIaMQ6PVMndrFb9sNCh9/uAsLFBfLzyAgbk3kN7ZqlRRq//9RPYqIOQtXYpkbWBZU8ZJkaAUNLDtwTcdKo7yQw==}
+  mediabunny@1.61.1:
+    resolution: {integrity: sha512-530o7Q2OkChbfXt8N9WmzcW/wmUN0Vdxgl3RE5zUlzny3aNJUi7huOjdOVVq60aCEjTaMR1Ikby+61+co8gRwA==}
 
   memoize-one@6.0.0:
     resolution: {integrity: sha512-rkpe71W0N0c0Xz6QD0eJETuWAJGnJ9afsl1srmwPrI+yBCkge5EycXXbYRyvL29zZVUWQCY7InPRCv3GDXuZNw==}
@@ -6983,12 +6983,12 @@ snapshots:
       '@browser-mc/webcodecs-avif': 0.4.2
       '@browser-mc/webcodecs-color': 1.0.1
 
-  '@browser-mc/browser-movie-converter@1.3.0':
+  '@browser-mc/browser-movie-converter@1.4.0':
     dependencies:
-      '@browser-mc/mediabunny-scene-keyframes': 0.0.1
+      '@browser-mc/mediabunny-scene-keyframes': 0.1.0
       '@browser-mc/video-codec': 0.0.1
       '@browser-mc/webcodecs-color': 1.0.1
-      mediabunny: 1.46.0
+      mediabunny: 1.61.1
 
   '@browser-mc/exif-transplant@0.0.4':
     dependencies:
@@ -6999,9 +6999,9 @@ snapshots:
     dependencies:
       '@browser-mc/binary': 0.0.1
 
-  '@browser-mc/mediabunny-scene-keyframes@0.0.1':
+  '@browser-mc/mediabunny-scene-keyframes@0.1.0':
     dependencies:
-      mediabunny: 1.46.0
+      mediabunny: 1.61.1
 
   '@browser-mc/video-codec@0.0.1': {}
 
@@ -11540,7 +11540,7 @@ snapshots:
       unist-util-visit: 5.1.0
       vfile: 6.0.3
 
-  mediabunny@1.46.0:
+  mediabunny@1.61.1:
     dependencies:
       '@types/dom-mediacapture-transform': 0.1.11
       '@types/dom-webcodecs': 0.1.13

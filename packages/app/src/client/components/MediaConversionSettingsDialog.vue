@@ -237,7 +237,7 @@ const videoRawChromaSubsampling = computed({
 	},
 });
 const selectableVideoCodecs = computed(() => {
-	const codecs = mediaVideoCodecOptions[draftSettings.value.video.outputMime];
+	const codecs = mediaVideoCodecOptions[draftSettings.value.video.outputMime] as readonly VideoCodec[];
 	if (props.videoEncodeVariants.length === 0) return codecs;
 	const supportedCodecs = codecs.filter(codec => props.videoEncodeVariants.some(variant => variant.videoCodec === codec));
 	return supportedCodecs.length > 0 ? supportedCodecs : codecs;
