@@ -100,7 +100,7 @@ async function submitAll(view: RefundView) {
 	return current;
 }
 
-function rpc(view: RefundView, options: { pending?: Set<string>; invalid?: boolean; reorgOnFinal?: boolean; insufficient?: boolean; from?: `0x${string}` } = {}) {
+function rpc(view: RefundView, options: { pending?: Set<string>; invalid?: boolean; reorgOnFinal?: boolean; insufficient?: boolean; from?: `0x${string}`; mismatchedReceipt?: boolean } = {}) {
 	let receiptCalls = 0;
 	return vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
 		const requestBody = JSON.parse(String(init?.body)) as { id: number; method: string; params?: string[] };
@@ -114,7 +114,7 @@ function rpc(view: RefundView, options: { pending?: Set<string>; invalid?: boole
 			receiptCalls++;
 			if (!transfer || !group || options.pending?.has(transfer.id) || (options.reorgOnFinal && receiptCalls > view.transfers.length)) result = null;
 			else result = {
-				transactionHash: transfer.txHash, transactionIndex: '0x0', blockHash, blockNumber: '0x64', from: options.from ?? sender, to: token,
+				transactionHash: options.mismatchedReceipt ? `0x${'f'.repeat(64)}` : transfer.txHash, transactionIndex: '0x0', blockHash, blockNumber: '0x64', from: options.from ?? sender, to: token,
 				cumulativeGasUsed: '0x5208', gasUsed: '0x5208', effectiveGasPrice: '0x1', status: '0x1', type: '0x2', contractAddress: null,
 				logs: [{ address: token, data: encodeAbiParameters([{ type: 'uint256' }], [BigInt(group.amountBaseUnits)]),
 													topics: encodeEventTopics({ abi: [transferAbi], eventName: 'Transfer', args: { from: options.from ?? sender, to: options.invalid ? recipient : group.payerAddress as `0x${string}` } }),
@@ -369,5 +369,10 @@ describe('Refund API + D1 integration', () => {
 		expect(await responses[0].json()).toEqual(await responses[1].json());
 		expect(await assignmentCount()).toBe(1);
 		expect((await env.DB.prepare('SELECT count(*) AS count FROM plan_funding_lots WHERE source_order_id = ?').bind(purchase.id).first<{ count: number }>())?.count).toBe(1);
+	});
+	test('a receipt for another hash never satisfies the recorded refund transaction', async () => {
+		await fund(); const view = await submitAll(await prepare(await request())); rpc(view, { mismatchedReceipt: true });
+		expect((await api<RefundView>('/api/admin/check-refund', { requestId: view.request.id })).request.status).toBe('processing');
+		expect(await assignmentCount()).toBe(1);
 	});
 });

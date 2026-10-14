@@ -14,7 +14,9 @@ export async function verifyRefundTransfer(env: Env, group: RefundQuote['groups'
 	const client = createPublicClient({ transport: http(rpc) });
 	try {
 		if (await client.getChainId() !== group.chainId) throw apiError(400, 'PAYMENT_TRANSACTION_INVALID');
-		const receipt = await client.getTransactionReceipt({ hash: normalizeTransactionHash(transfer.txHash) });
+		const hash = normalizeTransactionHash(transfer.txHash);
+		const receipt = await client.getTransactionReceipt({ hash });
+		if (receipt.transactionHash.toLowerCase() !== hash) return null;
 		if (receipt.status !== 'success') throw apiError(400, 'PAYMENT_TRANSACTION_INVALID', '返金トランザクションが失敗しています。再送せず管理者が確認してください。');
 		const latest = await client.getBlockNumber();
 		if (latest < receipt.blockNumber || latest - receipt.blockNumber + 1n < BigInt(Math.max(1, transfer.confirmationsRequired))) return null;
@@ -26,7 +28,8 @@ export async function verifyRefundTransfer(env: Env, group: RefundQuote['groups'
 		const sender = normalizeEthAddress(transfer.senderAddress);
 		const recipient = normalizeEthAddress(group.payerAddress);
 		for (const log of receipt.logs) {
-			if (log.removed || log.address.toLowerCase() !== token) continue;
+			if (log.removed || log.address.toLowerCase() !== token || log.blockHash !== receipt.blockHash
+				|| log.transactionHash.toLowerCase() !== hash || !Number.isSafeInteger(log.logIndex) || log.logIndex < 0) continue;
 			try {
 				const decoded = decodeEventLog({ abi: [transferEvent], data: log.data, topics: log.topics });
 				if (String(decoded.args.from).toLowerCase() === sender && String(decoded.args.to).toLowerCase() === recipient && decoded.args.value === BigInt(group.amountBaseUnits)) {
@@ -37,7 +40,8 @@ export async function verifyRefundTransfer(env: Env, group: RefundQuote['groups'
 		throw apiError(400, 'PAYMENT_TRANSACTION_INVALID', '原購入者・送金元・トークン・返金額と一致するTransferがありません。');
 	} catch (error) {
 		if (error instanceof ApiError) throw error;
-		if (!(error instanceof TransactionReceiptNotFoundError)) console.warn('Refund RPC verification pending', String(error));
+		// RPC errors may contain private URLs or credentials; expose only state.
+		if (!(error instanceof TransactionReceiptNotFoundError)) console.warn('Refund RPC verification pending');
 		return null;
 	}
 }
