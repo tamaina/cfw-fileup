@@ -5,6 +5,7 @@ import migration0000 from '../../migrations/0000_curly_lady_deathstrike.sql?raw'
 import migration0001 from '../../migrations/0001_confused_wild_child.sql?raw';
 import migration0002 from '../../migrations/0002_last_whizzer.sql?raw';
 import migration0003 from '../../migrations/0003_lazy_calypso.sql?raw';
+import migration0004 from '../../migrations/0004_wild_silverclaw.sql?raw';
 
 const defaultCf = {
 	country: 'JP',
@@ -21,7 +22,8 @@ const defaultCf = {
 };
 
 export const rawApp = workerApp;
-export const env = Object.assign(workerEnv, {
+export const env: Env = Object.assign(workerEnv, { TURNSTILE_SECRET: '', GOOGLE_CLIENT_SECRET: '', EVM_CHAIN_RPC_URLS: '', REOWN_PROJECT_ID: '' });
+Object.assign(env, {
 	TURNSTILE_SECRET: '',
 	AUTH_RATE_LIMITER: undefined,
 	FILE_PASSPHRASE_RATE_LIMITER: undefined,
@@ -50,9 +52,17 @@ const migrations = [
 	migration0001,
 	migration0002,
 	migration0003,
+	migration0004,
 ] as const;
 
 const tables = [
+	'refund_source_claims',
+	'refund_transfers',
+	'refund_requests',
+	'plan_funding_lots',
+	'billing_transaction_claims',
+	'billing_states',
+	'billing_guards',
 	'upload_parts',
 	'targz_files',
 	'tar_files',
@@ -120,6 +130,13 @@ export async function setupDb(): Promise<void> {
 // Clear all data between tests (delete in dependency order)
 export async function clearDb(): Promise<void> {
 	await env.DB.batch([
+		env.DB.prepare('DELETE FROM refund_source_claims'),
+		env.DB.prepare('DELETE FROM refund_transfers'),
+		env.DB.prepare('DELETE FROM refund_requests'),
+		env.DB.prepare('DELETE FROM plan_funding_lots'),
+		env.DB.prepare('DELETE FROM billing_transaction_claims'),
+		env.DB.prepare('DELETE FROM billing_states'),
+		env.DB.prepare('DELETE FROM billing_guards'),
 		env.DB.prepare('DELETE FROM upload_parts'),
 		env.DB.prepare('DELETE FROM targz_files'),
 		env.DB.prepare('DELETE FROM tar_files'),
@@ -165,7 +182,7 @@ export async function signup(
 	password = 'password123',
 	extra?: Record<string, string>,
 ): Promise<{ status: number; data: Record<string, unknown> }> {
-	const passphrase = (env as Record<string, string>).SIGNUP_PASSPHRASE;
+	const passphrase = env.SIGNUP_PASSPHRASE;
 	const res = await app.request(
 		'/api/signup',
 		{

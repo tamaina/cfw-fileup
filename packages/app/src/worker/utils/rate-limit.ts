@@ -1,5 +1,7 @@
 import { and, desc, eq, gt, lt, sql } from 'drizzle-orm';
 import { buckets, userQuotas, globalQuotas, userPlanAssignments, plans, users } from '../scheme/index';
+import { apiError } from './api-error';
+import { getBillingState } from './billing-state';
 import { getDb } from './db';
 import { reserveEmailNotification, sendAccountEmailLines } from './email';
 import { getAppName } from './app-name';
@@ -225,12 +227,15 @@ export async function refreshEffectiveQuotaForUser(env: Env, userId: string, now
 		.from(users)
 		.where(eq(users.id, userId))
 		.get();
+	const state = await getBillingState(env, userId);
 	const quota = await computeEffectiveQuotaForUser(env, userId, now);
 
-	await db
+	const saved = await db
 		.update(users)
 		.set(toUserQuotaUpdate(quota))
-		.where(eq(users.id, userId));
+		.where(and(eq(users.id, userId), sql`EXISTS (SELECT 1 FROM billing_states WHERE user_id = ${userId} AND revision = ${state.revision})`))
+		.returning({ id: users.id });
+	if (saved.length === 0) throw apiError(409, 'REFUND_CONFLICT', 'プラン変更中です。再試行してください。');
 
 	if (
 		previous?.effectiveQuotaSource === 'plan'

@@ -46,6 +46,7 @@ async function purgeWorkerCache(): Promise<void> {
           <li v-if="authStore.user?.isAdmin"><NirA to="/admin/global-quota">グローバルクォータ設定</NirA></li>
           <li v-if="authStore.user?.isAdmin"><NirA to="/admin/plans">課金プラン管理</NirA></li>
           <li v-if="authStore.user?.isAdmin"><NirA to="/admin/crypto-payments">Crypto payments</NirA></li>
+          <li v-if="authStore.user?.isAdmin"><NirA to="/admin/refunds">返金申請</NirA></li>
           <li v-if="authStore.user?.isAdmin"><NirA to="/admin/users">ユーザー管理</NirA></li>
           <li><NirA to="/admin/files">ファイル管理</NirA></li>
           <li><NirA to="/admin/file-reports">ファイル通報</NirA></li>

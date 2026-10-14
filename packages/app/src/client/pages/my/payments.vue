@@ -4,11 +4,12 @@ import { authStore } from '@/store/auth';
 import { apiPost, type ApiSuccess } from '@/utils/api';
 import CryptoPaymentOffers from '@/components/CryptoPaymentOffers.vue';
 import CryptoPaymentHistoryTable from '@/components/CryptoPaymentHistoryTable.vue';
+import RefundRequests from '@/components/RefundRequests.vue';
 import WalletRuntimeProvider from '@/components/WalletRuntimeProvider';
 import WalletSettings from '@/components/WalletSettings.vue';
 
 type Payment = ApiSuccess<'/api/billing/list-my-payments'>['data']['items'][number];
-type ActiveTab = 'plans' | 'history' | 'wallets';
+type ActiveTab = 'plans' | 'history' | 'wallets' | 'refunds';
 
 const activeTab = ref<ActiveTab>('plans');
 const payments = ref<Payment[]>([]);
@@ -118,6 +119,7 @@ onMounted(loadPayments);
         <button type="button" class="tab-btn" :class="{ 'tab-btn-active': activeTab === 'plans' }" role="tab" :aria-selected="activeTab === 'plans'" @click="setTab('plans')">プラン購入</button>
         <button type="button" class="tab-btn" :class="{ 'tab-btn-active': activeTab === 'history' }" role="tab" :aria-selected="activeTab === 'history'" @click="setTab('history')">決済履歴</button>
         <button type="button" class="tab-btn" :class="{ 'tab-btn-active': activeTab === 'wallets' }" role="tab" :aria-selected="activeTab === 'wallets'" @click="setTab('wallets')">ウォレット</button>
+        <button type="button" class="tab-btn" :class="{ 'tab-btn-active': activeTab === 'refunds' }" role="tab" :aria-selected="activeTab === 'refunds'" @click="setTab('refunds')">返金申請</button>
       </div>
 
       <WalletRuntimeProvider v-if="activeTab !== 'history'">
@@ -125,9 +127,10 @@ onMounted(loadPayments);
           <CryptoPaymentOffers :reload-key="offersReloadKey" @purchased="paymentCompleted" />
         </section>
 
-        <section v-else role="tabpanel">
+        <section v-else-if="activeTab === 'wallets'" role="tabpanel">
           <WalletSettings @changed="walletChanged" />
         </section>
+        <section v-else role="tabpanel"><RefundRequests /></section>
       </WalletRuntimeProvider>
 
       <section v-else role="tabpanel">

@@ -31,6 +31,7 @@ export const userPlanAssignments = sqliteTable('user_plan_assignments', {
 	priceDurationUnit: text('price_duration_unit', { enum: ['days', 'months', 'years'] }).notNull(),
 	createdAt: integer('created_at').notNull(),
 	updatedAt: integer('updated_at').notNull(),
+	refundProvenanceComplete: integer('refund_provenance_complete', { mode: 'boolean' }).notNull().default(false),
 }, (table) => [
 	index('user_plan_assignments_user_period_idx').on(table.userId, table.startsAt, table.expiresAt),
 	index('user_plan_assignments_plan_id_idx').on(table.planId),
