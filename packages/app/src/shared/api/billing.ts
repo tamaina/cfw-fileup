@@ -431,6 +431,7 @@ export const billingApiDef = {
 			quoteCreatedAt: v.pipe(v.number(), v.integer(), v.minValue(0)),
 		}),
 		res: {
+			409: errorResponse('Billing reservation or concurrent plan change', ['REFUND_CONFLICT']),
 			200: { description: 'Success', content: { 'application/json': { vSchema: CryptoPaymentOrderResponse } } },
 			400: errorResponse('Invalid payment quote, wallet, or RPC configuration', ['PAYMENT_CHAIN_RPC_NOT_CONFIGURED', 'PAYMENT_QUOTE_EXPIRED', 'PAYMENT_QUOTE_INVALID', 'WALLET_NOT_FOUND']),
 			403: errorResponse('Payment region not allowed', ['PAYMENT_REGION_NOT_ALLOWED']),
@@ -442,6 +443,7 @@ export const billingApiDef = {
 		tags: ['billing'],
 		req: v.object({ orderId: IdString, txHash: TransactionHash }),
 		res: {
+			409: errorResponse('Billing reservation or concurrent plan change', ['REFUND_CONFLICT']),
 			200: { description: 'Success', content: { 'application/json': { vSchema: CryptoPaymentOrderResponse } } },
 			400: errorResponse('Invalid payment transaction', ['PAYMENT_CHAIN_RPC_NOT_CONFIGURED', 'PAYMENT_ORDER_EXPIRED', 'PAYMENT_TRANSACTION_ALREADY_USED', 'PAYMENT_TRANSACTION_INVALID']),
 			404: errorResponse('Payment order not found', ['PAYMENT_ORDER_NOT_FOUND']),
@@ -452,6 +454,7 @@ export const billingApiDef = {
 		tags: ['billing'],
 		req: v.object({ orderId: IdString }),
 		res: {
+			409: errorResponse('Billing reservation or concurrent plan change', ['REFUND_CONFLICT']),
 			200: { description: 'Success', content: { 'application/json': { vSchema: CryptoPaymentOrderResponse } } },
 			400: errorResponse('Invalid payment transaction', ['PAYMENT_CHAIN_RPC_NOT_CONFIGURED', 'PAYMENT_ORDER_EXPIRED', 'PAYMENT_TRANSACTION_INVALID']),
 			404: errorResponse('Payment order not found', ['PAYMENT_ORDER_NOT_FOUND']),

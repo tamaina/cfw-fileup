@@ -3,6 +3,7 @@ import { describeResponse, describeRoute, validator } from 'hono-openapi';
 import { and, asc, desc, eq, lt, ne, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 import * as v from 'valibot';
+import { commitBillingBatch, getBillingState, prepareBillingQuery } from '../utils/billing-state';
 import { genEaidx, parseEaidx } from '../../shared/eaid-x';
 import { apiError } from '../utils/api-error';
 import { users, tokens, files, buckets, appSettings, userQuotas, globalQuotas, plans, userPlanAssignments, ipBans, fileReports, moderationEvents, moderationAuditLogs } from '../scheme/index';
@@ -1120,7 +1121,14 @@ app.post(
 			throw apiError(404, 'USER_NOT_FOUND');
 		}
 
-		await db.delete(userPlanAssignments).where(eq(userPlanAssignments.userId, body.userId));
+		const state = await getBillingState(c.env, body.userId);
+		await commitBillingBatch(c.env, { userId: body.userId, revision: state.revision, lockRequestId: null,
+																																				condition: 'NOT EXISTS (SELECT 1 FROM crypto_payment_orders WHERE user_id = ? AND status = \'pending\' AND (expires_at > ? OR tx_hash IS NOT NULL))',
+																																				conditionParams: [body.userId, Date.now()], statements: [
+																																					prepareBillingQuery(c.env, db.delete(userPlanAssignments).where(eq(userPlanAssignments.userId, body.userId))),
+																																					c.env.DB.prepare('UPDATE billing_states SET revision = revision + 1 WHERE user_id = ?').bind(body.userId),
+																																					c.env.DB.prepare('UPDATE users SET effective_quota_updated_at = NULL WHERE id = ?').bind(body.userId),
+																																				] });
 		await refreshEffectiveQuotaForUser(c.env, body.userId);
 		await recordModerationAuditLog(c, 'admin_user_plan_deleted', { targetUserId: body.userId });
 

@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { describeResponse, describeRoute, validator } from 'hono-openapi';
 import { and, asc, desc, eq, gt, isNull, lt, or } from 'drizzle-orm';
+import { commitBillingBatch, getBillingState, prepareBillingQuery } from '../utils/billing-state';
 import { apiDef, getResponseDefWithAuth, type JsonCtx } from '../../shared/api';
 import { addPaymentDuration, calculatePaymentQuote, evaluateDealDisplayEligibility, type PaymentDurationUnit, type PaymentQuote, type PaymentQuoteCurrentPlan, type PriceHistoryPeriod } from '../../shared/billing-quote';
 import { authMiddleware } from '../middleware/auth';
@@ -562,6 +563,8 @@ app.post(
 		if (body.quoteCreatedAt > now + 60_000 || now - body.quoteCreatedAt > QUOTE_TTL_MS) {
 			throw apiError(400, 'PAYMENT_QUOTE_EXPIRED');
 		}
+		const billingState = await getBillingState(c.env, user.id);
+		if (billingState.lockRequestId !== null) throw apiError(409, 'REFUND_CONFLICT');
 		const quote = await createPaymentOfferQuote(c.env, user.id, {
 			assetId: price.assetId,
 			planId: price.planId,
@@ -616,6 +619,7 @@ app.post(
 			quoteCurrentPlanPriceDurationDays: quote.currentPlan?.priceDurationDays ?? null,
 			quoteCurrentPlanPriceDurationUnit: quote.currentPlan?.priceDurationUnit ?? null,
 			quoteDiscountAssignmentIds: JSON.stringify(quote.discountAssignmentIds),
+			billingRevision: billingState.revision,
 			status: 'pending' as const,
 			txHash: null,
 			createdAt: now,
@@ -625,7 +629,9 @@ app.post(
 			cfRegionSnapshot: stringifyCfRegionSnapshot(cfRegionSnapshot),
 			...taxSnapshot,
 		};
-		await db.insert(cryptoPaymentOrders).values(order);
+		await commitBillingBatch(c.env, { userId: user.id, revision: billingState.revision, lockRequestId: null,
+																																				condition: 'NOT EXISTS (SELECT 1 FROM crypto_payment_orders WHERE user_id = ? AND status = \'pending\' AND (expires_at > ? OR tx_hash IS NOT NULL))',
+																																				conditionParams: [user.id, now], statements: [prepareBillingQuery(c.env, db.insert(cryptoPaymentOrders).values(order))] });
 		if (BigInt(order.amountBaseUnits) === 0n) {
 			const paidOrder = await markZeroAmountCryptoPaymentOrderPaid(c.env, user.id, order.id, now, getContextWaitUntil(c));
 			await recordModerationEvent(c, 'crypto_payment_order_confirmed', { orderId: paidOrder.id, chainId: paidOrder.chainId, txHash: paidOrder.txHash }, user.id, user.tokenId);

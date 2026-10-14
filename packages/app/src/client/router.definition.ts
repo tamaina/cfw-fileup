@@ -153,6 +153,11 @@ export const ROUTE_DEF = [
 		component: page(() => import('@/pages/admin/plans.vue')),
 	},
 	{
+		path: '/admin/refunds',
+		name: 'admin-refunds',
+		component: page(() => import('@/pages/admin/refunds.vue')),
+	},
+	{
 		path: '/admin/crypto-payments',
 		name: 'admin-crypto-payments',
 		component: page(() => import('@/pages/admin/crypto-payments.vue')),
