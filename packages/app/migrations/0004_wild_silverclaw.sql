@@ -1,3 +1,4 @@
+-- https://github.com/tamaina/cfw-fileup/pull/139
 CREATE TABLE `billing_guards` (
 	`id` text PRIMARY KEY NOT NULL,
 	`valid` integer NOT NULL,
