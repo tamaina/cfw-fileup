@@ -691,6 +691,62 @@ describe('GET /d/:fileId', () => {
 		expect(await afterExpiryRes.text()).toBe('Created before negative cache expires');
 	});
 
+	test('far-future EAID-X file ID is rejected before DB and cache', async () => {
+		const fileId = genEaidx(Date.now() + 10 * 60_000);
+		// 行があっても DB を見ずに 404 になることを確かめる
+		const { userId, bucketId } = await setupBucket('futureid');
+		await insertPublicFile({
+			fileId,
+			bucketId,
+			userId,
+			path: 'future.txt',
+			body: 'Should not be served',
+		});
+
+		const res = await app.request(`/d/${fileId}`, {}, env);
+		expect(res.status).toBe(404);
+		expect(res.headers.get('Cache-Control')).toBe('no-store');
+		expect(await res.json()).toEqual({ error: 'FILE_NOT_FOUND', message: 'FILE_NOT_FOUND' });
+
+		const entryRes = await app.request(`/d/${fileId}/:entries/inner.txt`, {}, env);
+		expect(entryRes.status).toBe(404);
+		expect(entryRes.headers.get('Cache-Control')).toBe('no-store');
+		expect(await entryRes.json()).toEqual({ error: 'FILE_NOT_FOUND', message: 'FILE_NOT_FOUND' });
+	});
+
+	test('missing EAID-X file ID just inside the future margin keeps the cached 404', async () => {
+		const fileId = genEaidx(Date.now() + 30_000);
+
+		const res = await app.request(`/d/${fileId}`, {}, env);
+		expect(res.status).toBe(404);
+		const cacheControl = res.headers.get('Cache-Control');
+		expect(cacheControl).toMatch(/^public, max-age=\d+$/);
+		expect(Number(cacheControl?.slice('public, max-age='.length))).toBeLessThanOrEqual(30);
+		expect(await res.json()).toEqual({ error: 'FILE_NOT_FOUND', message: 'FILE_NOT_FOUND' });
+	});
+
+	test('malformed and future file IDs are rejected before the IP ban check', async () => {
+		await env.DB.prepare('INSERT INTO ip_bans (id, cidr) VALUES (?, ?)').bind(genEaidx(Date.now()), '203.0.113.0/24').run();
+		const headers = { 'CF-Connecting-IP': '203.0.113.5' };
+
+		const malformedRes = await app.request('/d/not-an-id', { headers }, env);
+		expect(malformedRes.status).toBe(400);
+		expect(await malformedRes.json()).toMatchObject({ error: 'INVALID_FILE_ID' });
+
+		const tooLongRes = await app.request(`/d/${'a'.repeat(65)}`, { headers }, env);
+		expect(tooLongRes.status).toBe(400);
+		expect(await tooLongRes.json()).toMatchObject({ error: 'FILE_ID_IS_REQUIRED' });
+
+		const futureRes = await app.request(`/d/${genEaidx(Date.now() + 10 * 60_000)}`, { headers }, env);
+		expect(futureRes.status).toBe(404);
+		expect(futureRes.headers.get('Cache-Control')).toBe('no-store');
+		await futureRes.arrayBuffer();
+
+		const bannedRes = await app.request(`/d/${genEaidx(Date.now() - 60_000)}`, { headers }, env);
+		expect(bannedRes.status).toBe(403);
+		expect(await bannedRes.json()).toMatchObject({ error: 'IP_BANNED' });
+	});
+
 	test('private file without token returns 403', async () => {
 		const { data } = await signup('user1');
 		const token = String(data.token);

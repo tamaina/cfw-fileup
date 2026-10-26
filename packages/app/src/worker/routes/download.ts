@@ -2,7 +2,7 @@ import { Hono, type Context } from 'hono';
 import { eq, and, asc, sql } from 'drizzle-orm';
 import { createBgzfBlock } from 'bgzf';
 import parseRange from 'range-parser';
-import { aidxRegExp, genEaidx, parseEaidx } from '../../shared/eaid-x';
+import { aidxRegExp, genEaidx, isFutureEaidx, parseEaidx } from '../../shared/eaid-x';
 import { buckets, files, targzFiles, tarFiles, tokens, users, fileAccessTokens, moderationAuditLogs } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { DownloadContext, createMissingFileCacheRequest } from '../utils/download-context';
@@ -15,6 +15,8 @@ import { selectStoredOrSniffedMimeType } from '../utils/mime-by-extension';
 
 const app = new Hono<{ Bindings: Env }>();
 const tenYearsInSeconds = 10 * 365 * 24 * 60 * 60;
+/** 時計のずれを見込んだ幅。これより未来の時刻を持つ ID は DB もキャッシュも見ずに 404 にする。 */
+export const futureFileIdSkewMs = 60_000;
 type AppContext = Context<{ Bindings: Env }>;
 
 type ByteRange = {
@@ -454,11 +456,46 @@ async function readR2ObjectBody(body: ReadableStream<Uint8Array<ArrayBuffer>>, c
 	}
 }
 
+function assertValidFileIdFormat(fileId: string): void {
+	if (fileId.length > MAX_ID_LENGTH) throw apiError(400, 'FILE_ID_IS_REQUIRED', `fileId must be at most ${MAX_ID_LENGTH} characters`);
+	if (!aidxRegExp.test(fileId)) throw apiError(400, 'INVALID_FILE_ID');
+}
+
+function createFutureFileIdResponse(): Response {
+	return new Response(JSON.stringify(createApiErrorResponse('FILE_NOT_FOUND')), {
+		status: 404,
+		headers: {
+			'Content-Type': 'application/json',
+			'Cache-Control': 'no-store',
+		},
+	});
+}
+
+/**
+ * `/d/*` の最初（IP BAN の確認など DB を使う処理より前）に呼ぶ。
+ * 形式が正しくない ID は 400、時刻が未来の ID は 404 をここで返し、DB とキャッシュを使わない。
+ * `/d/:fileId` と `/d/:fileId/:entries/...` の形のパスだけを対象にする。
+ */
+export function rejectInvalidOrFutureDownloadPath(path: string): Response | null {
+	if (!path.startsWith('/d/')) return null;
+	const segments = path.slice('/d/'.length).split('/');
+	const isFileRoute = segments.length === 1;
+	const isEntryRoute = segments.length >= 3 && segments[1] === ':entries' && segments.slice(2).join('/') !== '';
+	if (!isFileRoute && !isEntryRoute) return null;
+
+	const fileId = segments[0];
+	if (fileId === '') return null;
+	assertValidFileIdFormat(fileId);
+	if (isFutureEaidx(fileId, Date.now(), futureFileIdSkewMs)) return createFutureFileIdResponse();
+	return null;
+}
+
 async function handleDownload(c: AppContext, entryPath: string | null): Promise<Response> {
 	const db = getDb(c.env);
 	const fileId = c.req.param('fileId') ?? '';
-	if (fileId.length > MAX_ID_LENGTH) throw apiError(400, 'FILE_ID_IS_REQUIRED', `fileId must be at most ${MAX_ID_LENGTH} characters`);
-	if (!aidxRegExp.test(fileId)) throw apiError(400, 'INVALID_FILE_ID');
+	// 通常は `/d/*` のミドルウェアで確認済み（念のためここでも確認する）
+	assertValidFileIdFormat(fileId);
+	if (isFutureEaidx(fileId, Date.now(), futureFileIdSkewMs)) return createFutureFileIdResponse();
 	const workerCacheVersion = await getWorkerCacheVersion(c.env);
 	// ID は使い回されないので、存在しない ID の 404 は認証より前にキャッシュから返してよい
 	const missingFileCacheRequest = createMissingFileCacheRequest({ fileId, cacheVersion: workerCacheVersion });

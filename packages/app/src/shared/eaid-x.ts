@@ -77,6 +77,15 @@ export function parseEaidxFull(id: string): { date: number; additional: bigint; 
 	return { date, additional };
 }
 
+/**
+ * ID に入っている時刻が now + skewMs より未来なら true。
+ * サーバーは現在時刻で ID を作るので、そのような ID のファイルはまだ存在しない。
+ */
+export function isFutureEaidx(id: string, now: number, skewMs: number): boolean {
+	if (!aidxRegExp.test(id)) return false;
+	return parseEaidx(id).date.getTime() > now + skewMs;
+}
+
 export function isSafeEaidxT(t: number): boolean {
 	return t > TIME2000;
 }
