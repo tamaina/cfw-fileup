@@ -4,7 +4,6 @@ import { getAppSettingCached, setAppSettingCache } from './app-settings-cache';
 
 export const workerCacheBaseNames = {
 	download: 'download',
-	missingDownloadFile: 'download-file-not-found',
 } as const;
 
 export const workerCacheVersionSettingKey = 'worker_cache_version';

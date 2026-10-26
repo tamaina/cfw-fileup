@@ -18,6 +18,7 @@ import { googleAuthRoutes } from './api/google-auth';
 import { indieAuthRoutes } from './api/indieauth';
 import { activityPubRoutes } from './routes/activitypub';
 import { downloadRoutes } from './routes/download';
+import { withWorkersCacheNoStore } from './utils/workers-cache';
 import { uploadRoutes } from './routes/upload';
 import { viewHtmlRoutes } from './routes/view-html';
 import { embedRoutes } from './routes/embed';
@@ -39,6 +40,22 @@ app.use('/upload/*', async (c, next) => {
 app.use('/v/*', async (c, next) => {
 	await rejectIpBan(c);
 	await next();
+});
+
+/**
+ * /d は Workers Cache に保存させない（存在しない ID の 404 だけは routes/download.ts 側で例外にしている）。
+ *
+ * Workers Cache は Worker より前でレスポンスを返すため、/d で保存させると次の問題が起きる。
+ * - 非公開化・モデレーションによる非公開化・削除の後も、公開時のレスポンス（immutable, 10 年）が返り続ける
+ * - ファイルアクセストークンを削除しても、そのトークン付き URL のレスポンスが返り続ける
+ * - キャッシュヒット時に Worker が動かないので、ダウンロード数が数えられない
+ * - Range ヘッダーを外して Worker に全体を要求するため、R2 の範囲読み出しや `?entry=` の範囲検証が働かない
+ * そのため /d は、認証とダウンロード数の処理の後で Cache API（内部キャッシュ）を使う。
+ * IP BAN などのエラーレスポンスも対象にするため、/d の最も外側のミドルウェアで付ける。
+ */
+app.use('/d/*', async (c, next) => {
+	await next();
+	c.res = withWorkersCacheNoStore(c.res);
 });
 
 app.use('/d/*', async (c, next) => {

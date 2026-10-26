@@ -8,6 +8,7 @@ import { getDb } from '../utils/db';
 import { DownloadContext, downloadCacheInternalHeaders } from '../utils/download-context';
 import { MAX_FILE_PATH_LENGTH, MAX_ID_LENGTH, toEncryptedDownloadFilename } from '../../shared/const';
 import { getWorkerCacheVersion, openWorkerCache, workerCacheBaseNames } from '../utils/cache-names';
+import { workersCacheControlHeader } from '../utils/workers-cache';
 import { apiError, createApiErrorResponse } from '../utils/api-error';
 import { tokenToDigest } from '../utils/crypto';
 import { likePrefix } from '../utils/sql-like';
@@ -33,13 +34,6 @@ type ResolvedRangeRequest =
 	| { type: 'none' }
 	| { type: 'range'; ranges: ByteRange[] }
 	| { type: 'invalid' };
-
-function createMissingFileCacheRequest(fileId: string): Request {
-	const keyUrl = new URL('https://cache.cfw-fileup.local/download-file-not-found');
-	keyUrl.searchParams.set('v', '1');
-	keyUrl.searchParams.set('fileId', fileId);
-	return new Request(keyUrl, { method: 'GET' });
-}
 
 function toDownloadBasename(path: string): string {
 	return path.split('/').pop() ?? 'download';
@@ -386,40 +380,6 @@ function addAcceptRangesForFullResponse(response: Response): Response {
 	});
 }
 
-function stripInternalCacheHeaders(cached: Response): Response {
-	const headers = new Headers(cached.headers);
-	const cachedStatus = Number(headers.get(downloadCacheInternalHeaders.status));
-	const status = Number.isInteger(cachedStatus) && cachedStatus >= 100 && cachedStatus <= 599
-		? cachedStatus
-		: cached.status;
-	const statusText = headers.get(downloadCacheInternalHeaders.statusText) ?? cached.statusText;
-	headers.delete(downloadCacheInternalHeaders.status);
-	headers.delete(downloadCacheInternalHeaders.statusText);
-	return new Response(cached.body, {
-		status,
-		statusText,
-		headers,
-	});
-}
-
-async function matchMissingFileCache(env: Env, fileId: string): Promise<Response | null> {
-	const cacheRequest = createMissingFileCacheRequest(fileId);
-	const cache = await openWorkerCache(env, workerCacheBaseNames.missingDownloadFile);
-	const cached = await cache.match(cacheRequest);
-	if (cached === undefined) return null;
-
-	const expires = cached.headers.get('Expires');
-	if (expires !== null) {
-		const expiresAt = Date.parse(expires);
-		if (!Number.isNaN(expiresAt) && expiresAt <= Date.now()) {
-			await cache.delete(cacheRequest);
-			return null;
-		}
-	}
-
-	return stripInternalCacheHeaders(cached);
-}
-
 function createMissingFileResponse(fileId: string): Response {
 	const fileDate = parseEaidx(fileId).date;
 	const now = Date.now();
@@ -428,37 +388,17 @@ function createMissingFileResponse(fileId: string): Response {
 		: now + tenYearsInSeconds * 1000;
 	const maxAge = Math.max(0, Math.floor((expiresAt - now) / 1000));
 
+	const cacheControl = `public, max-age=${maxAge}`;
 	return new Response(JSON.stringify(createApiErrorResponse('FILE_NOT_FOUND')), {
 		status: 404,
 		headers: {
 			'Content-Type': 'application/json',
-			'Cache-Control': `public, max-age=${maxAge}`,
+			'Cache-Control': cacheControl,
+			// 存在しない ID の 404 は認証やダウンロード数に関係しないので、Workers Cache（フロントキャッシュ）に任せる
+			[workersCacheControlHeader]: cacheControl,
 			'Expires': new Date(expiresAt).toUTCString(),
 		},
 	});
-}
-
-function putMissingFileCache(env: Env, fileId: string, response: Response, waitUntil: (promise: Promise<void>) => void): void {
-	const cacheResponse = response.clone();
-	const putPromise = (async () => {
-		const cache = await openWorkerCache(env, workerCacheBaseNames.missingDownloadFile);
-		const headers = new Headers(cacheResponse.headers);
-		headers.set(downloadCacheInternalHeaders.status, String(cacheResponse.status));
-		headers.set(downloadCacheInternalHeaders.statusText, cacheResponse.statusText);
-		await cache.put(createMissingFileCacheRequest(fileId), new Response(cacheResponse.body, {
-			status: 200,
-			statusText: 'OK',
-			headers,
-		}));
-	})();
-
-	try {
-		waitUntil(putPromise);
-	} catch {
-		void putPromise.catch((error: unknown) => {
-			console.error('Failed to put missing file response into cache:', error);
-		});
-	}
 }
 
 async function decompressGzipChunk(data: Uint8Array): Promise<Uint8Array<ArrayBuffer>> {
@@ -518,15 +458,8 @@ async function handleDownload(c: AppContext, entryPath: string | null): Promise<
 	const fileId = c.req.param('fileId') ?? '';
 	if (fileId.length > MAX_ID_LENGTH) throw apiError(400, 'FILE_ID_IS_REQUIRED', `fileId must be at most ${MAX_ID_LENGTH} characters`);
 	if (!aidxRegExp.test(fileId)) throw apiError(400, 'INVALID_FILE_ID');
-	const cachedMissingFile = await matchMissingFileCache(c.env, fileId);
-	if (cachedMissingFile !== null) return cachedMissingFile;
-
 	const file = await db.select().from(files).where(eq(files.id, fileId)).get();
-	if (!file) {
-		const response = createMissingFileResponse(fileId);
-		putMissingFileCache(c.env, fileId, response, (promise) => c.executionCtx.waitUntil(promise));
-		return response;
-	}
+	if (!file) return createMissingFileResponse(fileId);
 	if (!file.isClosed) {
 		throw apiError(404, 'FILE_NOT_FOUND');
 	}

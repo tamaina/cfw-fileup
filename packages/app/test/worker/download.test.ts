@@ -250,6 +250,7 @@ describe('GET /d/:fileId', () => {
 		expect(res.headers.get('Content-Disposition')).toBe('attachment; filename="hello.txt"; filename*=UTF-8\'\'hello.txt');
 		expect(res.headers.get('Last-Modified')).toBe(parseEaidx(fileId).date.toUTCString());
 		expect(res.headers.get('Vary')).toBe('Authorization, Accept-Encoding');
+		expect(res.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
 		const text = await res.text();
 		expect(text).toBe('Hello World');
 	});
@@ -270,6 +271,7 @@ describe('GET /d/:fileId', () => {
 		expect(cachedRes.headers.get('Content-Disposition')).toBe('attachment; filename="hello.txt"; filename*=UTF-8\'\'hello.txt');
 		expect(cachedRes.headers.get('Last-Modified')).toBe(parseEaidx(fileId).date.toUTCString());
 		expect(cachedRes.headers.get('Vary')).toBe('Authorization, Accept-Encoding');
+		expect(cachedRes.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
 		expect(await cachedRes.text()).toBe('Hello World');
 	});
 
@@ -283,6 +285,7 @@ describe('GET /d/:fileId', () => {
 		expect(firstRes.headers.get('Accept-Ranges')).toBe('bytes');
 		expect(firstRes.headers.get('Content-Range')).toBe('bytes 6-10/11');
 		expect(firstRes.headers.get('Content-Length')).toBe('5');
+		expect(firstRes.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
 		expect(await firstRes.text()).toBe('World');
 	});
 
@@ -568,63 +571,61 @@ describe('GET /d/:fileId', () => {
 		expect(await res.json()).toEqual({ error: 'INVALID_FILE_ID', message: 'INVALID_FILE_ID' });
 	});
 
-	test('missing past EAID-X file is cached as 404 before file lookup', async () => {
+	test('missing past EAID-X file returns a 404 cacheable by Workers Cache', async () => {
 		const fileId = genEaidx(Date.now() - 60_000);
 
-		const firstRes = await app.request(`/d/${fileId}`, {}, env);
-		expect(firstRes.status).toBe(404);
-		expect(firstRes.headers.get('Cache-Control')).toBe('public, max-age=315360000');
-		expect(await firstRes.json()).toEqual({ error: 'FILE_NOT_FOUND', message: 'FILE_NOT_FOUND' });
-
-		await new Promise((resolve) => setTimeout(resolve, 0));
-
-		const { userId, bucketId } = await setupBucket('cached404past');
-		await insertPublicFile({
-			fileId,
-			bucketId,
-			userId,
-			path: 'created-after-cache.txt',
-			body: 'Created after negative cache',
-		});
-
-		const cachedRes = await app.request(`/d/${fileId}`, {}, env);
-		expect(cachedRes.status).toBe(404);
-		expect(cachedRes.headers.get('Cache-Control')).toBe('public, max-age=315360000');
-		expect(await cachedRes.json()).toEqual({ error: 'FILE_NOT_FOUND', message: 'FILE_NOT_FOUND' });
+		const res = await app.request(`/d/${fileId}`, {}, env);
+		expect(res.status).toBe(404);
+		expect(res.headers.get('Cache-Control')).toBe('public, max-age=315360000');
+		expect(res.headers.get('Cloudflare-CDN-Cache-Control')).toBe('public, max-age=315360000');
+		expect(await res.json()).toEqual({ error: 'FILE_NOT_FOUND', message: 'FILE_NOT_FOUND' });
 	});
 
-	test('missing future EAID-X file is cached until the ID timestamp', async () => {
+	test('missing future EAID-X file is cacheable only until the ID timestamp', async () => {
 		const fileId = genEaidx(Date.now() + 2_000);
 		const fileDate = parseEaidx(fileId).date;
 
-		const firstRes = await app.request(`/d/${fileId}`, {}, env);
-		expect(firstRes.status).toBe(404);
-		expect(firstRes.headers.get('Expires')).toBe(fileDate.toUTCString());
-		const cacheControl = firstRes.headers.get('Cache-Control');
+		const res = await app.request(`/d/${fileId}`, {}, env);
+		expect(res.status).toBe(404);
+		expect(res.headers.get('Expires')).toBe(fileDate.toUTCString());
+		const cacheControl = res.headers.get('Cache-Control');
 		expect(cacheControl).toMatch(/^public, max-age=\d+$/);
+		expect(res.headers.get('Cloudflare-CDN-Cache-Control')).toBe(cacheControl);
 		const maxAge = Number(cacheControl?.slice('public, max-age='.length));
 		expect(maxAge).toBeGreaterThanOrEqual(0);
 		expect(maxAge).toBeLessThanOrEqual(2);
+	});
+
+	test('missing file 404 is not cached inside the Worker', async () => {
+		const fileId = genEaidx(Date.now() - 60_000);
+
+		const missingRes = await app.request(`/d/${fileId}`, {}, env);
+		expect(missingRes.status).toBe(404);
 
 		await new Promise((resolve) => setTimeout(resolve, 0));
 
-		const { userId, bucketId } = await setupBucket('cached404future');
+		const { userId, bucketId } = await setupBucket('created404');
 		await insertPublicFile({
 			fileId,
 			bucketId,
 			userId,
-			path: 'created-after-future-cache.txt',
-			body: 'Created before negative cache expires',
+			path: 'created-after-404.txt',
+			body: 'Created after 404',
 		});
 
-		const cachedRes = await app.request(`/d/${fileId}`, {}, env);
-		expect(cachedRes.status).toBe(404);
+		const res = await app.request(`/d/${fileId}`, {}, env);
+		expect(res.status).toBe(200);
+		expect(await res.text()).toBe('Created after 404');
+	});
 
-		await new Promise((resolve) => setTimeout(resolve, Math.max(0, fileDate.getTime() - Date.now()) + 1_100));
+	test('IP-banned download response is not stored by Workers Cache', async () => {
+		const { fileId } = await setupPublicFile();
+		await env.DB.prepare('INSERT INTO ip_bans (id, cidr) VALUES (?, ?)').bind('ban1', '203.0.113.0/24').run();
 
-		const afterExpiryRes = await app.request(`/d/${fileId}`, {}, env);
-		expect(afterExpiryRes.status).toBe(200);
-		expect(await afterExpiryRes.text()).toBe('Created before negative cache expires');
+		const res = await app.request(`/d/${fileId}`, { headers: { 'CF-Connecting-IP': '203.0.113.5' } }, env);
+		expect(res.status).toBe(403);
+		expect(res.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
+		expect(await res.json()).toMatchObject({ error: 'IP_BANNED' });
 	});
 
 	test('private file without token returns 403', async () => {
@@ -654,6 +655,7 @@ describe('GET /d/:fileId', () => {
 
 		const res = await app.request(`/d/${fileId}`, {}, env);
 		expect(res.status).toBe(403);
+		expect(res.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
 	});
 
 	test('private file with file access token returns content', async () => {
@@ -694,6 +696,7 @@ describe('GET /d/:fileId', () => {
 		expect(res.headers.get('Expires')).toBe(new Date(expiresAt).toUTCString());
 		expect(res.headers.get('Cache-Control')).toBeNull();
 		expect(res.headers.get('Vary')).toBe('Authorization, Accept-Encoding');
+		expect(res.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
 		expect(await res.text()).toBe('Secret Content');
 	});
 
