@@ -135,7 +135,78 @@ async function insertPublicFile(options: {
 	).run();
 }
 
+async function setupPublicEncryptedFile() {
+	const { data } = await signup('user1');
+	const token = String(data.token);
+
+	const bucketRes = await app.request('/api/buckets/create', {
+		method: 'POST',
+		headers: authHeaders(token),
+		body: JSON.stringify({ bucketName: 'test_bucket' }),
+	}, env);
+	const { bucketId } = await bucketRes.json() as { bucketId: string };
+
+	const openRes = await app.request('/api/files/create/open', {
+		method: 'POST',
+		headers: authHeaders(token),
+		body: JSON.stringify({ bucketId, path: 'photos/写真.jpg' }),
+	}, env);
+	const { fileId } = await openRes.json() as { fileId: string };
+
+	// 16 バイトの IV + 暗号文に見立てたデータ（サーバーは中身を解釈しない）
+	const body = new Uint8Array(48).map((_, i) => (i * 7) & 0xff);
+	await env.R2.put(`${bucketId}/photos/写真.jpg`, body);
+
+	const closeRes = await app.request('/api/files/create/close', {
+		method: 'POST',
+		headers: authHeaders(token),
+		body: JSON.stringify({ fileId, visibility: 'public', isEncrypted: true, mimeType: 'image/jpeg' }),
+	}, env);
+	expect(closeRes.status).toBe(200);
+
+	return { token, bucketId, fileId, body };
+}
+
 describe('GET /d/:fileId', () => {
+	test('serves encrypted files as-is with a .enc filename and octet-stream type', async () => {
+		const { fileId, body } = await setupPublicEncryptedFile();
+		const encryptedDisposition = 'attachment; filename="__.jpg.enc"; filename*=UTF-8\'\'%E5%86%99%E7%9C%9F.jpg.enc';
+
+		const res = await app.request(`/d/${fileId}`, {}, env);
+		expect(res.status).toBe(200);
+		expect(res.headers.get('Content-Disposition')).toBe(encryptedDisposition);
+		expect(res.headers.get('Content-Type')).toBe('application/octet-stream');
+		expect(new Uint8Array(await res.arrayBuffer())).toEqual(body);
+
+		// メタ情報の MIME タイプは元の形式のまま（クライアントの復号後プレビュー用）
+		const metaRes = await app.request(`/d/${fileId}?meta`, {}, env);
+		expect(metaRes.status).toBe(200);
+		const meta = await metaRes.json() as { mimeType: string | null; isEncrypted: boolean };
+		expect(meta.isEncrypted).toBe(true);
+		expect(meta.mimeType).toBe('image/jpeg');
+
+		// Cache API から返すときも同じヘッダー
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		const cachedRes = await app.request(`/d/${fileId}`, {}, env);
+		expect(cachedRes.status).toBe(200);
+		expect(cachedRes.headers.get('Content-Disposition')).toBe(encryptedDisposition);
+		expect(cachedRes.headers.get('Content-Type')).toBe('application/octet-stream');
+		await cachedRes.arrayBuffer();
+	});
+
+	test('serves byte ranges of encrypted files with the .enc filename', async () => {
+		const { fileId, body } = await setupPublicEncryptedFile();
+
+		const res = await app.request(`/d/${fileId}`, {
+			headers: { Range: 'bytes=0-15' },
+		}, env);
+		expect(res.status).toBe(206);
+		expect(res.headers.get('Content-Range')).toBe(`bytes 0-15/${body.length}`);
+		expect(res.headers.get('Content-Type')).toBe('application/octet-stream');
+		expect(res.headers.get('Content-Disposition')).toContain('.jpg.enc');
+		expect(new Uint8Array(await res.arrayBuffer())).toEqual(body.slice(0, 16));
+	});
+
 	test('downloads a public file', async () => {
 		const { fileId } = await setupPublicFile();
 

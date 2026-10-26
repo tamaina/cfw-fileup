@@ -6,7 +6,7 @@ import { aidxRegExp, genEaidx, parseEaidx } from '../../shared/eaid-x';
 import { buckets, files, targzFiles, tarFiles, tokens, users, fileAccessTokens, moderationAuditLogs } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { DownloadContext, downloadCacheInternalHeaders } from '../utils/download-context';
-import { MAX_FILE_PATH_LENGTH, MAX_ID_LENGTH } from '../../shared/const';
+import { MAX_FILE_PATH_LENGTH, MAX_ID_LENGTH, toEncryptedDownloadFilename } from '../../shared/const';
 import { getWorkerCacheVersion, openWorkerCache, workerCacheBaseNames } from '../utils/cache-names';
 import { apiError, createApiErrorResponse } from '../utils/api-error';
 import { tokenToDigest } from '../utils/crypto';
@@ -349,9 +349,15 @@ function getTargzEntryHeaders(download: DownloadContext, path: string, mimeType:
 }
 
 function createPlainFileHeaders(download: DownloadContext): Headers {
+	// 暗号化ファイルは暗号文をそのまま返すので、元の形式として扱われないよう
+	// ファイル名に .enc を付け、Content-Type も application/octet-stream にする。
+	// 復号はクライアント側で行い、保存名もクライアントが決めるため影響しない。
+	const basename = toDownloadBasename(download.file.path);
 	return new Headers(download.withDownloadHeaders({
-		'Content-Type': download.file.mimeType ?? 'application/octet-stream',
-		'Content-Disposition': download.createContentDisposition(toDownloadBasename(download.file.path)),
+		'Content-Type': download.file.isEncrypted
+			? 'application/octet-stream'
+			: download.file.mimeType ?? 'application/octet-stream',
+		'Content-Disposition': download.createContentDisposition(download.file.isEncrypted ? toEncryptedDownloadFilename(basename) : basename),
 		'Content-Length': String(download.file.size ?? 0),
 	}));
 }

@@ -16,6 +16,17 @@ export const MAX_ARCHIVE_INDEX_ENTRIES = 10000;
  */
 export const ENCRYPTION_KEY_MULTICODEC = 0xa2;
 
+/**
+ * 暗号化ファイルを暗号化されたまま（復号せずに）ダウンロードするときのファイル名サフィックス。
+ * 例: photo.jpg → photo.jpg.enc
+ */
+export const ENCRYPTED_DOWNLOAD_SUFFIX = '.enc';
+
+/** 暗号化されたまま保存するときのファイル名（元のファイル名 + .enc） */
+export function toEncryptedDownloadFilename(filename: string): string {
+	return `${filename}${ENCRYPTED_DOWNLOAD_SUFFIX}`;
+}
+
 /** URL fragment key prefix for encrypted file links, e.g. #key=z... */
 export const ENCRYPTION_URL_FRAGMENT_KEY = 'key';
 

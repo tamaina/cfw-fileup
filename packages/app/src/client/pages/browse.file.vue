@@ -21,6 +21,7 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import StorageQuotaDialog from '@/components/StorageQuotaDialog.vue';
 import { parseExifDisplayItems, type ExifDisplayItem } from '@/utils/exif';
 import { AES_CTR_IV_LENGTH, decryptBlob, importAesCtrKey, multibaseToKey } from '../../shared/encryption';
+import { toEncryptedDownloadFilename } from '../../shared/const';
 
 const props = withDefaults(defineProps<{
 	bucketName: string;
@@ -154,7 +155,9 @@ async function refreshDecryptedPreview(): Promise<void> {
 		if (generation !== decryptedPreviewGeneration) return;
 		const decrypted = await decryptBlob(blob, cryptoKey);
 		if (generation !== decryptedPreviewGeneration) return;
-		decryptedPreviewUrl.value = URL.createObjectURL(decrypted);
+		// 暗号化ファイルのレスポンスは application/octet-stream なので、元の MIME タイプを付け直す（SVG 等のため）
+		const typed = props.mimeType ? new Blob([decrypted], { type: props.mimeType }) : decrypted;
+		decryptedPreviewUrl.value = URL.createObjectURL(typed);
 	} catch (err) {
 		if (generation !== decryptedPreviewGeneration) return;
 		console.error('Failed to decrypt preview', err, { fileId: props.fileId, filePath: props.filePath });
@@ -342,13 +345,16 @@ function handleDownloadClick(event: MouseEvent): void {
 	emit('download', event);
 }
 
-/** 復号キーがないまま、暗号化されたファイルをそのままダウンロードする */
+/**
+ * 暗号化されたファイルを復号せずにそのままダウンロードする。
+ * 保存名は元のファイル名 + .enc（サーバーの Content-Disposition と同じ）。
+ */
 function confirmEncryptedDownload(): void {
 	const url = downloadUrl.value;
 	if (!url) return;
 	const a = document.createElement('a');
 	a.href = url;
-	a.download = downloadFilename.value;
+	a.download = toEncryptedDownloadFilename(downloadFilename.value);
 	document.body.append(a);
 	a.click();
 	a.remove();
@@ -364,7 +370,7 @@ const showEncryptedFileActions = computed(() =>
 	!!downloadUrl.value,
 );
 
-/** 暗号化されたまま（復号せずに）ダウンロードする。ブラウザ標準のダウンロードに任せるのでメモリを使わない */
+/** 暗号化されたまま（復号せずに）「元のファイル名.enc」でダウンロードする。ブラウザ標準のダウンロードに任せるのでメモリを使わない */
 function downloadEncryptedAsIs(): void {
 	if (downloadBusy.value) return;
 	downloadError.value = '';
@@ -404,7 +410,7 @@ function handleRestoreFileChange(event: Event): void {
 	void restoreFromLocalFile(file);
 }
 
-/** 端末の暗号化ファイルを、このブラウザの鍵で復号して保存する */
+/** 端末の暗号化ファイル（.enc）を、このブラウザの鍵で復号して保存する。保存名は元のファイル名（.enc なし） */
 async function restoreFromLocalFile(source: File): Promise<void> {
 	if (downloadBusy.value) return;
 	const key = props.encryptionKey;
@@ -557,7 +563,7 @@ watch(canShowPreview, () => {
     <ConfirmDialog
       v-model:open="encryptedDownloadConfirmOpen"
       title="復号キーがありません"
-      message="このファイルは暗号化されています。このブラウザに復号キーがないため、暗号化されたままダウンロードされます。それでもダウンロードしますか？"
+      message="このファイルは暗号化されています。このブラウザに復号キーがないため、暗号化されたまま（ファイル名の末尾に .enc を付けて）ダウンロードされます。それでもダウンロードしますか？"
       confirm-label="ダウンロード"
       cancel-label="キャンセル"
       @confirm="confirmEncryptedDownload"
@@ -577,7 +583,7 @@ watch(canShowPreview, () => {
         <div :class="$style.restoreDialogInner">
           <AlertDialog.Title :class="$style.restoreDialogTitle">ブラウザの鍵で復元</AlertDialog.Title>
           <p :class="$style.restoreDialogDesc">このブラウザに保存された復号キーで、暗号化されたファイルを元のファイルに復元して保存します。復号はこの端末の中だけで行われ、キーはサーバーに送信されません。</p>
-          <p :class="$style.restoreDialogDesc">「暗号化されたままダウンロード」で端末に保存したファイルを選ぶと、通信せずに復元できます。</p>
+          <p :class="$style.restoreDialogDesc">「暗号化されたままダウンロード」で端末に保存したファイル（末尾が .enc のファイル）を選ぶと、通信せずに復元できます。</p>
           <div :class="$style.restoreDialogActions">
             <AlertDialog.Cancel class="btn btn-ghost" type="button">キャンセル</AlertDialog.Cancel>
             <button class="btn btn-secondary" type="button" data-testid="restore-encrypted-from-server" @click="restoreFromServer">サーバーから取得して復元</button>
