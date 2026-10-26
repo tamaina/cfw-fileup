@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import { ref, computed, onBeforeUnmount, watch } from 'vue';
-import { PackageOpen, ShieldCheck } from '@lucide/vue';
+import { AlertDialog } from '@vuetify/v0';
+import { FileLock, LockOpen, PackageOpen, ShieldCheck } from '@lucide/vue';
 import { authHeaders } from '@/store/auth';
 import type { DownloadTransformProgress } from '@/workers/download-transform.worker';
-import { getOpfsTempFile, removeOpfsTempFile } from '@/workers/opfs-temp';
-import { cancelDownloadStatus, completeDownloadStatus, failDownloadStatus, startDownloadStatus } from '@/store/download-status';
+import { createOpfsTempFile, getOpfsTempFile, removeOpfsTempFile } from '@/workers/opfs-temp';
+import { cancelDownloadStatus, completeDownloadStatus, failDownloadStatus, startDownloadStatus, updateDownloadStatus } from '@/store/download-status';
 import { registerDownloadedOpfsFile } from '@/store/download-cleanup';
 import { runDownloadTransform, setProgressCallback, removeProgressCallback, terminateDownloadTransformWorker } from '@/store/download-worker';
 import { DownloadCancelledError, StorageQuotaExceededError, resolveSaveTarget, type WorkerDownloadResult } from '@/utils/save-file';
+import { finishStreamDownload } from '@/utils/stream-download';
+import { assertRestorableEncryptedFile, decryptedSizeOf, restoreEncryptedBlobToWritable } from '@/utils/restore-encrypted-file';
 import MarkdownPreview from '@/components/MarkdownPreview.vue';
 import RawTextPreview from '@/components/RawTextPreview.vue';
 import JsonPreview from '@/components/JsonPreview.vue';
@@ -351,6 +354,116 @@ function confirmEncryptedDownload(): void {
 	a.remove();
 }
 
+// --- 暗号化ファイルの手動操作（iPhone 等で都度復号を避けるための運用向け） ---
+
+/** 暗号化されたままダウンロード・ブラウザの鍵で復元ボタンを出すか（アーカイブ内エントリーは対象外） */
+const showEncryptedFileActions = computed(() =>
+	props.isEncrypted === true &&
+	!!props.encryptionKey &&
+	!props.downloadUrlOverride &&
+	!!downloadUrl.value,
+);
+
+/** 暗号化されたまま（復号せずに）ダウンロードする。ブラウザ標準のダウンロードに任せるのでメモリを使わない */
+function downloadEncryptedAsIs(): void {
+	if (downloadBusy.value) return;
+	downloadError.value = '';
+	confirmEncryptedDownload();
+}
+
+const restoreDialogOpen = ref(false);
+const restoreFileInput = ref<HTMLInputElement | null>(null);
+let restoreSequence = 0;
+
+function openRestoreDialog(): void {
+	if (downloadBusy.value) return;
+	downloadError.value = '';
+	restoreDialogOpen.value = true;
+}
+
+/** サーバーから取得し、このブラウザの鍵で復号して保存する（従来のダウンロードと同じ処理） */
+function restoreFromServer(): void {
+	restoreDialogOpen.value = false;
+	void startEncryptedDownload();
+}
+
+/** 端末に保存した暗号化ファイルを選ぶ。ファイル選択はユーザー操作の中で開く必要がある */
+function chooseLocalEncryptedFile(): void {
+	restoreDialogOpen.value = false;
+	const input = restoreFileInput.value;
+	if (!input) return;
+	input.value = '';
+	input.click();
+}
+
+function handleRestoreFileChange(event: Event): void {
+	const input = event.target as HTMLInputElement;
+	const file = input.files?.[0];
+	input.value = '';
+	if (!file) return;
+	void restoreFromLocalFile(file);
+}
+
+/** 端末の暗号化ファイルを、このブラウザの鍵で復号して保存する */
+async function restoreFromLocalFile(source: File): Promise<void> {
+	if (downloadBusy.value) return;
+	const key = props.encryptionKey;
+	if (!key) return;
+	downloadError.value = '';
+	downloadProgress.value = null;
+	const filename = downloadFilename.value;
+	const mimeType = props.mimeType ?? 'application/octet-stream';
+	const id = `restore-${Date.now()}-${++restoreSequence}`;
+	let opfsName: string | undefined;
+	let streamWritable: WritableStream<Uint8Array> | undefined;
+	let statusStarted = false;
+	downloadBusy.value = true;
+	try {
+		assertRestorableEncryptedFile(source.size, props.fileSize);
+		const totalBytes = source.size;
+		const saveTarget = await resolveSaveTarget(filename, mimeType, decryptedSizeOf(totalBytes));
+		let writable: WritableStream<Uint8Array>;
+		if (saveTarget.kind === 'stream') {
+			streamWritable = saveTarget.writable;
+			writable = saveTarget.writable;
+		} else if (saveTarget.kind === 'picker') {
+			writable = await saveTarget.fileHandle.createWritable();
+		} else {
+			const temp = await createOpfsTempFile(id, filename.match(/(\.[^./]+)$/)?.[1] ?? '');
+			opfsName = temp.opfsName;
+			writable = await temp.fileHandle.createWritable();
+		}
+		startDownloadStatus(id, filename);
+		statusStarted = true;
+		await restoreEncryptedBlobToWritable(source, key, writable, (p) => {
+			updateDownloadStatus(id, {
+				phase: 'writing', processedFiles: 0, totalFiles: 1, currentFile: filename,
+				completedBytes: p.completedBytes, totalBytes: p.totalBytes,
+			});
+		});
+		if (streamWritable) finishStreamDownload(streamWritable);
+		if (opfsName) await downloadOpfsFile({ opfsName, savedDirectly: false, filename, mimeType });
+		completeDownloadStatus(id);
+	} catch (err) {
+		if (streamWritable) finishStreamDownload(streamWritable, true);
+		if (err instanceof DownloadCancelledError) {
+			if (statusStarted) cancelDownloadStatus(id);
+			return;
+		}
+		if (err instanceof StorageQuotaExceededError) {
+			quotaDialog.value = { requiredBytes: err.requiredBytes, availableBytes: err.availableBytes };
+			return;
+		}
+		await cleanupTempFile(opfsName);
+		console.error('Restoring local encrypted file failed', err, { fileId: props.fileId, filePath: props.filePath });
+		const message = err instanceof Error ? err.message : String(err);
+		if (statusStarted) failDownloadStatus(id, message);
+		downloadError.value = message;
+	} finally {
+		downloadBusy.value = false;
+	}
+}
+
 onBeforeUnmount(() => {
 	if (currentDownloadId) removeProgressCallback(currentDownloadId);
 	revokeDecryptedPreviewUrl();
@@ -397,6 +510,14 @@ watch(canShowPreview, () => {
         <PackageOpen :size="16" :stroke-width="2" aria-hidden="true" />
         展開してダウンロード
       </button>
+      <button v-if="showEncryptedFileActions" type="button" class="btn btn-secondary" :disabled="downloadBusy" data-testid="download-encrypted-as-is" @click="downloadEncryptedAsIs">
+        <FileLock :size="16" :stroke-width="2" aria-hidden="true" />
+        暗号化されたままダウンロード
+      </button>
+      <button v-if="showEncryptedFileActions" type="button" class="btn btn-secondary" :disabled="downloadBusy" data-testid="restore-encrypted" @click="openRestoreDialog">
+        <LockOpen :size="16" :stroke-width="2" aria-hidden="true" />
+        ブラウザの鍵で復元
+      </button>
     </FileActionBar>
 
     <PreviewInterstitialAd
@@ -441,6 +562,30 @@ watch(canShowPreview, () => {
       cancel-label="キャンセル"
       @confirm="confirmEncryptedDownload"
     />
+    <input
+      v-if="showEncryptedFileActions"
+      ref="restoreFileInput"
+      type="file"
+      :class="$style.hiddenFileInput"
+      tabindex="-1"
+      aria-hidden="true"
+      data-testid="restore-encrypted-file-input"
+      @change="handleRestoreFileChange"
+    >
+    <AlertDialog.Root v-model="restoreDialogOpen">
+      <AlertDialog.Content :class="$style.restoreDialog">
+        <div :class="$style.restoreDialogInner">
+          <AlertDialog.Title :class="$style.restoreDialogTitle">ブラウザの鍵で復元</AlertDialog.Title>
+          <p :class="$style.restoreDialogDesc">このブラウザに保存された復号キーで、暗号化されたファイルを元のファイルに復元して保存します。復号はこの端末の中だけで行われ、キーはサーバーに送信されません。</p>
+          <p :class="$style.restoreDialogDesc">「暗号化されたままダウンロード」で端末に保存したファイルを選ぶと、通信せずに復元できます。</p>
+          <div :class="$style.restoreDialogActions">
+            <AlertDialog.Cancel class="btn btn-ghost" type="button">キャンセル</AlertDialog.Cancel>
+            <button class="btn btn-secondary" type="button" data-testid="restore-encrypted-from-server" @click="restoreFromServer">サーバーから取得して復元</button>
+            <button class="btn btn-primary" type="button" data-testid="restore-encrypted-choose-file" @click="chooseLocalEncryptedFile">端末のファイルを選択</button>
+          </div>
+        </div>
+      </AlertDialog.Content>
+    </AlertDialog.Root>
     <StorageQuotaDialog
       :open="quotaDialog != null"
       :required-bytes="quotaDialog?.requiredBytes ?? 0"
@@ -542,6 +687,59 @@ watch(canShowPreview, () => {
   margin: 8px 0 0;
   color: var(--color-text-muted);
   font-size: 0.8rem;
+}
+
+// iOS Safari でも click() でファイル選択を開けるよう、display: none ではなく視覚的に隠す
+.hiddenFileInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.restoreDialog {
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: none;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  padding: 0;
+  width: min(520px, calc(100vw - 32px));
+  max-height: 90vh;
+  overflow: auto;
+
+  &::backdrop {
+    background: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(2px);
+  }
+}
+
+.restoreDialogInner {
+  display: grid;
+  gap: 14px;
+  padding: 24px;
+}
+
+.restoreDialogTitle {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.restoreDialogDesc {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+.restoreDialogActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 @media (max-width: 640px) {
