@@ -95,6 +95,12 @@ export async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs
 }
 
 export type RangedDownloadOptions = {
+	/** Absolute archive bounds; end is exclusive. Default: the entire representation. */
+	readonly start?: number;
+	readonly end?: number;
+	/** Fetch a new range only after downstream requests it. */
+	readonly demandDriven?: boolean;
+	readonly firstRangeUrl?: string;
 	readonly maxBufferedRanges?: number;
 	readonly staging?: 'opfs';
 	readonly readChunkSize?: number;
@@ -126,6 +132,10 @@ class RangeResponseError extends Error {
 }
 
 export function createRangedDownloadStream(url: string, init: RequestInit, options: RangedDownloadOptions): ReadableStream<Uint8Array<ArrayBuffer>> {
+	const startOffset = options.start ?? 0;
+	if (!Number.isSafeInteger(startOffset) || startOffset < 0
+		|| (options.end !== undefined && (!Number.isSafeInteger(options.end) || options.end < startOffset))
+		|| !Number.isSafeInteger(options.rangeSize) || options.rangeSize <= 0) throw new RangeError('Invalid download bounds');
 	const abort = new AbortController();
 	const wakeups = new Set<() => void>();
 	const wake = () => { for (const resolve of wakeups) resolve(); wakeups.clear(); };
@@ -134,7 +144,8 @@ export function createRangedDownloadStream(url: string, init: RequestInit, optio
 	let cache: RangeCache | undefined;
 	let producer: Promise<void> | undefined;
 	let total: number | undefined;
-	let nextOffset = 0;
+	let nextOffset = startOffset;
+	let rangeDemand = false;
 	let readOffset = 0;
 	let committed = 0;
 	let done = false;
@@ -172,9 +183,10 @@ export function createRangedDownloadStream(url: string, init: RequestInit, optio
 			const window = cache.disk ? Math.max(1, Math.min(4, options.maxBufferedRanges ?? 4))
 				: Math.max(1, Math.min(options.maxBufferedRanges ?? 1, Math.floor(32 * 1024 * 1024 / options.rangeSize)));
 			let validator: string | null = null;
-			while (total === undefined || nextOffset < total) {
+			while (nextOffset < (options.end ?? total ?? Infinity)) {
 				abort.signal.throwIfAborted();
-				while (queue.length >= window) { await wait(); abort.signal.throwIfAborted(); }
+				while (queue.length >= window || (options.demandDriven && !rangeDemand)) { await wait(); abort.signal.throwIfAborted(); }
+				rangeDemand = false;
 				const start = nextOffset;
 				const chunk = await runWithRetry(async attempt => {
 					abort.signal.throwIfAborted();
@@ -185,7 +197,7 @@ export function createRangedDownloadStream(url: string, init: RequestInit, optio
 					const release = acquire ? await withAbort(acquire, abort.signal) : undefined;
 					try {
 						abort.signal.throwIfAborted();
-						return await fetchRange(url, { ...init, signal: abort.signal }, start, start + options.rangeSize - 1, validator, attempt, options, cache!, release);
+						return await fetchRange(start === startOffset ? options.firstRangeUrl ?? url : url, { ...init, signal: abort.signal }, start, Math.min(start + options.rangeSize, options.end ?? Infinity) - 1, validator, attempt, options, cache!, release);
 					} finally { release?.(0, 0); }
 				}, {
 					maxAttempts: options.maxAttempts,
@@ -196,10 +208,11 @@ export function createRangedDownloadStream(url: string, init: RequestInit, optio
 				queue.push(chunk); // Include it in cleanup even if validation/abort fails.
 				abort.signal.throwIfAborted();
 				if (total === undefined) {
-					if (chunk.validator === null && chunk.data.size < chunk.totalBytes) throw new RangeResponseError('A strong ETag or Last-Modified validator is required for a multi-range download', false);
+					if (options.end !== undefined && options.end > chunk.totalBytes) throw new RangeResponseError('Download bounds exceed the representation', false);
+					if (chunk.validator === null && start + chunk.data.size < (options.end ?? chunk.totalBytes)) throw new RangeResponseError('A strong ETag or Last-Modified validator is required for a multi-range download', false);
 					total = chunk.totalBytes;
 					validator = chunk.validator;
-					options.onMetadata?.(total);
+					options.onMetadata?.((options.end ?? total) - startOffset);
 				} else if (chunk.totalBytes !== total || chunk.validator !== validator) {
 					throw new RangeResponseError('Download representation changed between range requests', false);
 				}
@@ -220,6 +233,7 @@ export function createRangedDownloadStream(url: string, init: RequestInit, optio
 			try {
 				abort.signal.throwIfAborted();
 				producer ??= produce();
+				if (!queue.length) { rangeDemand = true; wake(); }
 				while (!queue.length && !done) { await wait(); abort.signal.throwIfAborted(); }
 				if (failure) throw failure;
 				if (!queue.length) { await finalize(); controller.close(); return; }
@@ -234,7 +248,7 @@ export function createRangedDownloadStream(url: string, init: RequestInit, optio
 					await chunk.data.dispose();
 					queue.shift(); readOffset = 0; reportQueue(); wake();
 				}
-				options.onRangeCommitted?.(committed, total ?? 0);
+				options.onRangeCommitted?.(committed, (options.end ?? total ?? startOffset) - startOffset);
 				if (bytes.length) controller.enqueue(bytes);
 				else { await finalize(); controller.close(); }
 			} catch (error) { await finalize().catch(() => {}); throw error; }
@@ -286,6 +300,11 @@ async function fetchRange(
 		throw new RangeResponseError(`Invalid Content-Range for bytes=${start}-${end}`, false);
 	}
 	const expectedLength = contentRange.end - contentRange.start + 1;
+	const contentLength = response.headers.get('Content-Length');
+	if (contentLength !== null && (!/^\d+$/.test(contentLength) || Number(contentLength) !== expectedLength)) {
+		await response.body.cancel().catch(() => {});
+		throw new RangeResponseError('Invalid range Content-Length', false);
+	}
 	let sink;
 	try { sink = await cache.create(expectedLength); } catch (error) { await response.body.cancel().catch(() => {}); throw new RangeStorageError(error); }
 	let received = 0;

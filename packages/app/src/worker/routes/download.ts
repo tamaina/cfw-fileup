@@ -538,6 +538,7 @@ async function handleDownload(c: AppContext, entryPath: string | null): Promise<
 	const download = new DownloadContext(file, c.req.raw, { entryPath, cacheVersion: workerCacheVersion });
 	const rangeHeader = c.req.header('Range') ?? null;
 	const ifRangeHeader = c.req.header('If-Range') ?? null;
+	let entryRangeCount = false;
 	let requesterIsOwnerPromise: Promise<boolean> | null = null;
 
 	function requesterIsOwner(): Promise<boolean> {
@@ -559,7 +560,7 @@ async function handleDownload(c: AppContext, entryPath: string | null): Promise<
 
 	async function countDownload(resolvedRange: ResolvedRangeRequest = { type: 'none' }): Promise<void> {
 		if (!fileRecord.isDownloadCountEnabled) return;
-		if (!shouldCountDownload(resolvedRange)) return;
+		if (!entryRangeCount && !shouldCountDownload(resolvedRange)) return;
 		if (await requesterIsOwner()) return;
 		await db
 			.update(files)
@@ -681,6 +682,32 @@ async function handleDownload(c: AppContext, entryPath: string | null): Promise<
 				});
 			}
 		}
+	}
+
+	// First-span accounting hint only. Authentication above still covers the archive.
+	// This counts attempts, like the entry endpoint; retries are not exactly-once.
+	const countedEntryPath = c.req.query('entry');
+	if (countedEntryPath !== undefined) {
+		if (!countedEntryPath || countedEntryPath.length > MAX_FILE_PATH_LENGTH
+			|| entryPath !== null || download.isListMode || download.isMetaMode || (!file.isTar && !file.isTargz)) {
+			throw apiError(400, 'INVALID_FILE_PATH');
+		}
+		const span = file.isTargz
+			? await db.select({ start: targzFiles.aStart, end: targzFiles.aEnd }).from(targzFiles)
+				.where(and(eq(targzFiles.fileId, file.id), eq(targzFiles.path, countedEntryPath))).get()
+			: await db.select({ start: tarFiles.offset, end: sql<number>`${tarFiles.offset} + ${tarFiles.size}` }).from(tarFiles)
+				.where(and(eq(tarFiles.fileId, file.id), eq(tarFiles.path, countedEntryPath))).get();
+		// Validate the literal closed range too: range-parser would clamp an oversized end.
+		const match = rangeHeader?.match(/^bytes=(\d+)-(\d+)$/);
+		const start = match ? Number(match[1]) : NaN;
+		const end = match ? Number(match[2]) : NaN;
+		const resolved = resolveRangeRequest({ rangeHeader, ifRangeHeader, size: file.size ?? 0, headers: createPlainFileHeaders(download) });
+		if (!span || ![start, end, span.start, span.end].every(Number.isSafeInteger)
+			|| start !== span.start || end < start || end >= span.end || span.start < 0 || span.end > (file.size ?? 0)
+			|| resolved.type !== 'range' || resolved.ranges.length !== 1 || resolved.ranges[0].start !== start || resolved.ranges[0].end !== end) {
+			throw apiError(400, 'INVALID_FILE_PATH');
+		}
+		entryRangeCount = true;
 	}
 
 	if (download.isMetaMode) {
