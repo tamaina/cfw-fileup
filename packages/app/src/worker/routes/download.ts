@@ -348,6 +348,20 @@ function getTargzEntryHeaders(download: DownloadContext, path: string, mimeType:
 	return download.withDownloadHeaders(headers);
 }
 
+/**
+ * 暗号化ファイルのキャッシュ済みレスポンスに、現在の Content-Type / Content-Disposition を付け直す。
+ * .enc / application/octet-stream に変える前にキャッシュされたレスポンスも、
+ * ワーカーのキャッシュバージョンを上げずに新しいヘッダーで返すため。
+ */
+function withCurrentEncryptedFileHeaders(response: Response, download: DownloadContext): Response {
+	if (!download.file.isEncrypted) return response;
+	const current = createPlainFileHeaders(download);
+	const headers = new Headers(response.headers);
+	headers.set('Content-Type', current.get('Content-Type') ?? 'application/octet-stream');
+	headers.set('Content-Disposition', current.get('Content-Disposition') ?? '');
+	return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
 function createPlainFileHeaders(download: DownloadContext): Headers {
 	// 暗号化ファイルは暗号文をそのまま返すので、元の形式として扱われないよう
 	// ファイル名に .enc を付け、Content-Type も application/octet-stream にする。
@@ -577,9 +591,8 @@ async function handleDownload(c: AppContext, entryPath: string | null): Promise<
 		}
 
 		const response = download.stripInternalCacheHeaders(cached, mode);
-		return mode === 'plain'
-			? applyRangeRequest(response, rangeHeader, ifRangeHeader)
-			: response;
+		if (mode !== 'plain') return response;
+		return applyRangeRequest(withCurrentEncryptedFileHeaders(response, download), rangeHeader, ifRangeHeader);
 	}
 
 	function putDownloadCache(
