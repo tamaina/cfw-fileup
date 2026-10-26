@@ -1,7 +1,8 @@
 import { describe, test, expect, beforeAll, beforeEach } from 'vitest';
 import { createBgzfBlock, createBgzfDecompressor } from 'bgzf';
 import { genEaidx, parseEaidx } from '../../src/shared/eaid-x';
-import { getWorkerCacheVersion } from '../../src/worker/utils/cache-names';
+import { getWorkerCacheVersion, openWorkerCache, workerCacheBaseNames } from '../../src/worker/utils/cache-names';
+import { createDownloadCacheRequest, downloadCacheInternalHeaders } from '../../src/worker/utils/download-context';
 import { env, app, setupDb, clearDb, signup, authHeaders } from './helpers';
 
 beforeAll(async () => {
@@ -135,7 +136,111 @@ async function insertPublicFile(options: {
 	).run();
 }
 
+async function setupPublicEncryptedFile() {
+	const { data } = await signup('user1');
+	const token = String(data.token);
+
+	const bucketRes = await app.request('/api/buckets/create', {
+		method: 'POST',
+		headers: authHeaders(token),
+		body: JSON.stringify({ bucketName: 'test_bucket' }),
+	}, env);
+	const { bucketId } = await bucketRes.json() as { bucketId: string };
+
+	const openRes = await app.request('/api/files/create/open', {
+		method: 'POST',
+		headers: authHeaders(token),
+		body: JSON.stringify({ bucketId, path: 'photos/写真.jpg' }),
+	}, env);
+	const { fileId } = await openRes.json() as { fileId: string };
+
+	// 16 バイトの IV + 暗号文に見立てたデータ（サーバーは中身を解釈しない）
+	const body = new Uint8Array(48).map((_, i) => (i * 7) & 0xff);
+	await env.R2.put(`${bucketId}/photos/写真.jpg`, body);
+
+	const closeRes = await app.request('/api/files/create/close', {
+		method: 'POST',
+		headers: authHeaders(token),
+		body: JSON.stringify({ fileId, visibility: 'public', isEncrypted: true, mimeType: 'image/jpeg' }),
+	}, env);
+	expect(closeRes.status).toBe(200);
+
+	return { token, bucketId, fileId, body };
+}
+
 describe('GET /d/:fileId', () => {
+	test('serves encrypted files as-is with a .enc filename and octet-stream type', async () => {
+		const { fileId, body } = await setupPublicEncryptedFile();
+		const encryptedDisposition = 'attachment; filename="__.jpg.enc"; filename*=UTF-8\'\'%E5%86%99%E7%9C%9F.jpg.enc';
+
+		const res = await app.request(`/d/${fileId}`, {}, env);
+		expect(res.status).toBe(200);
+		expect(res.headers.get('Content-Disposition')).toBe(encryptedDisposition);
+		expect(res.headers.get('Content-Type')).toBe('application/octet-stream');
+		expect(new Uint8Array(await res.arrayBuffer())).toEqual(body);
+
+		// メタ情報の MIME タイプは元の形式のまま（クライアントの復号後プレビュー用）
+		const metaRes = await app.request(`/d/${fileId}?meta`, {}, env);
+		expect(metaRes.status).toBe(200);
+		const meta = await metaRes.json() as { mimeType: string | null; isEncrypted: boolean };
+		expect(meta.isEncrypted).toBe(true);
+		expect(meta.mimeType).toBe('image/jpeg');
+
+		// Cache API から返すときも同じヘッダー
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		const cachedRes = await app.request(`/d/${fileId}`, {}, env);
+		expect(cachedRes.status).toBe(200);
+		expect(cachedRes.headers.get('Content-Disposition')).toBe(encryptedDisposition);
+		expect(cachedRes.headers.get('Content-Type')).toBe('application/octet-stream');
+		await cachedRes.arrayBuffer();
+	});
+
+	test('rewrites headers of encrypted responses cached before the .enc change', async () => {
+		const { bucketId, fileId, body } = await setupPublicEncryptedFile();
+		const cacheVersion = await getWorkerCacheVersion(env);
+		const cache = await openWorkerCache(env, workerCacheBaseNames.download);
+		// 変更前のヘッダー（元の MIME タイプと元のファイル名）でキャッシュされていた状態を再現する
+		for (const gzip of [true, false]) {
+			await cache.put(createDownloadCacheRequest({ fileId, mode: 'plain', gzip, auth: { type: 'public' }, cacheVersion }), new Response(body, {
+				headers: {
+					'Content-Type': 'image/jpeg',
+					'Content-Disposition': 'attachment; filename="__.jpg"; filename*=UTF-8\'\'%E5%86%99%E7%9C%9F.jpg',
+					'Content-Length': String(body.length),
+					'Cache-Control': 'public, max-age=3600',
+					[downloadCacheInternalHeaders.status]: '200',
+					[downloadCacheInternalHeaders.statusText]: 'OK',
+				},
+			}));
+		}
+		// R2 から消してもキャッシュから返ることを確認する
+		await env.R2.delete(`${bucketId}/photos/写真.jpg`);
+
+		const res = await app.request(`/d/${fileId}`, {}, env);
+		expect(res.status).toBe(200);
+		expect(res.headers.get('Content-Type')).toBe('application/octet-stream');
+		expect(res.headers.get('Content-Disposition')).toBe('attachment; filename="__.jpg.enc"; filename*=UTF-8\'\'%E5%86%99%E7%9C%9F.jpg.enc');
+		expect(new Uint8Array(await res.arrayBuffer())).toEqual(body);
+
+		const rangeRes = await app.request(`/d/${fileId}`, { headers: { Range: 'bytes=16-31' } }, env);
+		expect(rangeRes.status).toBe(206);
+		expect(rangeRes.headers.get('Content-Type')).toBe('application/octet-stream');
+		expect(rangeRes.headers.get('Content-Disposition')).toContain('.jpg.enc');
+		expect(new Uint8Array(await rangeRes.arrayBuffer())).toEqual(body.slice(16, 32));
+	});
+
+	test('serves byte ranges of encrypted files with the .enc filename', async () => {
+		const { fileId, body } = await setupPublicEncryptedFile();
+
+		const res = await app.request(`/d/${fileId}`, {
+			headers: { Range: 'bytes=0-15' },
+		}, env);
+		expect(res.status).toBe(206);
+		expect(res.headers.get('Content-Range')).toBe(`bytes 0-15/${body.length}`);
+		expect(res.headers.get('Content-Type')).toBe('application/octet-stream');
+		expect(res.headers.get('Content-Disposition')).toContain('.jpg.enc');
+		expect(new Uint8Array(await res.arrayBuffer())).toEqual(body.slice(0, 16));
+	});
+
 	test('downloads a public file', async () => {
 		const { fileId } = await setupPublicFile();
 
