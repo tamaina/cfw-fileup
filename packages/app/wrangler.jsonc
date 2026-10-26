@@ -19,8 +19,16 @@
     ]
   },
   "compatibility_date": "2026-07-21",
-  "cache": {
-    "enabled": true
+  // Workers Cache はエントリーポイント単位で有効にする（トップレベルの "cache" は使わない）。
+  // このWorkerのエントリーポイントは default（src/worker/index.ts の export default）だけ。
+  // /d は Worker 側で Cloudflare-CDN-Cache-Control: no-store を付けて Workers Cache から除外している。
+  "exports": {
+    "default": {
+      "type": "worker",
+      "cache": {
+        "enabled": true
+      }
+    }
   },
   "vars": {
     "TURNSTILE_SITE_KEY": "",
