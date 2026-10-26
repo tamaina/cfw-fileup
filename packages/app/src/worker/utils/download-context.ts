@@ -16,18 +16,18 @@ type CacheAuth =
 type AuthContext =
 	| { type: 'public' }
 	| { type: 'file-token'; token: FileAccessTokenRecord }
-	| { type: 'expired-file-token'; token: FileAccessTokenRecord }
 	| { type: 'user' };
 
 const publicCacheControl = `public, max-age=${10 * 365 * 24 * 60 * 60}, immutable`;
-const internalStatusHeader = 'X-Cfw-Fileup-Cache-Status';
-const internalStatusTextHeader = 'X-Cfw-Fileup-Cache-Status-Text';
 const downloadVaryHeaders = ['Authorization', 'Accept-Encoding'] as const;
 
-export const downloadCacheInternalHeaders = {
-	status: internalStatusHeader,
-	statusText: internalStatusTextHeader,
-} as const;
+/**
+ * キャッシュキーの形式。キャッシュに入れる内容の形式を変えたときに上げると、
+ * それより前のエントリーはデプロイ後に使われなくなる（管理画面でのパージは不要）。
+ * 2: 内部ステータスヘッダーをやめ、通常ファイルはヒット時にヘッダーを作り直すようにした。
+ */
+const downloadCacheKeyFormat = '2';
+const downloadCacheKeyOrigin = 'https://cache.cfw-fileup.local';
 
 function toAsciiFilenameFallback(filename: string): string {
 	const fallback = filename
@@ -71,7 +71,8 @@ export function createDownloadCacheRequest(options: {
 	cacheVersion: string;
 	entryPath?: string;
 }): Request {
-	const keyUrl = new URL('https://cache.cfw-fileup.local/download');
+	const keyUrl = new URL('/download', downloadCacheKeyOrigin);
+	keyUrl.searchParams.set('k', downloadCacheKeyFormat);
 	keyUrl.searchParams.set('v', options.cacheVersion);
 	keyUrl.searchParams.set('fileId', options.fileId);
 	keyUrl.searchParams.set('mode', options.mode);
@@ -87,6 +88,14 @@ export function createDownloadCacheRequest(options: {
 		keyUrl.searchParams.set('auth', 'public');
 	}
 
+	return new Request(keyUrl, { method: 'GET' });
+}
+
+export function createMissingFileCacheRequest(options: { fileId: string; cacheVersion: string }): Request {
+	const keyUrl = new URL('/download-file-not-found', downloadCacheKeyOrigin);
+	keyUrl.searchParams.set('k', downloadCacheKeyFormat);
+	keyUrl.searchParams.set('v', options.cacheVersion);
+	keyUrl.searchParams.set('fileId', options.fileId);
 	return new Request(keyUrl, { method: 'GET' });
 }
 
@@ -130,7 +139,7 @@ export class DownloadContext {
 	}
 
 	get canUseCache(): boolean {
-		return this.authContext.type === 'public' || this.authContext.type === 'file-token' || this.authContext.type === 'expired-file-token';
+		return this.authContext.type === 'public' || this.authContext.type === 'file-token';
 	}
 
 	get cacheTarget(): CacheTarget | null {
@@ -146,10 +155,6 @@ export class DownloadContext {
 
 	useFileToken(token: FileAccessTokenRecord): void {
 		this.authContext = { type: 'file-token', token };
-	}
-
-	useExpiredFileToken(token: FileAccessTokenRecord): void {
-		this.authContext = { type: 'expired-file-token', token };
 	}
 
 	createContentDisposition(
@@ -182,7 +187,6 @@ export class DownloadContext {
 	}
 
 	getInternalCacheControl(): string {
-		if (this.authContext.type === 'expired-file-token') return publicCacheControl;
 		if (this.authContext.type !== 'file-token') return publicCacheControl;
 		if (this.authContext.token.expiresAt === null) return publicCacheControl;
 		const maxAge = Math.max(0, Math.floor((this.authContext.token.expiresAt - Date.now()) / 1000));
@@ -191,7 +195,7 @@ export class DownloadContext {
 
 	getCacheRequest(mode: CacheMode, entryPath?: string): Request | null {
 		if (!this.canUseCache) return null;
-		const auth: CacheAuth = this.authContext.type === 'file-token' || this.authContext.type === 'expired-file-token'
+		const auth: CacheAuth = this.authContext.type === 'file-token'
 			? { type: 'token', tokenId: this.authContext.token.id }
 			: { type: 'public' };
 		return createDownloadCacheRequest({
@@ -204,23 +208,17 @@ export class DownloadContext {
 		});
 	}
 
-	stripInternalCacheHeaders(cached: Response, mode: CacheMode): Response {
+	/** キャッシュから取り出したアーカイブ内エントリーのレスポンスを、クライアント向けの Cache-Control に戻す。 */
+	toClientResponse(cached: Response, mode: CacheMode): Response {
 		const headers = new Headers(cached.headers);
-		const cachedStatus = Number(headers.get(internalStatusHeader));
-		const status = Number.isInteger(cachedStatus) && cachedStatus >= 100 && cachedStatus <= 599
-			? cachedStatus
-			: cached.status;
-		const statusText = headers.get(internalStatusTextHeader) ?? cached.statusText;
-		headers.delete(internalStatusHeader);
-		headers.delete(internalStatusTextHeader);
 		if (this.authContext.type === 'public') {
 			headers.set('Cache-Control', publicCacheControl);
 		} else {
 			headers.delete('Cache-Control');
 		}
 		return new Response(cached.body, {
-			status,
-			statusText,
+			status: cached.status,
+			statusText: cached.statusText,
 			headers,
 			...(mode === 'targz-entry' ? { encodeBody: 'manual' } : {}),
 		});

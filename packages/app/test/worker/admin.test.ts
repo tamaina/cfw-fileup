@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeAll, beforeEach } from 'vitest';
-import { getWorkerCacheName, workerCacheBaseNames } from '../../src/worker/utils/cache-names';
+import { getWorkerCacheVersion } from '../../src/worker/utils/cache-names';
 import { expireDiscountedFuturePlanAssignment } from '../../src/worker/utils/billing';
 import { env, app, rawApp, setupDb, clearDb, signup, signin, authHeaders } from './helpers';
 
@@ -94,9 +94,9 @@ describe('Admin access control', () => {
 });
 
 describe('POST /api/admin/purge-worker-cache', () => {
-	test('admin can rotate Worker cache names', async () => {
+	test('admin can rotate the Worker cache version', async () => {
 		const { adminToken } = await setupAdminAndUser();
-		const beforeName = await getWorkerCacheName(env, workerCacheBaseNames.download);
+		const beforeVersion = await getWorkerCacheVersion(env);
 
 		const res = await app.request('/api/admin/purge-worker-cache', {
 			method: 'POST',
@@ -108,9 +108,9 @@ describe('POST /api/admin/purge-worker-cache', () => {
 		expect(body.ok).toBe(true);
 		expect(body.version.length).toBeGreaterThan(0);
 
-		const afterName = await getWorkerCacheName(env, workerCacheBaseNames.download);
-		expect(afterName).not.toBe(beforeName);
-		expect(afterName).toBe(`${workerCacheBaseNames.download}-v${body.version}`);
+		const afterVersion = await getWorkerCacheVersion(env);
+		expect(afterVersion).not.toBe(beforeVersion);
+		expect(afterVersion).toBe(body.version);
 	});
 });
 

@@ -5,9 +5,9 @@ import parseRange from 'range-parser';
 import { aidxRegExp, genEaidx, parseEaidx } from '../../shared/eaid-x';
 import { buckets, files, targzFiles, tarFiles, tokens, users, fileAccessTokens, moderationAuditLogs } from '../scheme/index';
 import { getDb } from '../utils/db';
-import { DownloadContext, downloadCacheInternalHeaders } from '../utils/download-context';
+import { DownloadContext, createMissingFileCacheRequest } from '../utils/download-context';
 import { MAX_FILE_PATH_LENGTH, MAX_ID_LENGTH, toEncryptedDownloadFilename } from '../../shared/const';
-import { getWorkerCacheVersion, openWorkerCache, workerCacheBaseNames } from '../utils/cache-names';
+import { getWorkerCacheVersion, openDownloadCache } from '../utils/cache-names';
 import { apiError, createApiErrorResponse } from '../utils/api-error';
 import { tokenToDigest } from '../utils/crypto';
 import { likePrefix } from '../utils/sql-like';
@@ -33,13 +33,6 @@ type ResolvedRangeRequest =
 	| { type: 'none' }
 	| { type: 'range'; ranges: ByteRange[] }
 	| { type: 'invalid' };
-
-function createMissingFileCacheRequest(fileId: string): Request {
-	const keyUrl = new URL('https://cache.cfw-fileup.local/download-file-not-found');
-	keyUrl.searchParams.set('v', '1');
-	keyUrl.searchParams.set('fileId', fileId);
-	return new Request(keyUrl, { method: 'GET' });
-}
 
 function toDownloadBasename(path: string): string {
 	return path.split('/').pop() ?? 'download';
@@ -349,19 +342,8 @@ function getTargzEntryHeaders(download: DownloadContext, path: string, mimeType:
 }
 
 /**
- * 暗号化ファイルのキャッシュ済みレスポンスに、現在の Content-Type / Content-Disposition を付け直す。
- * .enc / application/octet-stream に変える前にキャッシュされたレスポンスも、
- * ワーカーのキャッシュバージョンを上げずに新しいヘッダーで返すため。
+ * 通常ファイルのヘッダー。キャッシュヒット時もこれで作り直す（本文だけをキャッシュから使う）。
  */
-function withCurrentEncryptedFileHeaders(response: Response, download: DownloadContext): Response {
-	if (!download.file.isEncrypted) return response;
-	const current = createPlainFileHeaders(download);
-	const headers = new Headers(response.headers);
-	headers.set('Content-Type', current.get('Content-Type') ?? 'application/octet-stream');
-	headers.set('Content-Disposition', current.get('Content-Disposition') ?? '');
-	return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
-}
-
 function createPlainFileHeaders(download: DownloadContext): Headers {
 	// 暗号化ファイルは暗号文をそのまま返すので、元の形式として扱われないよう
 	// ファイル名に .enc を付け、Content-Type も application/octet-stream にする。
@@ -386,40 +368,6 @@ function addAcceptRangesForFullResponse(response: Response): Response {
 	});
 }
 
-function stripInternalCacheHeaders(cached: Response): Response {
-	const headers = new Headers(cached.headers);
-	const cachedStatus = Number(headers.get(downloadCacheInternalHeaders.status));
-	const status = Number.isInteger(cachedStatus) && cachedStatus >= 100 && cachedStatus <= 599
-		? cachedStatus
-		: cached.status;
-	const statusText = headers.get(downloadCacheInternalHeaders.statusText) ?? cached.statusText;
-	headers.delete(downloadCacheInternalHeaders.status);
-	headers.delete(downloadCacheInternalHeaders.statusText);
-	return new Response(cached.body, {
-		status,
-		statusText,
-		headers,
-	});
-}
-
-async function matchMissingFileCache(env: Env, fileId: string): Promise<Response | null> {
-	const cacheRequest = createMissingFileCacheRequest(fileId);
-	const cache = await openWorkerCache(env, workerCacheBaseNames.missingDownloadFile);
-	const cached = await cache.match(cacheRequest);
-	if (cached === undefined) return null;
-
-	const expires = cached.headers.get('Expires');
-	if (expires !== null) {
-		const expiresAt = Date.parse(expires);
-		if (!Number.isNaN(expiresAt) && expiresAt <= Date.now()) {
-			await cache.delete(cacheRequest);
-			return null;
-		}
-	}
-
-	return stripInternalCacheHeaders(cached);
-}
-
 function createMissingFileResponse(fileId: string): Response {
 	const fileDate = parseEaidx(fileId).date;
 	const now = Date.now();
@@ -438,25 +386,18 @@ function createMissingFileResponse(fileId: string): Response {
 	});
 }
 
-function putMissingFileCache(env: Env, fileId: string, response: Response, waitUntil: (promise: Promise<void>) => void): void {
-	const cacheResponse = response.clone();
+/** Cache API への保存はレスポンスを返した後に行う。 */
+function putDownloadCacheEntry(c: AppContext, cacheRequest: Request, response: Response): void {
 	const putPromise = (async () => {
-		const cache = await openWorkerCache(env, workerCacheBaseNames.missingDownloadFile);
-		const headers = new Headers(cacheResponse.headers);
-		headers.set(downloadCacheInternalHeaders.status, String(cacheResponse.status));
-		headers.set(downloadCacheInternalHeaders.statusText, cacheResponse.statusText);
-		await cache.put(createMissingFileCacheRequest(fileId), new Response(cacheResponse.body, {
-			status: 200,
-			statusText: 'OK',
-			headers,
-		}));
+		const cache = await openDownloadCache();
+		await cache.put(cacheRequest, response);
 	})();
 
 	try {
-		waitUntil(putPromise);
+		c.executionCtx.waitUntil(putPromise);
 	} catch {
 		void putPromise.catch((error: unknown) => {
-			console.error('Failed to put missing file response into cache:', error);
+			console.error('Failed to put download response into cache:', error);
 		});
 	}
 }
@@ -518,13 +459,16 @@ async function handleDownload(c: AppContext, entryPath: string | null): Promise<
 	const fileId = c.req.param('fileId') ?? '';
 	if (fileId.length > MAX_ID_LENGTH) throw apiError(400, 'FILE_ID_IS_REQUIRED', `fileId must be at most ${MAX_ID_LENGTH} characters`);
 	if (!aidxRegExp.test(fileId)) throw apiError(400, 'INVALID_FILE_ID');
-	const cachedMissingFile = await matchMissingFileCache(c.env, fileId);
-	if (cachedMissingFile !== null) return cachedMissingFile;
+	const workerCacheVersion = await getWorkerCacheVersion(c.env);
+	// ID は使い回されないので、存在しない ID の 404 は認証より前にキャッシュから返してよい
+	const missingFileCacheRequest = createMissingFileCacheRequest({ fileId, cacheVersion: workerCacheVersion });
+	const cachedMissingFile = await (await openDownloadCache()).match(missingFileCacheRequest);
+	if (cachedMissingFile !== undefined) return cachedMissingFile;
 
 	const file = await db.select().from(files).where(eq(files.id, fileId)).get();
 	if (!file) {
 		const response = createMissingFileResponse(fileId);
-		putMissingFileCache(c.env, fileId, response, (promise) => c.executionCtx.waitUntil(promise));
+		putDownloadCacheEntry(c, missingFileCacheRequest, response.clone());
 		return response;
 	}
 	if (!file.isClosed) {
@@ -534,7 +478,6 @@ async function handleDownload(c: AppContext, entryPath: string | null): Promise<
 	const bucket = await db.select().from(buckets).where(eq(buckets.id, file.bucketId)).get();
 	if (!bucket) throw apiError(404, 'BUCKET_NOT_FOUND');
 
-	const workerCacheVersion = await getWorkerCacheVersion(c.env);
 	const download = new DownloadContext(file, c.req.raw, { entryPath, cacheVersion: workerCacheVersion });
 	const rangeHeader = c.req.header('Range') ?? null;
 	const ifRangeHeader = c.req.header('If-Range') ?? null;
@@ -572,28 +515,23 @@ async function handleDownload(c: AppContext, entryPath: string | null): Promise<
 		throw apiError(400, 'INVALID_FILE_PATH', `file must be at most ${MAX_FILE_PATH_LENGTH} characters`);
 	}
 
+	// キャッシュは、ファイルの存在・公開状態・トークンを DB で確かめた後にだけ使う。
+	// そのため非公開化やトークンの削除はキャッシュを消さなくてもすぐに反映される。
 	async function matchDownloadCache(
 		mode: Parameters<DownloadContext['getCacheRequest']>[0],
 		entryPath?: string,
 	): Promise<Response | null> {
 		const cacheRequest = download.getCacheRequest(mode, entryPath);
 		if (cacheRequest === null) return null;
-		const cache = await openWorkerCache(c.env, workerCacheBaseNames.download);
-		const cached = await cache.match(cacheRequest);
+		// 有効期限は保存時の Cache-Control（max-age）で Cache API が判断する
+		const cached = await (await openDownloadCache()).match(cacheRequest);
 		if (cached === undefined) return null;
 
-		const expires = cached.headers.get('Expires');
-		if (expires !== null) {
-			const expiresAt = Date.parse(expires);
-			if (!Number.isNaN(expiresAt) && expiresAt <= Date.now()) {
-				await cache.delete(cacheRequest);
-				return null;
-			}
-		}
-
-		const response = download.stripInternalCacheHeaders(cached, mode);
-		if (mode !== 'plain') return response;
-		return applyRangeRequest(withCurrentEncryptedFileHeaders(response, download), rangeHeader, ifRangeHeader);
+		if (mode !== 'plain') return download.toClientResponse(cached, mode);
+		// 通常ファイルは本文だけをキャッシュから使い、ヘッダーは今の DB の内容から作り直す
+		// （名前の変更や暗号化ファイルの .enc などがキャッシュの古いヘッダーで返らないように）
+		const response = new Response(cached.body, { headers: createPlainFileHeaders(download) });
+		return applyRangeRequest(response, rangeHeader, ifRangeHeader);
 	}
 
 	function putDownloadCache(
@@ -604,27 +542,14 @@ async function handleDownload(c: AppContext, entryPath: string | null): Promise<
 		const cacheRequest = download.getCacheRequest(mode, entryPath);
 		if (cacheRequest === null) return;
 		const cacheResponse = response.clone();
-		const putPromise = (async () => {
-			const cache = await openWorkerCache(c.env, workerCacheBaseNames.download);
-			const headers = new Headers(cacheResponse.headers);
-			headers.set('Cache-Control', download.getInternalCacheControl());
-			headers.set(downloadCacheInternalHeaders.status, String(cacheResponse.status));
-			headers.set(downloadCacheInternalHeaders.statusText, cacheResponse.statusText);
-			await cache.put(cacheRequest, new Response(cacheResponse.body, {
-				status: 200,
-				statusText: 'OK',
-				headers,
-				...(mode === 'targz-entry' ? { encodeBody: 'manual' } : {}),
-			}));
-		})();
-
-		try {
-			c.executionCtx.waitUntil(putPromise);
-		} catch {
-			void putPromise.catch((error: unknown) => {
-				console.error('Failed to put download response into cache:', error);
-			});
-		}
+		const headers = new Headers(cacheResponse.headers);
+		headers.set('Cache-Control', download.getInternalCacheControl());
+		putDownloadCacheEntry(c, cacheRequest, new Response(cacheResponse.body, {
+			status: cacheResponse.status,
+			statusText: cacheResponse.statusText,
+			headers,
+			...(mode === 'targz-entry' ? { encodeBody: 'manual' } : {}),
+		}));
 	}
 
 	if (file.visibility !== 'public' || file.isModerationForcedPrivate) {
@@ -639,15 +564,7 @@ async function handleDownload(c: AppContext, entryPath: string | null): Promise<
 				.get();
 			if (!fileTokenRecord) throw apiError(403, 'FORBIDDEN');
 			if (fileTokenRecord.expiresAt !== null && fileTokenRecord.expiresAt < Date.now()) {
-				download.useExpiredFileToken(fileTokenRecord);
-				const cacheTarget = download.cacheTarget;
-				if (cacheTarget !== null) {
-					const cached = await matchDownloadCache(cacheTarget.mode, cacheTarget.entryPath);
-					if (cached !== null) return cached;
-				}
-				const response = new Response('Forbidden', { status: 403 });
-				if (cacheTarget !== null) putDownloadCache(response, cacheTarget.mode, cacheTarget.entryPath);
-				return applyRangeRequest(response, rangeHeader, ifRangeHeader);
+				return new Response('Forbidden', { status: 403 });
 			}
 			download.useFileToken(fileTokenRecord);
 		} else {

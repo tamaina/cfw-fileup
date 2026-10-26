@@ -1,8 +1,8 @@
 import { describe, test, expect, beforeAll, beforeEach } from 'vitest';
 import { createBgzfBlock, createBgzfDecompressor } from 'bgzf';
 import { genEaidx, parseEaidx } from '../../src/shared/eaid-x';
-import { getWorkerCacheVersion, openWorkerCache, workerCacheBaseNames } from '../../src/worker/utils/cache-names';
-import { createDownloadCacheRequest, downloadCacheInternalHeaders } from '../../src/worker/utils/download-context';
+import { getWorkerCacheVersion, openDownloadCache } from '../../src/worker/utils/cache-names';
+import { createDownloadCacheRequest } from '../../src/worker/utils/download-context';
 import { env, app, setupDb, clearDb, signup, authHeaders } from './helpers';
 
 beforeAll(async () => {
@@ -198,7 +198,7 @@ describe('GET /d/:fileId', () => {
 	test('rewrites headers of encrypted responses cached before the .enc change', async () => {
 		const { bucketId, fileId, body } = await setupPublicEncryptedFile();
 		const cacheVersion = await getWorkerCacheVersion(env);
-		const cache = await openWorkerCache(env, workerCacheBaseNames.download);
+		const cache = await openDownloadCache();
 		// 変更前のヘッダー（元の MIME タイプと元のファイル名）でキャッシュされていた状態を再現する
 		for (const gzip of [true, false]) {
 			await cache.put(createDownloadCacheRequest({ fileId, mode: 'plain', gzip, auth: { type: 'public' }, cacheVersion }), new Response(body, {
@@ -207,8 +207,6 @@ describe('GET /d/:fileId', () => {
 					'Content-Disposition': 'attachment; filename="__.jpg"; filename*=UTF-8\'\'%E5%86%99%E7%9C%9F.jpg',
 					'Content-Length': String(body.length),
 					'Cache-Control': 'public, max-age=3600',
-					[downloadCacheInternalHeaders.status]: '200',
-					[downloadCacheInternalHeaders.statusText]: 'OK',
 				},
 			}));
 		}
@@ -271,6 +269,72 @@ describe('GET /d/:fileId', () => {
 		expect(cachedRes.headers.get('Last-Modified')).toBe(parseEaidx(fileId).date.toUTCString());
 		expect(cachedRes.headers.get('Vary')).toBe('Authorization, Accept-Encoding');
 		expect(await cachedRes.text()).toBe('Hello World');
+	});
+
+	test('cached public file uses the current file name after rename', async () => {
+		const { bucketId, fileId } = await setupPublicFile();
+
+		const firstRes = await app.request(`/d/${fileId}`, {}, env);
+		expect(firstRes.status).toBe(200);
+		expect(await firstRes.text()).toBe('Hello World');
+
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		// R2 から消して、キャッシュの本文が使われていることを確かめる
+		await env.R2.delete(`${bucketId}/hello.txt`);
+		await env.DB.prepare('UPDATE files SET path = ? WHERE id = ?').bind('renamed.txt', fileId).run();
+
+		const cachedRes = await app.request(`/d/${fileId}`, {}, env);
+		expect(cachedRes.status).toBe(200);
+		expect(cachedRes.headers.get('Content-Disposition')).toBe('attachment; filename="renamed.txt"; filename*=UTF-8\'\'renamed.txt');
+		expect(cachedRes.headers.get('Cache-Control')).toBe('public, max-age=315360000, immutable');
+		expect(await cachedRes.text()).toBe('Hello World');
+
+		const rangeRes = await app.request(`/d/${fileId}`, { headers: { Range: 'bytes=6-10' } }, env);
+		expect(rangeRes.status).toBe(206);
+		expect(rangeRes.headers.get('Content-Disposition')).toContain('renamed.txt');
+		expect(await rangeRes.text()).toBe('World');
+	});
+
+	test('cached public file is not served after moderation makes it private', async () => {
+		const { fileId } = await setupPublicFile();
+
+		const firstRes = await app.request(`/d/${fileId}`, {}, env);
+		expect(firstRes.status).toBe(200);
+		expect(await firstRes.text()).toBe('Hello World');
+
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		await env.DB.prepare('UPDATE files SET is_moderation_forced_private = 1 WHERE id = ?').bind(fileId).run();
+
+		const res = await app.request(`/d/${fileId}`, {}, env);
+		expect(res.status).toBe(403);
+		await res.arrayBuffer();
+	});
+
+	test('admin cache purge stops serving cached public files', async () => {
+		// 最初に登録したユーザーは管理者
+		const { token, bucketId, fileId } = await setupPublicFile();
+
+		const firstRes = await app.request(`/d/${fileId}`, {}, env);
+		expect(firstRes.status).toBe(200);
+		expect(await firstRes.text()).toBe('Hello World');
+
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		await env.R2.delete(`${bucketId}/hello.txt`);
+
+		const cachedRes = await app.request(`/d/${fileId}`, {}, env);
+		expect(cachedRes.status).toBe(200);
+		expect(await cachedRes.text()).toBe('Hello World');
+
+		const purgeRes = await app.request('/api/admin/purge-worker-cache', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({}),
+		}, env);
+		expect(purgeRes.status).toBe(200);
+
+		const purgedRes = await app.request(`/d/${fileId}`, {}, env);
+		expect(purgedRes.status).toBe(404);
+		expect(await purgedRes.json()).toMatchObject({ error: 'FILE_NOT_FOUND_IN_STORAGE' });
 	});
 
 	test('serves byte ranges for public files', async () => {
@@ -697,7 +761,7 @@ describe('GET /d/:fileId', () => {
 		expect(await res.text()).toBe('Secret Content');
 	});
 
-	test('expired file access token response is cached permanently for that token', async () => {
+	test('cached file access token response is not served after the token expires or is deleted', async () => {
 		const { data } = await signup('user1');
 		const token = String(data.token);
 
@@ -730,20 +794,34 @@ describe('GET /d/:fileId', () => {
 		expect(tokenRes.status).toBe(200);
 		const { token: fileToken, id: tokenId } = await tokenRes.json() as { token: string; id: string };
 
-		await env.DB.prepare('UPDATE file_access_tokens SET expires_at = ? WHERE id = ?').bind(Date.now() - 1000, tokenId).run();
+		const firstRes = await app.request(`/d/${fileId}?token=${fileToken}`, {}, env);
+		expect(firstRes.status).toBe(200);
+		expect(await firstRes.text()).toBe('Secret Content');
+		await new Promise((resolve) => setTimeout(resolve, 0));
 
+		// 期限切れにすると、キャッシュ済みの 200 ではなく 403 になる
+		await env.DB.prepare('UPDATE file_access_tokens SET expires_at = ? WHERE id = ?').bind(Date.now() - 1000, tokenId).run();
 		const expiredRes = await app.request(`/d/${fileId}?token=${fileToken}`, {}, env);
 		expect(expiredRes.status).toBe(403);
 		expect(expiredRes.headers.get('Cache-Control')).toBeNull();
 		expect(await expiredRes.text()).toBe('Forbidden');
 
-		await new Promise((resolve) => setTimeout(resolve, 0));
-		await env.DB.prepare('UPDATE file_access_tokens SET expires_at = ? WHERE id = ?').bind(Date.now() + 60_000, tokenId).run();
+		// 403 はキャッシュしないので、判定は常に DB のトークンに従う
+		await env.DB.prepare('UPDATE file_access_tokens SET expires_at = NULL WHERE id = ?').bind(tokenId).run();
+		const validRes = await app.request(`/d/${fileId}?token=${fileToken}`, {}, env);
+		expect(validRes.status).toBe(200);
+		expect(await validRes.text()).toBe('Secret Content');
 
-		const cachedExpiredRes = await app.request(`/d/${fileId}?token=${fileToken}`, {}, env);
-		expect(cachedExpiredRes.status).toBe(403);
-		expect(cachedExpiredRes.headers.get('Cache-Control')).toBeNull();
-		expect(await cachedExpiredRes.text()).toBe('Forbidden');
+		// トークンを削除するとすぐに使えなくなる
+		const deleteRes = await app.request('/api/file-tokens/delete', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ tokenId }),
+		}, env);
+		expect(deleteRes.status).toBe(200);
+		const deletedRes = await app.request(`/d/${fileId}?token=${fileToken}`, {}, env);
+		expect(deletedRes.status).toBe(403);
+		await deletedRes.arrayBuffer();
 	});
 
 	test('private file with passphrase query returns 403', async () => {
