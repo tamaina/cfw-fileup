@@ -4,8 +4,7 @@ import { parseEaidx } from '../../shared/eaid-x';
 import { buckets, files, tarFiles, targzFiles } from '../scheme/index';
 import { getDb } from '../utils/db';
 import { apiError } from '../utils/api-error';
-import { resolveRouteCache, purgeWorkersCacheByPathPrefixes } from '../middleware/resolve-route-cache';
-import { fileMutationEvents, runMutationTask } from '../events/file-mutations';
+import { publicCacheControl } from '../middleware/public-cache-control';
 import { getAppName } from '../utils/app-name';
 import { getPublicFile } from '../utils/public-file';
 import { getHlsTarMetadata } from '../utils/hls-tar-metadata';
@@ -19,7 +18,6 @@ const activityJsonContentType = 'application/activity+json; charset=utf-8';
 const publicAddress = 'https://www.w3.org/ns/activitystreams#Public';
 const activityPubCacheMaxAgeSeconds = 5 * 60;
 const activityPubCacheStaleWhileRevalidateSeconds = 12 * 60 * 60;
-let activityPubCachePurgeListenersRegistered = false;
 
 function originFromRequest(request: Request): string {
 	return new URL(request.url).origin;
@@ -178,75 +176,7 @@ async function getBucket(db: ReturnType<typeof getDb>, bucketId: string) {
 	return bucket;
 }
 
-function getActivityPubFileCachePath(fileId: string): string {
-	return `/a/files/${encodeURIComponent(fileId)}`;
-}
-
-function getActivityPubEntryCachePath(fileId: string, entryPath: string): string {
-	return `${getActivityPubFileCachePath(fileId)}/${encodeURIComponent(':entries')}/${encodeURIComponent(entryPath)}`;
-}
-
-function registerActivityPubCachePurgeListeners(): void {
-	if (activityPubCachePurgeListenersRegistered) return;
-	activityPubCachePurgeListenersRegistered = true;
-
-	fileMutationEvents.on('file:deleted', ({ waitUntil, files }) => {
-		const promise = purgeWorkersCacheByPathPrefixes(files.flatMap(file => [
-			getActivityPubFileCachePath(file.id),
-			...(file.entryPaths ?? []).map(entryPath => getActivityPubEntryCachePath(file.id, entryPath)),
-		]));
-		runMutationTask(waitUntil, promise, 'Failed to purge /a deleted file cache:');
-	});
-
-	fileMutationEvents.on('file:updated', ({ waitUntil, files }) => {
-		const promise = purgeWorkersCacheByPathPrefixes(files.flatMap(file => [
-			getActivityPubFileCachePath(file.id),
-			...(file.entryPaths ?? []).map(entryPath => getActivityPubEntryCachePath(file.id, entryPath)),
-		]));
-		runMutationTask(waitUntil, promise, 'Failed to purge /a updated file cache:');
-	});
-
-	fileMutationEvents.on('file:moved', ({ waitUntil, files }) => {
-		const promise = purgeWorkersCacheByPathPrefixes(files.flatMap(file => [
-			getActivityPubFileCachePath(file.id),
-			...(file.entryPaths ?? []).map(entryPath => getActivityPubEntryCachePath(file.id, entryPath)),
-		]));
-		runMutationTask(waitUntil, promise, 'Failed to purge /a moved file cache:');
-	});
-
-	fileMutationEvents.on('directory:deleted', ({ waitUntil, files }) => {
-		const promise = purgeWorkersCacheByPathPrefixes(files.flatMap(file => [
-			getActivityPubFileCachePath(file.id),
-			...(file.entryPaths ?? []).map(entryPath => getActivityPubEntryCachePath(file.id, entryPath)),
-		]));
-		runMutationTask(waitUntil, promise, 'Failed to purge /a deleted directory cache:');
-	});
-
-	fileMutationEvents.on('directory:moved', ({ waitUntil, files }) => {
-		const promise = purgeWorkersCacheByPathPrefixes(files.flatMap(file => [
-			getActivityPubFileCachePath(file.id),
-			...(file.entryPaths ?? []).map(entryPath => getActivityPubEntryCachePath(file.id, entryPath)),
-		]));
-		runMutationTask(waitUntil, promise, 'Failed to purge /a moved directory cache:');
-	});
-
-	fileMutationEvents.on('bucket:deleted', ({ waitUntil, bucket, files }) => {
-		const promise = purgeWorkersCacheByPathPrefixes([
-			`/a/buckets/${encodeURIComponent(bucket.id)}`,
-			`/a/buckets/${encodeURIComponent(bucket.id)}/outbox`,
-			`/a/buckets/${encodeURIComponent(bucket.id)}/followers`,
-			...files.flatMap(file => [
-				getActivityPubFileCachePath(file.id),
-				...(file.entryPaths ?? []).map(entryPath => getActivityPubEntryCachePath(file.id, entryPath)),
-			]),
-		]);
-		runMutationTask(waitUntil, promise, 'Failed to purge /a deleted bucket cache:');
-	});
-}
-
-registerActivityPubCachePurgeListeners();
-
-app.use('/a/*', resolveRouteCache({
+app.use('/a/*', publicCacheControl({
 	externalMaxAgeSeconds: activityPubCacheMaxAgeSeconds,
 	staleWhileRevalidateSeconds: activityPubCacheStaleWhileRevalidateSeconds,
 }));

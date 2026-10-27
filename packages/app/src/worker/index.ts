@@ -10,7 +10,7 @@ import { adminRoutes } from './api/admin';
 import { adminBillingRoutes } from './api/admin-billing';
 import { billingRoutes } from './api/billing';
 import { directoryRoutes } from './api/directories';
-import { metaRoutes } from './api/meta';
+import { invalidateMetaCache, metaRoutes } from './api/meta';
 import { fileTokenRoutes } from './api/file-tokens';
 import { fileReportRoutes } from './api/file-reports';
 import { passkeyRoutes } from './api/passkey';
@@ -29,6 +29,16 @@ const app = new Hono<{ Bindings: Env }>();
 app.use('/api/*', async (c, next) => {
 	await rejectIpBan(c);
 	await next();
+});
+
+// 管理者が設定・決済設定などを変えたら、この colo の /api/meta キャッシュを消す。
+// 他の colo では最大 30 秒古い /api/meta が返る。
+app.use('/api/admin/*', async (c, next) => {
+	await next();
+	if (c.req.method !== 'POST' || !c.res.ok) return;
+	const action = c.req.path.split('/').pop() ?? '';
+	if (action.startsWith('list-') || action.startsWith('get-')) return;
+	await invalidateMetaCache(c.env);
 });
 
 app.use('/upload/*', async (c, next) => {

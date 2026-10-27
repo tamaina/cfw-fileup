@@ -1,6 +1,8 @@
 import { eq } from 'drizzle-orm';
 import { files, tarFiles } from '../scheme/index';
 import { HLS_TAR_MIME, hlsEntryDirname, hlsPosterEntryPath, parseHlsSessionData } from '../../shared/hls';
+import { getWorkerCacheVersion } from './cache-names';
+import { createInternalCacheRequest, matchShortCacheJson, putShortCacheJson } from './short-cache';
 import type { getDb } from './db';
 
 /** master.m3u8 として読む最大サイズ。tar index 改ざん対策の保険 */
@@ -21,16 +23,51 @@ export interface HlsTarMetadata {
 	posterEntryPath: string | null;
 }
 
+type HlsTarMetadataFile = Pick<typeof files.$inferSelect, 'id' | 'r2Key' | 'mimeType' | 'isTar'>;
+
+const hlsTarMetadataCacheName = 'hls-tar-metadata';
+/**
+ * メタデータ（タイトル・master.m3u8 / ポスターのパス）のキャッシュ時間。
+ * tar index はアップロード期限（開始から 24 時間）までは追加できるので、長くしすぎない。
+ * 公開状態の確認は呼び出し側が毎回 DB で行うので、ここに入るのは「公開してよいと確認済みのファイルの付随情報」だけ。
+ */
+const hlsTarMetadataCacheTtlSeconds = 60 * 60;
+
 /**
  * HLS tar の master.m3u8 を R2 からレンジ読みし、EXT-X-SESSION-DATA のタイトル/ポスターを解決する。
  * HLS tar でない場合や master.m3u8 が見つからない場合は null。
+ * 結果はファイル ID と全体のキャッシュバージョンをキーに Cache API へ 1 時間置く。
+ * 呼び出し側は必ず先に DB で公開状態を確認すること。
  */
 export async function getHlsTarMetadata(
 	env: Env,
 	db: ReturnType<typeof getDb>,
-	file: Pick<typeof files.$inferSelect, 'id' | 'r2Key' | 'mimeType' | 'isTar'>,
+	file: HlsTarMetadataFile,
 ): Promise<HlsTarMetadata | null> {
 	if (file.mimeType !== HLS_TAR_MIME || !file.isTar) return null;
+
+	const cacheRequest = createInternalCacheRequest('/hls-tar-metadata', {
+		k: '1',
+		v: await getWorkerCacheVersion(env),
+		fileId: file.id,
+	});
+	const cached = await matchShortCacheJson<HlsTarMetadata | null>(hlsTarMetadataCacheName, cacheRequest);
+	if (cached) return cached.value;
+
+	const metadata = await loadHlsTarMetadata(env, db, file);
+	try {
+		await putShortCacheJson(hlsTarMetadataCacheName, cacheRequest, metadata, hlsTarMetadataCacheTtlSeconds);
+	} catch (error) {
+		console.error('Failed to put HLS tar metadata into cache:', error);
+	}
+	return metadata;
+}
+
+async function loadHlsTarMetadata(
+	env: Env,
+	db: ReturnType<typeof getDb>,
+	file: HlsTarMetadataFile,
+): Promise<HlsTarMetadata | null> {
 	const entries = await db
 		.select({ path: tarFiles.path, offset: tarFiles.offset, size: tarFiles.size })
 		.from(tarFiles)
