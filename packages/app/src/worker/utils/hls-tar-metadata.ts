@@ -23,21 +23,34 @@ export interface HlsTarMetadata {
 	posterEntryPath: string | null;
 }
 
-type HlsTarMetadataFile = Pick<typeof files.$inferSelect, 'id' | 'r2Key' | 'mimeType' | 'isTar'>;
+type HlsTarMetadataFile = Pick<typeof files.$inferSelect, 'id' | 'r2Key' | 'mimeType' | 'isTar' | 'isClosed' | 'uploadExpiresAt'>;
 
 const hlsTarMetadataCacheName = 'hls-tar-metadata';
+/** 確定したメタデータは変わらないので、/d の長期キャッシュと同じく実質永久（10 年）にする。 */
+const hlsTarMetadataCacheTtlSeconds = 10 * 365 * 24 * 60 * 60;
 /**
- * メタデータ（タイトル・master.m3u8 / ポスターのパス）のキャッシュ時間。
- * tar index はアップロード期限（開始から 24 時間）までは追加できるので、長くしすぎない。
- * 公開状態の確認は呼び出し側が毎回 DB で行うので、ここに入るのは「公開してよいと確認済みのファイルの付随情報」だけ。
+ * tar index の追加（/api/files/create/tar-index）やアップロードは `uploadExpiresAt` を過ぎると 410 になる。
+ * 期限直前に受け付けたリクエストの書き込みが終わるのを待つため、少し余裕を持たせる。
  */
-const hlsTarMetadataCacheTtlSeconds = 60 * 60;
+const uploadDeadlineMarginMs = 60_000;
+
+/**
+ * 結果が確定しているか（あとから変わりえないか）。
+ * - ファイルがクローズ済み
+ * - アップロード期限 + 余裕を過ぎている（tar index の追加も R2 への書き込みももうできない）
+ * この 2 つを満たせば tar エントリーの一覧も R2 の中身も変わらないので、
+ * master.m3u8 が無い（null）・タイトルが無い・ポスターが無いという結果も含めて永久に同じになる。
+ */
+function isHlsTarIndexFinalized(file: HlsTarMetadataFile, now = Date.now()): boolean {
+	return file.isClosed && now > file.uploadExpiresAt + uploadDeadlineMarginMs;
+}
 
 /**
  * HLS tar の master.m3u8 を R2 からレンジ読みし、EXT-X-SESSION-DATA のタイトル/ポスターを解決する。
  * HLS tar でない場合や master.m3u8 が見つからない場合は null。
- * 結果はファイル ID と全体のキャッシュバージョンをキーに Cache API へ 1 時間置く。
- * 呼び出し側は必ず先に DB で公開状態を確認すること。
+ * tar index が確定したあと（isHlsTarIndexFinalized）の結果だけを、ファイル ID と全体のキャッシュバージョンをキーに
+ * Cache API へ実質永久に置く。確定前の結果や、R2 の読み取りに失敗した結果はキャッシュしない。
+ * 呼び出し側は必ず先に DB で公開状態を確認すること（キャッシュには公開状態を入れていない）。
  */
 export async function getHlsTarMetadata(
 	env: Env,
@@ -45,45 +58,52 @@ export async function getHlsTarMetadata(
 	file: HlsTarMetadataFile,
 ): Promise<HlsTarMetadata | null> {
 	if (file.mimeType !== HLS_TAR_MIME || !file.isTar) return null;
+	if (!isHlsTarIndexFinalized(file)) return (await loadHlsTarMetadata(env, db, file)).metadata;
 
 	const cacheRequest = createInternalCacheRequest('/hls-tar-metadata', {
-		k: '1',
+		k: '2',
 		v: await getWorkerCacheVersion(env),
 		fileId: file.id,
 	});
 	const cached = await matchShortCacheJson<HlsTarMetadata | null>(hlsTarMetadataCacheName, cacheRequest);
 	if (cached) return cached.value;
 
-	const metadata = await loadHlsTarMetadata(env, db, file);
-	try {
-		await putShortCacheJson(hlsTarMetadataCacheName, cacheRequest, metadata, hlsTarMetadataCacheTtlSeconds);
-	} catch (error) {
-		console.error('Failed to put HLS tar metadata into cache:', error);
+	const { metadata, complete } = await loadHlsTarMetadata(env, db, file);
+	if (complete) {
+		try {
+			await putShortCacheJson(hlsTarMetadataCacheName, cacheRequest, metadata, hlsTarMetadataCacheTtlSeconds);
+		} catch (error) {
+			console.error('Failed to put HLS tar metadata into cache:', error);
+		}
 	}
 	return metadata;
 }
 
+/** `complete` が false のとき（R2 のオブジェクトが読めなかったとき）はキャッシュしない。 */
 async function loadHlsTarMetadata(
 	env: Env,
 	db: ReturnType<typeof getDb>,
 	file: HlsTarMetadataFile,
-): Promise<HlsTarMetadata | null> {
+): Promise<{ metadata: HlsTarMetadata | null; complete: boolean }> {
 	const entries = await db
 		.select({ path: tarFiles.path, offset: tarFiles.offset, size: tarFiles.size })
 		.from(tarFiles)
 		.where(eq(tarFiles.fileId, file.id))
 		.all();
 	const master = findHlsMasterEntry(entries);
-	if (!master) return null;
+	if (!master) return { metadata: null, complete: true };
 
 	let title: string | null = null;
 	let posterUri: string | null = null;
+	let complete = true;
 	if (master.size > 0 && master.size <= MAX_MASTER_PLAYLIST_BYTES) {
 		const object = await env.R2.get(file.r2Key, { range: { offset: master.offset, length: master.size } });
 		if (object) {
 			const meta = parseHlsSessionData(await object.text());
 			title = meta.title;
 			posterUri = meta.posterUri;
+		} else {
+			complete = false;
 		}
 	}
 
@@ -98,5 +118,5 @@ async function loadHlsTarMetadata(
 	}
 	const posterEntryPath = entries.find(entry => posterCandidates.has(entry.path))?.path ?? null;
 
-	return { masterEntryPath: master.path, title, posterEntryPath };
+	return { metadata: { masterEntryPath: master.path, title, posterEntryPath }, complete };
 }

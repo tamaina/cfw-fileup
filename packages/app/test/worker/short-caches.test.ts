@@ -164,43 +164,97 @@ describe('GET /api/files/ls cache', () => {
 });
 
 describe('HLS tar metadata cache', () => {
-	async function setupHlsFile() {
+	const activityJson = { headers: { Accept: 'application/activity+json' } };
+
+	function masterPlaylist(title: string): string {
+		return `#EXTM3U\n#EXT-X-SESSION-DATA:DATA-ID="${HLS_SESSION_DATA_TITLE_ID}",VALUE="${title}"\n`;
+	}
+
+	// finalized: true ならアップロード期限を過去にして、tar index が確定した状態にする
+	async function setupHlsFile(options: { finalized: boolean }) {
 		const { token, bucketId, fileId } = await setupPublicFile('video.tar');
-		const master = `#EXTM3U\n#EXT-X-SESSION-DATA:DATA-ID="${HLS_SESSION_DATA_TITLE_ID}",VALUE="Cached title"\n`;
+		const master = masterPlaylist('Cached title');
 		await env.R2.put(fileId, master);
-		await env.DB.prepare('UPDATE files SET mime_type = ?, is_tar = 1 WHERE id = ?').bind(HLS_TAR_MIME, fileId).run();
+		await env.DB.prepare('UPDATE files SET mime_type = ?, is_tar = 1, upload_expires_at = ? WHERE id = ?')
+			.bind(HLS_TAR_MIME, options.finalized ? Date.now() - 10 * 60_000 : Date.now() + 60 * 60_000, fileId)
+			.run();
 		await env.DB.prepare('INSERT INTO tar_files (id, file_id, path, mime_type, offset, size) VALUES (?, ?, ?, ?, ?, ?)')
 			.bind(genEaidx(Date.now()), fileId, 'master.m3u8', 'application/vnd.apple.mpegurl', 0, master.length)
 			.run();
 		return { token, bucketId, fileId };
 	}
 
-	const activityJson = { headers: { Accept: 'application/activity+json' } };
+	async function noteText(fileId: string): Promise<{ status: number; text: string }> {
+		const res = await app.request(`https://example.test/a/files/${fileId}`, activityJson, env);
+		return { status: res.status, text: await res.text() };
+	}
 
-	test('reuses metadata but still checks visibility in the DB on every request', async () => {
-		const { fileId } = await setupHlsFile();
+	function envWithAssets(): Env {
+		return {
+			...env,
+			ASSETS: {
+				fetch: () => new Response('<!doctype html><html><head><title>CFW FileUp</title></head><body></body></html>', {
+					headers: { 'Content-Type': 'text/html; charset=utf-8' },
+				}),
+			},
+		};
+	}
 
-		const firstRes = await app.request(`https://example.test/a/files/${fileId}`, activityJson, env);
-		expect(firstRes.status).toBe(200);
-		expect(await firstRes.text()).toContain('Cached title');
+	test('a finalized result is cached permanently and reused without reading tar entries or R2 again', async () => {
+		const { fileId } = await setupHlsFile({ finalized: true });
 
-		// R2 の中身を変えてもキャッシュしたタイトルが使われる
-		await env.R2.put(fileId, `#EXTM3U\n#EXT-X-SESSION-DATA:DATA-ID="${HLS_SESSION_DATA_TITLE_ID}",VALUE="Changed title"\n`);
-		const cachedRes = await app.request(`https://example.test/a/files/${fileId}`, activityJson, env);
-		expect(cachedRes.status).toBe(200);
-		expect(await cachedRes.text()).toContain('Cached title');
+		expect(await noteText(fileId)).toMatchObject({ status: 200, text: expect.stringContaining('Cached title') });
 
-		// モデレーションで強制非公開にしたら、メタデータのキャッシュがあってもすぐ 404
-		await env.DB.prepare('UPDATE files SET is_moderation_forced_private = 1 WHERE id = ?').bind(fileId).run();
-		const forcedPrivateRes = await app.request(`https://example.test/a/files/${fileId}`, activityJson, env);
-		expect(forcedPrivateRes.status).toBe(404);
+		// tar エントリーも R2 の中身も消してもキャッシュから返る
+		await env.DB.prepare('DELETE FROM tar_files WHERE file_id = ?').bind(fileId).run();
+		await env.R2.put(fileId, masterPlaylist('Changed title'));
+		expect(await noteText(fileId)).toMatchObject({ status: 200, text: expect.stringContaining('Cached title') });
+
+		// /v も同じキャッシュを使う
+		const viewRes = await app.request('https://example.test/v/cache_bucket/video.tar', {}, envWithAssets());
+		expect(await viewRes.text()).toContain('Cached title');
 	});
 
-	test('unlisting hides the metadata immediately', async () => {
-		const { fileId } = await setupHlsFile();
-		expect((await app.request(`https://example.test/a/files/${fileId}`, activityJson, env)).status).toBe(200);
+	test('results before the upload deadline are not cached (tar index may still change)', async () => {
+		const { fileId } = await setupHlsFile({ finalized: false });
+
+		expect(await noteText(fileId)).toMatchObject({ status: 200, text: expect.stringContaining('Cached title') });
+		await env.R2.put(fileId, masterPlaylist('Changed title'));
+		expect(await noteText(fileId)).toMatchObject({ status: 200, text: expect.stringContaining('Changed title') });
+	});
+
+	test('a result from an unreadable R2 object is not cached', async () => {
+		const { fileId } = await setupHlsFile({ finalized: true });
+		await env.R2.delete(fileId);
+
+		expect((await noteText(fileId)).text).not.toContain('Cached title');
+		await env.R2.put(fileId, masterPlaylist('Cached title'));
+		expect((await noteText(fileId)).text).toContain('Cached title');
+	});
+
+	test('bumping the global cache version clears it', async () => {
+		const { fileId } = await setupHlsFile({ finalized: true });
+		expect((await noteText(fileId)).text).toContain('Cached title');
+
+		await env.R2.put(fileId, masterPlaylist('Changed title'));
+		await env.DB.prepare('UPDATE app_settings SET value = ? WHERE key = \'worker_cache_version\'').bind(`bumped-${Date.now()}`).run();
+		await deleteAppSettingCache('worker_cache_version');
+		expect((await noteText(fileId)).text).toContain('Changed title');
+	});
+
+	test('the DB visibility check still runs first: forced-private is 404 immediately', async () => {
+		const { fileId } = await setupHlsFile({ finalized: true });
+		expect((await noteText(fileId)).status).toBe(200);
+
+		await env.DB.prepare('UPDATE files SET is_moderation_forced_private = 1 WHERE id = ?').bind(fileId).run();
+		expect((await noteText(fileId)).status).toBe(404);
+	});
+
+	test('the DB visibility check still runs first: unlisting is 404 immediately', async () => {
+		const { fileId } = await setupHlsFile({ finalized: true });
+		expect((await noteText(fileId)).status).toBe(200);
 
 		await env.DB.prepare('UPDATE files SET is_listed = 0 WHERE id = ?').bind(fileId).run();
-		expect((await app.request(`https://example.test/a/files/${fileId}`, activityJson, env)).status).toBe(404);
+		expect((await noteText(fileId)).status).toBe(404);
 	});
 });
