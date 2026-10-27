@@ -23,33 +23,19 @@ export interface HlsTarMetadata {
 	posterEntryPath: string | null;
 }
 
-type HlsTarMetadataFile = Pick<typeof files.$inferSelect, 'id' | 'r2Key' | 'mimeType' | 'isTar' | 'isClosed' | 'uploadExpiresAt'>;
+type HlsTarMetadataFile = Pick<typeof files.$inferSelect, 'id' | 'r2Key' | 'mimeType' | 'isTar' | 'isClosed'>;
 
 const hlsTarMetadataCacheName = 'hls-tar-metadata';
-/** 確定したメタデータは変わらないので、/d の長期キャッシュと同じく実質永久（10 年）にする。 */
+/** クローズ後のメタデータは基本的に変わらないので、/d の長期キャッシュと同じく実質永久（10 年）にする。 */
 const hlsTarMetadataCacheTtlSeconds = 10 * 365 * 24 * 60 * 60;
-/**
- * tar index の追加（/api/files/create/tar-index）やアップロードは `uploadExpiresAt` を過ぎると 410 になる。
- * 期限直前に受け付けたリクエストの書き込みが終わるのを待つため、少し余裕を持たせる。
- */
-const uploadDeadlineMarginMs = 60_000;
-
-/**
- * 結果が確定しているか（あとから変わりえないか）。
- * - ファイルがクローズ済み
- * - アップロード期限 + 余裕を過ぎている（tar index の追加も R2 への書き込みももうできない）
- * この 2 つを満たせば tar エントリーの一覧も R2 の中身も変わらないので、
- * master.m3u8 が無い（null）・タイトルが無い・ポスターが無いという結果も含めて永久に同じになる。
- */
-function isHlsTarIndexFinalized(file: HlsTarMetadataFile, now = Date.now()): boolean {
-	return file.isClosed && now > file.uploadExpiresAt + uploadDeadlineMarginMs;
-}
 
 /**
  * HLS tar の master.m3u8 を R2 からレンジ読みし、EXT-X-SESSION-DATA のタイトル/ポスターを解決する。
  * HLS tar でない場合や master.m3u8 が見つからない場合は null。
- * tar index が確定したあと（isHlsTarIndexFinalized）の結果だけを、ファイル ID と全体のキャッシュバージョンをキーに
- * Cache API へ実質永久に置く。確定前の結果や、R2 の読み取りに失敗した結果はキャッシュしない。
+ * クローズ済みファイルの結果だけを、ファイル ID と全体のキャッシュバージョンをキーに Cache API へ実質永久に置く。
+ * クローズ前の結果や、R2 の読み取りに失敗した結果はキャッシュしない。
+ * 注意: /api/files/create/tar-index はクローズ後もアップロード期限までエントリーを追加できるので、
+ * キャッシュ後に追加されたエントリーは管理画面のキャッシュパージまで反映されない。
  * 呼び出し側は必ず先に DB で公開状態を確認すること（キャッシュには公開状態を入れていない）。
  */
 export async function getHlsTarMetadata(
@@ -58,7 +44,7 @@ export async function getHlsTarMetadata(
 	file: HlsTarMetadataFile,
 ): Promise<HlsTarMetadata | null> {
 	if (file.mimeType !== HLS_TAR_MIME || !file.isTar) return null;
-	if (!isHlsTarIndexFinalized(file)) return (await loadHlsTarMetadata(env, db, file)).metadata;
+	if (!file.isClosed) return (await loadHlsTarMetadata(env, db, file)).metadata;
 
 	const cacheRequest = createInternalCacheRequest('/hls-tar-metadata', {
 		k: '2',

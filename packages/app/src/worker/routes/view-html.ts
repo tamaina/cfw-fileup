@@ -54,7 +54,6 @@ interface ViewFileContext {
 	mimeType: string | null;
 	isTar: boolean;
 	r2Key: string;
-	uploadExpiresAt: number;
 }
 
 async function resolveViewFileContext(c: AppContext): Promise<ViewFileContext | null> {
@@ -70,7 +69,7 @@ async function resolveViewFileContext(c: AppContext): Promise<ViewFileContext | 
 	if (!bucket) return null;
 
 	const file = await db
-		.select({ id: files.id, isTar: files.isTar, isTargz: files.isTargz, mimeType: files.mimeType, r2Key: files.r2Key, uploadExpiresAt: files.uploadExpiresAt })
+		.select({ id: files.id, isTar: files.isTar, isTargz: files.isTargz, mimeType: files.mimeType, r2Key: files.r2Key })
 		.from(files)
 		.where(and(
 			eq(files.bucketId, bucket.id),
@@ -91,7 +90,6 @@ async function resolveViewFileContext(c: AppContext): Promise<ViewFileContext | 
 		mimeType: file.mimeType,
 		isTar: file.isTar,
 		r2Key: file.r2Key,
-		uploadExpiresAt: file.uploadExpiresAt,
 	};
 	if (parsed.entryPath === null) return { ...context, href: `${origin}/a/files/${file.id}` };
 
@@ -196,7 +194,6 @@ app.get('/v/*', async (c) => {
 			isTar: context.isTar,
 			// resolveViewFileContext は isClosed = true のファイルしか返さない
 			isClosed: true,
-			uploadExpiresAt: context.uploadExpiresAt,
 		});
 		if (metadata) {
 			extraHeadHtml = buildHlsOgpHead({

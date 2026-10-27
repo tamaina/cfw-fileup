@@ -2,6 +2,8 @@ import { describe, test, expect, beforeAll, beforeEach } from 'vitest';
 import { genEaidx } from '../../src/shared/eaid-x';
 import { HLS_SESSION_DATA_TITLE_ID, HLS_TAR_MIME } from '../../src/shared/hls';
 import { deleteAppSettingCache } from '../../src/worker/utils/app-settings-cache';
+import { getDb } from '../../src/worker/utils/db';
+import { getHlsTarMetadata } from '../../src/worker/utils/hls-tar-metadata';
 import { env, app, setupDb, clearDb, signup, authHeaders } from './helpers';
 
 beforeAll(async () => {
@@ -170,13 +172,13 @@ describe('HLS tar metadata cache', () => {
 		return `#EXTM3U\n#EXT-X-SESSION-DATA:DATA-ID="${HLS_SESSION_DATA_TITLE_ID}",VALUE="${title}"\n`;
 	}
 
-	// finalized: true ならアップロード期限を過去にして、tar index が確定した状態にする
-	async function setupHlsFile(options: { finalized: boolean }) {
+	// アップロード期限内（クローズ後も tar index を追加できる期間）のクローズ済みファイルを作る
+	async function setupHlsFile() {
 		const { token, bucketId, fileId } = await setupPublicFile('video.tar');
 		const master = masterPlaylist('Cached title');
 		await env.R2.put(fileId, master);
 		await env.DB.prepare('UPDATE files SET mime_type = ?, is_tar = 1, upload_expires_at = ? WHERE id = ?')
-			.bind(HLS_TAR_MIME, options.finalized ? Date.now() - 10 * 60_000 : Date.now() + 60 * 60_000, fileId)
+			.bind(HLS_TAR_MIME, Date.now() + 60 * 60_000, fileId)
 			.run();
 		await env.DB.prepare('INSERT INTO tar_files (id, file_id, path, mime_type, offset, size) VALUES (?, ?, ?, ?, ?, ?)')
 			.bind(genEaidx(Date.now()), fileId, 'master.m3u8', 'application/vnd.apple.mpegurl', 0, master.length)
@@ -200,8 +202,8 @@ describe('HLS tar metadata cache', () => {
 		};
 	}
 
-	test('a finalized result is cached permanently and reused without reading tar entries or R2 again', async () => {
-		const { fileId } = await setupHlsFile({ finalized: true });
+	test('a closed file (even inside the upload deadline) is cached permanently and reused without reading tar entries or R2 again', async () => {
+		const { fileId } = await setupHlsFile();
 
 		expect(await noteText(fileId)).toMatchObject({ status: 200, text: expect.stringContaining('Cached title') });
 
@@ -215,16 +217,21 @@ describe('HLS tar metadata cache', () => {
 		expect(await viewRes.text()).toContain('Cached title');
 	});
 
-	test('results before the upload deadline are not cached (tar index may still change)', async () => {
-		const { fileId } = await setupHlsFile({ finalized: false });
+	test('results for files that are not closed are not cached', async () => {
+		const { fileId } = await setupHlsFile();
+		const db = getDb(env);
+		const notClosedFile = { id: fileId, r2Key: fileId, mimeType: HLS_TAR_MIME, isTar: true, isClosed: false };
 
-		expect(await noteText(fileId)).toMatchObject({ status: 200, text: expect.stringContaining('Cached title') });
+		expect(await getHlsTarMetadata(env, db, notClosedFile)).toMatchObject({ title: 'Cached title' });
 		await env.R2.put(fileId, masterPlaylist('Changed title'));
-		expect(await noteText(fileId)).toMatchObject({ status: 200, text: expect.stringContaining('Changed title') });
+		expect(await getHlsTarMetadata(env, db, notClosedFile)).toMatchObject({ title: 'Changed title' });
+
+		// クローズ前の結果がキャッシュに入っていないので、クローズ済みとして読んでも最新の内容になる
+		expect(await getHlsTarMetadata(env, db, { ...notClosedFile, isClosed: true })).toMatchObject({ title: 'Changed title' });
 	});
 
 	test('a result from an unreadable R2 object is not cached', async () => {
-		const { fileId } = await setupHlsFile({ finalized: true });
+		const { fileId } = await setupHlsFile();
 		await env.R2.delete(fileId);
 
 		expect((await noteText(fileId)).text).not.toContain('Cached title');
@@ -233,7 +240,7 @@ describe('HLS tar metadata cache', () => {
 	});
 
 	test('bumping the global cache version clears it', async () => {
-		const { fileId } = await setupHlsFile({ finalized: true });
+		const { fileId } = await setupHlsFile();
 		expect((await noteText(fileId)).text).toContain('Cached title');
 
 		await env.R2.put(fileId, masterPlaylist('Changed title'));
@@ -243,7 +250,7 @@ describe('HLS tar metadata cache', () => {
 	});
 
 	test('the DB visibility check still runs first: forced-private is 404 immediately', async () => {
-		const { fileId } = await setupHlsFile({ finalized: true });
+		const { fileId } = await setupHlsFile();
 		expect((await noteText(fileId)).status).toBe(200);
 
 		await env.DB.prepare('UPDATE files SET is_moderation_forced_private = 1 WHERE id = ?').bind(fileId).run();
@@ -251,7 +258,7 @@ describe('HLS tar metadata cache', () => {
 	});
 
 	test('the DB visibility check still runs first: unlisting is 404 immediately', async () => {
-		const { fileId } = await setupHlsFile({ finalized: true });
+		const { fileId } = await setupHlsFile();
 		expect((await noteText(fileId)).status).toBe(200);
 
 		await env.DB.prepare('UPDATE files SET is_listed = 0 WHERE id = ?').bind(fileId).run();
