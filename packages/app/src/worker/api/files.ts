@@ -7,6 +7,7 @@ import { getDb } from '../utils/db';
 import { getQuotaForUser } from '../utils/rate-limit';
 import { authMiddleware } from '../middleware/auth';
 import { shortGetCache } from '../middleware/short-get-cache';
+import { shortCacheTtlSeconds } from '../utils/short-cache';
 import { genEaidx } from '../../shared/eaid-x';
 import { apiDef, getResponseDefWithAuth, type JsonCtx } from '../../shared/api';
 import { HLS_TAR_MIME } from '../../shared/hls';
@@ -364,7 +365,9 @@ async function validateArchiveIndexRows(db: ReturnType<typeof getDb>, fileId: st
 	}
 }
 
-app.use('/ls', shortGetCache({ maxAgeSeconds: 10 }));
+// 公開一覧（Bearer 認証なし）は誰が見ても同じなので、サーバー側で 30 秒キャッシュする。
+// 削除・非公開化した名前が他の人の一覧に最大 30 秒残ることがある。
+app.use('/ls', shortGetCache({ cacheName: 'api-files-ls', serverMaxAgeSeconds: shortCacheTtlSeconds, browserMaxAgeSeconds: 10 }));
 
 app.get('/ls', async (c) => {
 	const bucketName = c.req.query('bucketName');

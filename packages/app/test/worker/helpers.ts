@@ -1,6 +1,7 @@
 import { env as workerEnv } from 'cloudflare:workers';
 import workerApp from '../../src/worker/index';
 import { deleteAppSettingCache } from '../../src/worker/utils/app-settings-cache';
+import { invalidateIpBanCache } from '../../src/worker/utils/moderation';
 import migration0000 from '../../migrations/0000_curly_lady_deathstrike.sql?raw';
 import migration0001 from '../../migrations/0001_confused_wild_child.sql?raw';
 import migration0002 from '../../migrations/0002_last_whizzer.sql?raw';
@@ -114,6 +115,7 @@ export async function setupDb(): Promise<void> {
 
 	await env.DB.prepare('UPDATE app_settings SET value = \'open\' WHERE key = \'registration_mode\'').run();
 	await deleteAppSettingCache('worker_cache_version');
+	await invalidateIpBanCache();
 	await env.DB.prepare('INSERT INTO app_settings (key, value) VALUES (\'worker_cache_version\', ?)').bind(`test-${Date.now()}-${Math.random()}`).run();
 }
 
@@ -156,6 +158,7 @@ export async function clearDb(): Promise<void> {
 	]);
 	await env.DB.prepare('INSERT INTO app_settings (key, value) VALUES (\'registration_mode\', \'open\')').run();
 	await deleteAppSettingCache('worker_cache_version');
+	await invalidateIpBanCache();
 	await env.DB.prepare('INSERT INTO app_settings (key, value) VALUES (\'worker_cache_version\', ?)').bind(`test-${Date.now()}-${Math.random()}`).run();
 }
 

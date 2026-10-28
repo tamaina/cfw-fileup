@@ -5,6 +5,14 @@ import { apiError } from './api-error';
 import { getDb } from './db';
 import { getRequestIp } from './request-ip';
 import { ipMatchesCidr } from './cidr';
+import { runContextBackgroundTask } from './background-task';
+import {
+	createInternalCacheRequest,
+	deleteShortCache,
+	matchShortCacheJson,
+	putShortCacheJson,
+	shortCacheTtlSeconds,
+} from './short-cache';
 import type { Context } from 'hono';
 
 export type ModerationAction =
@@ -90,18 +98,57 @@ export async function recordModerationAuditLog(
 	});
 }
 
+type ActiveIpBan = {
+	cidr: string;
+	expiresAt: number | null;
+};
+
+const ipBanCacheName = 'ip-bans';
+
+function createIpBanCacheRequest(): Request {
+	return createInternalCacheRequest('/ip-bans', { k: '1' });
+}
+
+/**
+ * 有効な IP BAN の一覧（cidr と expiresAt だけ）を 30 秒キャッシュして返す。
+ * 期限の判定は呼び出し側でリクエストごとに行う。
+ */
+async function getActiveIpBans(c: Context<{ Bindings: Env }>): Promise<ActiveIpBan[]> {
+	const cacheRequest = createIpBanCacheRequest();
+	const cached = await matchShortCacheJson<ActiveIpBan[]>(ipBanCacheName, cacheRequest);
+	if (cached) return cached.value;
+
+	const db = getDb(c.env);
+	const rows = await db
+		.select({ cidr: ipBans.cidr, expiresAt: ipBans.expiresAt })
+		.from(ipBans)
+		.where(or(isNull(ipBans.expiresAt), gt(ipBans.expiresAt, Date.now())));
+
+	runContextBackgroundTask(
+		c,
+		putShortCacheJson(ipBanCacheName, cacheRequest, rows, shortCacheTtlSeconds),
+		'Failed to put IP ban list into cache:',
+	);
+	return rows;
+}
+
+/**
+ * IP BAN を追加・削除したときに呼ぶ。消せるのはこのデータセンターのキャッシュだけなので、
+ * 他のデータセンターでは最大 30 秒（shortCacheTtlSeconds）古い一覧が使われる。
+ */
+export async function invalidateIpBanCache(): Promise<void> {
+	await deleteShortCache(ipBanCacheName, createIpBanCacheRequest());
+}
+
 export async function rejectIpBan(c: Context<{ Bindings: Env }>): Promise<void> {
 	const ipAddress = getRequestIp(c.req);
 	if (!ipAddress) return;
 
-	const db = getDb(c.env);
-	const rows = await db
-		.select({ cidr: ipBans.cidr })
-		.from(ipBans)
-		.where(or(isNull(ipBans.expiresAt), gt(ipBans.expiresAt, Date.now())));
-
-	for (const row of rows) {
-		if (ipMatchesCidr(ipAddress, row.cidr)) {
+	const bans = await getActiveIpBans(c);
+	const now = Date.now();
+	for (const ban of bans) {
+		if (ban.expiresAt !== null && ban.expiresAt <= now) continue;
+		if (ipMatchesCidr(ipAddress, ban.cidr)) {
 			throw apiError(403, 'IP_BANNED');
 		}
 	}

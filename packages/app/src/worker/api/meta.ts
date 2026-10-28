@@ -6,6 +6,15 @@ import { canAcceptCryptoPayments } from '../utils/crypto-payments';
 import { getPaymentChainRpcUrl } from '../utils/payment-rpc';
 import { isTurnstileConfigured } from '../utils/turnstile';
 import { DEFAULT_APP_NAME, DEFAULT_BILLING_RESIDENCY_STATEMENT } from '../../shared/app-settings';
+import { getWorkerCacheVersion } from '../utils/cache-names';
+import { runContextBackgroundTask } from '../utils/background-task';
+import {
+	createInternalCacheRequest,
+	deleteShortCache,
+	matchShortCache,
+	putShortCache,
+	shortCacheTtlSeconds,
+} from '../utils/short-cache';
 import { isGoogleAuthConfigured } from './google-auth';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -40,6 +49,28 @@ type MetaResponse = {
 	walletConnectChainIds: number[];
 };
 
+const metaCacheName = 'api-meta-response';
+
+/**
+ * /api/meta はユーザーごとの情報を含まないので、クエリ文字列を無視して 1 つのキーで 30 秒キャッシュする。
+ * キーには全体のキャッシュバージョンを入れるので、管理画面の「Worker キャッシュをパージ」でも消える。
+ */
+function createMetaCacheRequest(cacheVersion: string): Request {
+	return createInternalCacheRequest('/api-meta', { k: '1', v: cacheVersion });
+}
+
+/** 管理者が設定を変えたときに、この colo の /api/meta キャッシュを消す（他の colo は最大 30 秒古いまま）。 */
+export async function invalidateMetaCache(env: Env): Promise<void> {
+	await deleteShortCache(metaCacheName, createMetaCacheRequest(await getWorkerCacheVersion(env)));
+}
+
+function withClientCacheHeaders(response: Response): Response {
+	const headers = new Headers(response.headers);
+	headers.set('Cache-Control', `public, max-age=${metaCacheMaxAgeSeconds}`);
+	headers.set('Expires', new Date(Date.now() + metaCacheMaxAgeSeconds * 1000).toUTCString());
+	return new Response(response.body, { status: response.status, headers });
+}
+
 function createMetaResponse(data: MetaResponse): Response {
 	return new Response(JSON.stringify(data), {
 		headers: {
@@ -54,6 +85,10 @@ app.get('/meta', async (c) => {
 	const db = getDb(c.env);
 
 	try {
+		const cacheRequest = createMetaCacheRequest(await getWorkerCacheVersion(c.env));
+		const cached = await matchShortCache(metaCacheName, cacheRequest);
+		if (cached) return withClientCacheHeaders(cached);
+
 		const settingRows = await db
 			.select({ key: appSettings.key, value: appSettings.value })
 			.from(appSettings)
@@ -73,7 +108,7 @@ app.get('/meta', async (c) => {
 				.where(eq(paymentChains.isEnabled, true))
 			: [];
 
-		return createMetaResponse({
+		const response = createMetaResponse({
 			appName,
 			registrationEnabled: mode !== 'closed',
 			passphraseRequired: mode === 'passphrase',
@@ -96,6 +131,13 @@ app.get('/meta', async (c) => {
 				.map(chain => chain.chainId)
 				.filter(chainId => getPaymentChainRpcUrl(c.env, chainId) !== null),
 		});
+		// DB エラー時のデフォルト値（catch 側）はキャッシュしない
+		runContextBackgroundTask(
+			c,
+			putShortCache(metaCacheName, cacheRequest, response.clone(), shortCacheTtlSeconds),
+			'Failed to put meta response into cache:',
+		);
+		return response;
 	} catch {
 		return createMetaResponse({
 			appName: DEFAULT_APP_NAME,

@@ -23,7 +23,8 @@ import { bumpWorkerCacheVersion } from '../utils/cache-names';
 import { fileMutationEvents } from '../events/file-mutations';
 import { toFileMutationReference, toFileMutationReferences } from '../utils/file-mutation-reference';
 import { isValidCidr } from '../utils/cidr';
-import { recordModerationAuditLog } from '../utils/moderation';
+import { invalidateIpBanCache, recordModerationAuditLog } from '../utils/moderation';
+import { deleteAppSettingCache } from '../utils/app-settings-cache';
 import { idPage, pageParams } from '../utils/pagination';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -270,6 +271,7 @@ app.post(
 			expiresAt: body.expiresAt ?? null,
 		};
 		await db.insert(ipBans).values(row);
+		await invalidateIpBanCache();
 		await recordModerationAuditLog(c, 'admin_ip_ban_created', {
 			data: { banId: id, cidr, reason: row.reason, sourceEventId: row.sourceEventId, expiresAt: row.expiresAt },
 		});
@@ -290,6 +292,7 @@ app.post(
 		const db = getDb(c.env);
 		const body = c.req.valid('json');
 		await db.delete(ipBans).where(eq(ipBans.id, body.banId));
+		await invalidateIpBanCache();
 		await recordModerationAuditLog(c, 'admin_ip_ban_deleted', { data: { banId: body.banId } });
 		return c.json({ ok: true }, 200);
 	}, getResponseDefWithAuth('/api/admin/delete-ip-ban')),
@@ -935,6 +938,8 @@ app.post(
 				target: appSettings.key,
 				set: { value: body.value },
 			});
+		// この colo の設定キャッシュはすぐ消す（/api/meta のキャッシュは index.ts の管理 API ミドルウェアで消す）
+		await deleteAppSettingCache(body.key);
 		await recordModerationAuditLog(c, 'admin_setting_updated', {
 			data: { key: body.key, value: body.value },
 		});

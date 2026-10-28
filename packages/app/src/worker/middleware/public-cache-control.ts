@@ -1,17 +1,16 @@
 import { createMiddleware } from 'hono/factory';
-import { cache } from 'cloudflare:workers';
 
-type ResolveRouteCacheOptions = {
+type PublicCacheControlOptions = {
 	externalMaxAgeSeconds?: number;
 	staleWhileRevalidateSeconds?: number;
 };
 
 /**
- * Workers Cache（フロントキャッシュ）用のCache-Controlヘッダーを付与するミドルウェア。
- * キャッシュの保存・照合はプラットフォーム側が自動で行う。
+ * 公開ページの 200 GET レスポンスにブラウザー・CDN 向けの Cache-Control ヘッダーを付けるミドルウェア。
+ * サーバー側のキャッシュ（保存・照合・パージ）は行わない。
  * バリアント（Accept等）はルート側でVaryヘッダーを設定すること。
  */
-export function resolveRouteCache(options: ResolveRouteCacheOptions = {}) {
+export function publicCacheControl(options: PublicCacheControlOptions = {}) {
 	return createMiddleware<{ Bindings: Env }>(async (c, next) => {
 		if (c.req.method !== 'GET') {
 			await next();
@@ -37,17 +36,4 @@ export function resolveRouteCache(options: ResolveRouteCacheOptions = {}) {
 			headers,
 		});
 	});
-}
-
-/**
- * Workers CacheのフロントキャッシュをpathPrefixでパージする。
- * pathPrefixes はURLのパス部分（例: "/v/bucket/file.txt"）。
- */
-export async function purgeWorkersCacheByPathPrefixes(pathPrefixes: string[]): Promise<void> {
-	if (pathPrefixes.length === 0) return;
-
-	const result = await cache.purge({ pathPrefixes });
-	if (!result.success) {
-		throw new Error(`Workers Cache purge failed: ${JSON.stringify(result.errors)}`);
-	}
 }
