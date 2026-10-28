@@ -9,7 +9,11 @@ beforeEach(async () => {
 	await clearDb();
 });
 
-async function setupPublicFile(path = 'hello.txt', options: { isListed?: boolean; visibility?: 'public' | 'private' | 'passphrase'; passphrase?: string } = {}) {
+type TarIndexEntry = { path: string; mimeType: string; offset: number; size: number };
+
+const entryTarIndex: TarIndexEntry[] = [{ path: 'dir/entry.txt', mimeType: 'text/plain', offset: 0, size: 5 }];
+
+async function setupPublicFile(path = 'hello.txt', options: { isListed?: boolean; visibility?: 'public' | 'private' | 'passphrase'; passphrase?: string; tarIndex?: TarIndexEntry[] } = {}) {
 	const { data } = await signup('user1');
 	const token = String(data.token);
 
@@ -28,6 +32,15 @@ async function setupPublicFile(path = 'hello.txt', options: { isListed?: boolean
 	const { fileId } = await openRes.json() as { fileId: string };
 
 	await env.R2.put(fileId, 'Hello ActivityPub');
+	if (options.tarIndex) {
+		// 公式クライアントと同じく、tar index はクローズ前に登録する
+		const indexRes = await app.request('/api/files/create/tar-index', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ fileId, files: options.tarIndex }),
+		}, env);
+		if (indexRes.status !== 200) throw new Error(`tar-index failed: ${indexRes.status}`);
+	}
 	await app.request('/api/files/create/close', {
 		method: 'POST',
 		headers: authHeaders(token),
@@ -349,16 +362,7 @@ describe('ActivityPub routes', () => {
 	});
 
 	test('serves a public tar entry as its own Note', async () => {
-		const { token, fileId } = await setupPublicFile('archive.tar');
-
-		await app.request('/api/files/create/tar-index', {
-			method: 'POST',
-			headers: authHeaders(token),
-			body: JSON.stringify({
-				fileId,
-				files: [{ path: 'dir/entry.txt', mimeType: 'text/plain', offset: 0, size: 5 }],
-			}),
-		}, env);
+		const { fileId } = await setupPublicFile('archive.tar', { tarIndex: entryTarIndex });
 
 		const encodedEntryPath = encodeURIComponent('dir/entry.txt');
 		const res = await app.request(`https://example.test/a/files/${fileId}/%3Aentries/${encodedEntryPath}`, activityJsonRequest, env);
@@ -375,16 +379,7 @@ describe('ActivityPub routes', () => {
 	});
 
 	test('redirects browser requests for ActivityPub archive entry notes to the entry page', async () => {
-		const { token, fileId } = await setupPublicFile('archive.tar');
-
-		await app.request('/api/files/create/tar-index', {
-			method: 'POST',
-			headers: authHeaders(token),
-			body: JSON.stringify({
-				fileId,
-				files: [{ path: 'dir/entry.txt', mimeType: 'text/plain', offset: 0, size: 5 }],
-			}),
-		}, env);
+		const { fileId } = await setupPublicFile('archive.tar', { tarIndex: entryTarIndex });
 
 		const encodedEntryPath = encodeURIComponent('dir/entry.txt');
 		const res = await app.request(`https://example.test/a/files/${fileId}/%3Aentries/${encodedEntryPath}`, {
@@ -397,16 +392,7 @@ describe('ActivityPub routes', () => {
 	});
 
 	test('adds ActivityPub alternate tags to public archive entry pages', async () => {
-		const { token, fileId } = await setupPublicFile('archive.tar');
-
-		await app.request('/api/files/create/tar-index', {
-			method: 'POST',
-			headers: authHeaders(token),
-			body: JSON.stringify({
-				fileId,
-				files: [{ path: 'dir/entry.txt', mimeType: 'text/plain', offset: 0, size: 5 }],
-			}),
-		}, env);
+		const { fileId } = await setupPublicFile('archive.tar', { tarIndex: entryTarIndex });
 
 		const encodedEntryPath = encodeURIComponent('dir/entry.txt');
 		const href = `https://example.test/a/files/${fileId}/%3Aentries/${encodedEntryPath}`;
@@ -417,16 +403,7 @@ describe('ActivityPub routes', () => {
 	});
 
 	test('purges archive entry resolve caches when the archive is deleted', async () => {
-		const { token, bucketId, fileId } = await setupPublicFile('delete-archive.tar');
-
-		await app.request('/api/files/create/tar-index', {
-			method: 'POST',
-			headers: authHeaders(token),
-			body: JSON.stringify({
-				fileId,
-				files: [{ path: 'dir/entry.txt', mimeType: 'text/plain', offset: 0, size: 5 }],
-			}),
-		}, env);
+		const { token, bucketId, fileId } = await setupPublicFile('delete-archive.tar', { tarIndex: entryTarIndex });
 
 		const encodedEntryPath = encodeURIComponent('dir/entry.txt');
 		const viewUrl = `https://example.test/v/ap_bucket/delete-archive.tar/%3Aentries/${encodedEntryPath}`;
@@ -452,16 +429,7 @@ describe('ActivityPub routes', () => {
 	});
 
 	test('purges archive entry resolve caches when a directory is deleted', async () => {
-		const { token, bucketId, fileId } = await setupPublicFile('dir/delete-archive.tar');
-
-		await app.request('/api/files/create/tar-index', {
-			method: 'POST',
-			headers: authHeaders(token),
-			body: JSON.stringify({
-				fileId,
-				files: [{ path: 'dir/entry.txt', mimeType: 'text/plain', offset: 0, size: 5 }],
-			}),
-		}, env);
+		const { token, bucketId, fileId } = await setupPublicFile('dir/delete-archive.tar', { tarIndex: entryTarIndex });
 
 		const encodedEntryPath = encodeURIComponent('dir/entry.txt');
 		const viewUrl = `https://example.test/v/ap_bucket/dir/delete-archive.tar/%3Aentries/${encodedEntryPath}`;
@@ -487,16 +455,7 @@ describe('ActivityPub routes', () => {
 	});
 
 	test('purges archive entry resolve caches when a bucket is deleted', async () => {
-		const { token, bucketId, fileId } = await setupPublicFile('bucket-delete-archive.tar');
-
-		await app.request('/api/files/create/tar-index', {
-			method: 'POST',
-			headers: authHeaders(token),
-			body: JSON.stringify({
-				fileId,
-				files: [{ path: 'dir/entry.txt', mimeType: 'text/plain', offset: 0, size: 5 }],
-			}),
-		}, env);
+		const { token, bucketId, fileId } = await setupPublicFile('bucket-delete-archive.tar', { tarIndex: entryTarIndex });
 
 		const encodedEntryPath = encodeURIComponent('dir/entry.txt');
 		const viewUrl = `https://example.test/v/ap_bucket/bucket-delete-archive.tar/%3Aentries/${encodedEntryPath}`;
@@ -523,16 +482,7 @@ describe('ActivityPub routes', () => {
 
 	test('purges archive entry resolve caches when an admin deletes an archive', async () => {
 		const { token: adminToken } = await createAdminUser();
-		const { token, fileId } = await setupPublicFile('admin-delete-archive.tar');
-
-		await app.request('/api/files/create/tar-index', {
-			method: 'POST',
-			headers: authHeaders(token),
-			body: JSON.stringify({
-				fileId,
-				files: [{ path: 'dir/entry.txt', mimeType: 'text/plain', offset: 0, size: 5 }],
-			}),
-		}, env);
+		const { fileId } = await setupPublicFile('admin-delete-archive.tar', { tarIndex: entryTarIndex });
 
 		const encodedEntryPath = encodeURIComponent('dir/entry.txt');
 		const viewUrl = `https://example.test/v/ap_bucket/admin-delete-archive.tar/%3Aentries/${encodedEntryPath}`;
@@ -558,16 +508,7 @@ describe('ActivityPub routes', () => {
 	});
 
 	test('does not serve entries from an unlisted public archive', async () => {
-		const { token, fileId } = await setupPublicFile('hidden-archive.tar', { isListed: false });
-
-		await app.request('/api/files/create/tar-index', {
-			method: 'POST',
-			headers: authHeaders(token),
-			body: JSON.stringify({
-				fileId,
-				files: [{ path: 'dir/entry.txt', mimeType: 'text/plain', offset: 0, size: 5 }],
-			}),
-		}, env);
+		const { fileId } = await setupPublicFile('hidden-archive.tar', { isListed: false, tarIndex: entryTarIndex });
 
 		const encodedEntryPath = encodeURIComponent('dir/entry.txt');
 		const res = await app.request(`https://example.test/a/files/${fileId}/%3Aentries/${encodedEntryPath}`, activityJsonRequest, env);
