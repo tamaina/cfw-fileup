@@ -523,6 +523,89 @@ describe('POST /api/files/create/tar-index', () => {
 	});
 });
 
+describe('archive index after close', () => {
+	const tarEntry = (path: string) => ({ path, mimeType: 'text/plain', offset: 0, size: 5 });
+	const targzEntry = (path: string) => ({
+		path,
+		mimeType: 'text/plain',
+		aStart: 0,
+		aFirstEnd: 512,
+		aFinalStart: 512,
+		aEnd: 512,
+		rStartOffset: 0,
+		rEndOffset: 0,
+	});
+
+	async function openArchive(path: string) {
+		const { token, bucketId } = await setupUserAndBucket();
+		const openRes = await app.request('/api/files/create/open', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ bucketId, path }),
+		}, env);
+		expect(openRes.status).toBe(200);
+		const { fileId } = await openRes.json() as { fileId: string };
+		await env.R2.put(fileId, new Uint8Array(1024));
+		return { token, fileId };
+	}
+
+	async function postIndex(kind: 'tar' | 'targz', token: string, fileId: string, path: string) {
+		return app.request(`/api/files/create/${kind}-index`, {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ fileId, files: [kind === 'tar' ? tarEntry(path) : targzEntry(path)] }),
+		}, env);
+	}
+
+	async function closeFile(token: string, fileId: string) {
+		const res = await app.request('/api/files/create/close', {
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({ fileId, visibility: 'public' }),
+		}, env);
+		expect(res.status).toBe(200);
+	}
+
+	async function countRows(kind: 'tar' | 'targz', fileId: string) {
+		const table = kind === 'tar' ? 'tar_files' : 'targz_files';
+		const row = await env.DB.prepare(`SELECT COUNT(*) AS c FROM ${table} WHERE file_id = ?`).bind(fileId).first<{ c: number }>();
+		return row?.c ?? 0;
+	}
+
+	test.each(['tar', 'targz'] as const)('%s index can be registered while the file is open', async kind => {
+		const { token, fileId } = await openArchive(kind === 'tar' ? 'archive.tar' : 'archive.tar.gz');
+
+		const res = await postIndex(kind, token, fileId, 'file1.txt');
+		expect(res.status).toBe(200);
+		expect(await countRows(kind, fileId)).toBe(1);
+
+		await closeFile(token, fileId);
+	});
+
+	test.each(['tar', 'targz'] as const)('%s index on a closed file returns 409 and adds no rows', async kind => {
+		const { token, fileId } = await openArchive(kind === 'tar' ? 'archive.tar' : 'archive.tar.gz');
+		expect((await postIndex(kind, token, fileId, 'file1.txt')).status).toBe(200);
+		await closeFile(token, fileId);
+
+		const res = await postIndex(kind, token, fileId, 'injected.txt');
+		expect(res.status).toBe(409);
+		const body = await res.json() as { error?: { code?: string } } & Record<string, unknown>;
+		expect(JSON.stringify(body)).toContain('FILE_ALREADY_EXISTS');
+		expect(await countRows(kind, fileId)).toBe(1);
+	});
+
+	test.each(['tar', 'targz'] as const)('%s index on a closed non-archive file returns 409 and adds no rows', async kind => {
+		const { token, fileId } = await openArchive('plain.bin');
+		await closeFile(token, fileId);
+
+		const res = await postIndex(kind, token, fileId, 'injected.txt');
+		expect(res.status).toBe(409);
+		expect(await countRows(kind, fileId)).toBe(0);
+		const file = await env.DB.prepare('SELECT is_tar, is_targz FROM files WHERE id = ?').bind(fileId).first<{ is_tar: number; is_targz: number }>();
+		expect(file).toEqual({ is_tar: 0, is_targz: 0 });
+	});
+});
+
 describe('POST /api/files/create/close', () => {
 	test('closes file after R2 upload', async () => {
 		const { token, bucketId } = await setupUserAndBucket();

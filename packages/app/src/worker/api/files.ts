@@ -565,6 +565,11 @@ app.post(
 			throw apiError(403, 'FORBIDDEN');
 		}
 
+		// クローズ済みのファイルには index を追加できない（close と同じく 409）
+		if (file.isClosed) {
+			throw apiError(409, 'FILE_ALREADY_EXISTS');
+		}
+
 		if (file.uploadExpiresAt < Date.now()) {
 			throw apiError(410, 'UPLOAD_EXPIRED');
 		}
@@ -621,6 +626,8 @@ app.post(
 		const bucket = await db.select().from(buckets).where(eq(buckets.id, file.bucketId)).get();
 		if (!bucket) throw apiError(404, 'BUCKET_NOT_FOUND');
 		if (bucket.userId !== user.id && !user.isAdmin) throw apiError(403, 'FORBIDDEN');
+		// クローズ済みのファイルには index を追加できない（close と同じく 409）
+		if (file.isClosed) throw apiError(409, 'FILE_ALREADY_EXISTS');
 		if (file.uploadExpiresAt < Date.now()) throw apiError(410, 'UPLOAD_EXPIRED');
 		const r2Object = await c.env.R2.head(file.r2Key);
 		if (r2Object) {
