@@ -310,6 +310,42 @@ async function shouldRejectMismatchedFileType(env: Env): Promise<boolean> {
 	return await getAppSettingCached(env, 'reject_mismatched_file_type') === 'true';
 }
 
+/**
+ * index を追加する前に、すでに登録済みの行も含めてパスの衝突を調べる。
+ * - 同じパスの重複や「ファイル a」と「a/ 以下のエントリ」の衝突は 409
+ * - tar と tar.gz の index が同じファイルに混ざるのも 409（読み出し側はどちらか一方しか使わないため）
+ * 衝突があれば何も書き込まない。
+ */
+async function assertNoArchiveIndexConflict(
+	db: ReturnType<typeof getDb>,
+	file: { id: string; isTar: boolean; isTargz: boolean },
+	kind: 'tar' | 'targz',
+	newPaths: readonly string[],
+): Promise<void> {
+	const [tarRows, targzRows] = await Promise.all([
+		db.select({ path: tarFiles.path }).from(tarFiles).where(eq(tarFiles.fileId, file.id)),
+		db.select({ path: targzFiles.path }).from(targzFiles).where(eq(targzFiles.fileId, file.id)),
+	]);
+	const otherKindExists = kind === 'tar'
+		? file.isTargz || targzRows.length > 0
+		: file.isTar || tarRows.length > 0;
+	if (otherKindExists) {
+		throw apiError(409, 'TARGET_ALREADY_EXISTS');
+	}
+	const existingPaths = (kind === 'tar' ? tarRows : targzRows).map(row => row.path);
+	if (findArchiveEntryPathConflict([...existingPaths, ...newPaths]) !== null) {
+		throw apiError(409, 'TARGET_ALREADY_EXISTS');
+	}
+}
+
+/** 同時に送られたリクエスト同士で (file_id, path) の一意制約に当たった場合も 409 にする */
+function isArchiveIndexUniqueConstraintError(err: unknown): boolean {
+	for (let e: unknown = err; e instanceof Error; e = e.cause) {
+		if (e.message.includes('UNIQUE constraint failed') && /\btar(gz)?_files\./.test(e.message)) return true;
+	}
+	return false;
+}
+
 async function validateArchiveIndexRows(db: ReturnType<typeof getDb>, fileId: string, fileSize: number): Promise<void> {
 	const [tarIndexRows, targzIndexRows] = await Promise.all([
 		db.select().from(tarFiles).where(eq(tarFiles.fileId, fileId)),
@@ -578,25 +614,27 @@ app.post(
 			for (const entry of body.files) assertValidTargzIndexEntry(entry, r2Object.size);
 		}
 
-		const fileIds = body.files.map(() => genEaidx(Date.now()));
+		await assertNoArchiveIndexConflict(db, file, 'targz', body.files.map(entry => entry.path));
 
-		for (let i = 0; i < body.files.length; i++) {
-			const entry = body.files[i];
-			await db.insert(targzFiles).values({
-				id: fileIds[i],
-				fileId: file.id,
-				path: entry.path,
-				mimeType: entry.mimeType,
-				aStart: entry.aStart,
-				aFirstEnd: entry.aFirstEnd,
-				aFinalStart: entry.aFinalStart,
-				aEnd: entry.aEnd,
-				rStartOffset: entry.rStartOffset,
-				rEndOffset: entry.rEndOffset,
-			});
+		// 途中で失敗しても一部だけ登録された状態にならないよう、まとめて 1 回の batch で書き込む
+		const inserts = body.files.map(entry => db.insert(targzFiles).values({
+			id: genEaidx(Date.now()),
+			fileId: file.id,
+			path: entry.path,
+			mimeType: entry.mimeType,
+			aStart: entry.aStart,
+			aFirstEnd: entry.aFirstEnd,
+			aFinalStart: entry.aFinalStart,
+			aEnd: entry.aEnd,
+			rStartOffset: entry.rStartOffset,
+			rEndOffset: entry.rEndOffset,
+		}));
+		try {
+			await db.batch([db.update(files).set({ isTargz: true }).where(eq(files.id, file.id)), ...inserts]);
+		} catch (err) {
+			if (isArchiveIndexUniqueConstraintError(err)) throw apiError(409, 'TARGET_ALREADY_EXISTS');
+			throw err;
 		}
-
-		await db.update(files).set({ isTargz: true }).where(eq(files.id, file.id));
 
 		return c.json({ ok: true }, 200);
 	}, getResponseDefWithAuth('/api/files/create/targz-index')),
@@ -634,20 +672,23 @@ app.post(
 			for (const entry of body.files) assertValidTarIndexEntry(entry, r2Object.size);
 		}
 
-		const fileIds = body.files.map(() => genEaidx(Date.now()));
-		for (let i = 0; i < body.files.length; i++) {
-			const entry = body.files[i];
-			await db.insert(tarFiles).values({
-				id: fileIds[i],
-				fileId: file.id,
-				path: entry.path,
-				mimeType: entry.mimeType,
-				offset: entry.offset,
-				size: entry.size,
-			});
-		}
+		await assertNoArchiveIndexConflict(db, file, 'tar', body.files.map(entry => entry.path));
 
-		await db.update(files).set({ isTar: true }).where(eq(files.id, file.id));
+		// 途中で失敗しても一部だけ登録された状態にならないよう、まとめて 1 回の batch で書き込む
+		const inserts = body.files.map(entry => db.insert(tarFiles).values({
+			id: genEaidx(Date.now()),
+			fileId: file.id,
+			path: entry.path,
+			mimeType: entry.mimeType,
+			offset: entry.offset,
+			size: entry.size,
+		}));
+		try {
+			await db.batch([db.update(files).set({ isTar: true }).where(eq(files.id, file.id)), ...inserts]);
+		} catch (err) {
+			if (isArchiveIndexUniqueConstraintError(err)) throw apiError(409, 'TARGET_ALREADY_EXISTS');
+			throw err;
+		}
 
 		return c.json({ ok: true }, 200);
 	}, getResponseDefWithAuth('/api/files/create/tar-index')),
