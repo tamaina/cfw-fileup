@@ -17,7 +17,7 @@ import { passkeyRoutes } from './api/passkey';
 import { googleAuthRoutes } from './api/google-auth';
 import { indieAuthRoutes } from './api/indieauth';
 import { activityPubRoutes } from './routes/activitypub';
-import { downloadRoutes } from './routes/download';
+import { downloadRoutes, rejectInvalidOrFutureDownloadPath } from './routes/download';
 import { uploadRoutes } from './routes/upload';
 import { viewHtmlRoutes } from './routes/view-html';
 import { embedRoutes } from './routes/embed';
@@ -42,6 +42,9 @@ app.use('/v/*', async (c, next) => {
 });
 
 app.use('/d/*', async (c, next) => {
+	// 形式が正しくない ID・未来の ID は、DB を使う IP BAN の確認より前に返す
+	const rejected = rejectInvalidOrFutureDownloadPath(c.req.path);
+	if (rejected !== null) return rejected;
 	await rejectIpBan(c);
 	await next();
 });
