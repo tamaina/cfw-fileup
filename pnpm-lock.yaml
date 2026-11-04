@@ -29,8 +29,8 @@ importers:
         specifier: ^1.0.0
         version: 1.0.0
       '@browser-mc/browser-movie-converter':
-        specifier: ^1.4.0
-        version: 1.4.0
+        specifier: ^2.0.0
+        version: 2.0.0(mediabunny@1.63.0)
       '@hono/standard-validator':
         specifier: ^0.2.2
         version: 0.2.2(@standard-schema/spec@1.1.0)(hono@4.12.25)
@@ -95,8 +95,8 @@ importers:
         specifier: ^18.0.5
         version: 18.0.5
       mediabunny:
-        specifier: ^1.61.1
-        version: 1.61.1
+        specifier: ^1.63.0
+        version: 1.63.0
       mrmime:
         specifier: ^2.0.1
         version: 2.0.1
@@ -741,8 +741,10 @@ packages:
   '@browser-mc/browser-image-resizer-ex@1.0.0':
     resolution: {integrity: sha512-5UBbc0d6YyJMiYpA/ZKL4LKPhlL7YOnxjOkwf35C/7Wr6d7aGzOoQzPtQDEaBJ9MRb0I/VeJG61K62Ml22EXmA==}
 
-  '@browser-mc/browser-movie-converter@1.4.0':
-    resolution: {integrity: sha512-Z80X5+127F9A0vFtttisskBESANGcM2TME9KNZ1/ApFwjdfkBpy/qtVyA8UsunbQRqFD329l+L80NuRCIiwijQ==}
+  '@browser-mc/browser-movie-converter@2.0.0':
+    resolution: {integrity: sha512-6ZxfrgzWb0JXYJCEgihdcw5dxY55lUvX1A8on8+w0kM8nyLlt71+2Tw+Gq++K/54SN1Yh5gU6yd1bpz8K5Lr5g==}
+    peerDependencies:
+      mediabunny: ^1.62.0
 
   '@browser-mc/exif-transplant@0.0.4':
     resolution: {integrity: sha512-mHrzFKvFFXow4d1w3iMIhIRHH/iFLEwl+rln0wbxl6VD6d7V7nj8K6qGnmkmkWv8tEnngGsMXN1uzfULMxmbAA==}
@@ -750,8 +752,10 @@ packages:
   '@browser-mc/media-container@0.3.1':
     resolution: {integrity: sha512-0fAPfWJQ1gz1tvECyyK2jwWEIl4QRdjeAXL9SNp8m/dbR6yLsZL1Og9zGHW+7e52Hbr648vxWk6WGaDsoXRwCw==}
 
-  '@browser-mc/mediabunny-scene-keyframes@0.1.0':
-    resolution: {integrity: sha512-DYl+8J9V1DEy1amTozLGHTeVDxnzBvg62tsH8c34gDt+c+tCnsoJ1jP6ulTzedeHGY5In8zjqc9cG4RcYAw8aw==}
+  '@browser-mc/mediabunny-scene-keyframes@0.2.0':
+    resolution: {integrity: sha512-Deyqc5McFOpNPeIKKAFmIvKjZCNWwMDMEysG6mhBTAOKIBh7KzSrw51X2j+DNId7VrFcD634vyCclgcNg/6P3A==}
+    peerDependencies:
+      mediabunny: ^1.62.0
 
   '@browser-mc/video-codec@0.0.1':
     resolution: {integrity: sha512-bB6te1VW8ULlxte+8h9btTseAEiS0Yjb0/uUezJt5SM6RerS05MgmpY3hFwZKJPiiAaU1QW8m8YXrxErgXohUg==}
@@ -790,6 +794,7 @@ packages:
 
   '@cloudflare/vitest-pool-workers@0.18.6':
     resolution: {integrity: sha512-6JGqaQsQRZIVq/6jEC4ouJnShZriPIJ2X0yGndwMm+SiPP93pJi5Dp30dYAoztNrNJC7wWK7ec5slLfMBMZ8jA==}
+    deprecated: '@cloudflare/vitest-pool-workers has been renamed to @cloudflare/vitest-plugin. This package will not receive future updates.'
     peerDependencies:
       '@vitest/runner': ^4.1.0
       '@vitest/snapshot': ^4.1.0
@@ -903,11 +908,11 @@ packages:
 
   '@esbuild-kit/core-utils@3.3.2':
     resolution: {integrity: sha512-sPRAnw9CdSsRmEtnsl2WXWdyquogVpB3yZ3dgwJfe8zrOzTsV7cJvmwrKVa+0ma5BoiGJ+BoqkMvawbayKUsqQ==}
-    deprecated: 'Merged into tsx: https://tsx.is'
+    deprecated: 'Merged into tsx: https://tsx.hirok.io'
 
   '@esbuild-kit/esm-loader@2.6.5':
     resolution: {integrity: sha512-FxEMIkJKnodyA1OaCUoEvbYRkoZlLZ4d/eXFu9Fh8CbBBgP5EmZxrfTRyN0qpXZ4vOvqnE5YdRdcrmUUXuU+dA==}
-    deprecated: 'Merged into tsx: https://tsx.is'
+    deprecated: 'Merged into tsx: https://tsx.hirok.io'
 
   '@esbuild/aix-ppc64@0.25.12':
     resolution: {integrity: sha512-Hhmwd6CInZ3dwpuGTF8fJG6yoWmsToE+vYgD4nytZVxcu1ulHpUQRAB1UJ8+N1Am3Mz4+xOByoQoSZf4D+CpkA==}
@@ -3360,6 +3365,7 @@ packages:
   '@xmldom/xmldom@0.9.10':
     resolution: {integrity: sha512-A9gOqLdi6cV4ibazAjcQufGj0B1y/vDqYrcuP6d/6x8P27gRS8643Dj9o1dEKtB6O7fwxb2FgBmJS2mX7gpvdw==}
     engines: {node: '>=14.6'}
+    deprecated: this version has critical issues, please update to the latest version
 
   '@zip.js/zip.js@2.8.26':
     resolution: {integrity: sha512-RQ4h9F6DOiHxpdocUDrOl6xBM+yOtz+LkUol47AVWcfebGBDpZ7w7Xvz9PS24JgXvLGiXXzSAfdCdVy1tPlaFA==}
@@ -4109,6 +4115,7 @@ packages:
   eslint@9.39.4:
     resolution: {integrity: sha512-XoMjdBOwe/esVgEvLmNsD3IRHkm7fbKIUGvrleloJXUZgDHig2IPWNniv+GwjyJXzuNqVjlr5+4yVUZjycJwfQ==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+    deprecated: This version is no longer supported. Please see https://eslint.org/version-support for other options.
     hasBin: true
     peerDependencies:
       jiti: '*'
@@ -4809,8 +4816,8 @@ packages:
   mdast-util-to-hast@13.2.1:
     resolution: {integrity: sha512-cctsq2wp5vTsLIcaymblUriiTcZd0CwWtCbLvrOzYCDZoWyMNV8sZ7krj09FSnsiJi3WVsHLM4k6Dq/yaPyCXA==}
 
-  mediabunny@1.61.1:
-    resolution: {integrity: sha512-530o7Q2OkChbfXt8N9WmzcW/wmUN0Vdxgl3RE5zUlzny3aNJUi7huOjdOVVq60aCEjTaMR1Ikby+61+co8gRwA==}
+  mediabunny@1.63.0:
+    resolution: {integrity: sha512-6958wlfDtass/zNcuSuGzUzFT9ciwEFd5AzDa02EQdPmifB4URcTcZoyQ//Ln5e47Z6EC3EJuKr3MM037w89OA==}
 
   memoize-one@6.0.0:
     resolution: {integrity: sha512-rkpe71W0N0c0Xz6QD0eJETuWAJGnJ9afsl1srmwPrI+yBCkge5EycXXbYRyvL29zZVUWQCY7InPRCv3GDXuZNw==}
@@ -6983,12 +6990,12 @@ snapshots:
       '@browser-mc/webcodecs-avif': 0.4.2
       '@browser-mc/webcodecs-color': 1.0.1
 
-  '@browser-mc/browser-movie-converter@1.4.0':
+  '@browser-mc/browser-movie-converter@2.0.0(mediabunny@1.63.0)':
     dependencies:
-      '@browser-mc/mediabunny-scene-keyframes': 0.1.0
+      '@browser-mc/mediabunny-scene-keyframes': 0.2.0(mediabunny@1.63.0)
       '@browser-mc/video-codec': 0.0.1
       '@browser-mc/webcodecs-color': 1.0.1
-      mediabunny: 1.61.1
+      mediabunny: 1.63.0
 
   '@browser-mc/exif-transplant@0.0.4':
     dependencies:
@@ -6999,9 +7006,9 @@ snapshots:
     dependencies:
       '@browser-mc/binary': 0.0.1
 
-  '@browser-mc/mediabunny-scene-keyframes@0.1.0':
+  '@browser-mc/mediabunny-scene-keyframes@0.2.0(mediabunny@1.63.0)':
     dependencies:
-      mediabunny: 1.61.1
+      mediabunny: 1.63.0
 
   '@browser-mc/video-codec@0.0.1': {}
 
@@ -9222,8 +9229,8 @@ snapshots:
 
   '@typescript-eslint/project-service@8.59.3(typescript@6.0.3)':
     dependencies:
-      '@typescript-eslint/tsconfig-utils': 8.59.3(typescript@6.0.3)
-      '@typescript-eslint/types': 8.59.3
+      '@typescript-eslint/tsconfig-utils': 8.61.0(typescript@6.0.3)
+      '@typescript-eslint/types': 8.65.0
       debug: 4.4.3
       typescript: 6.0.3
     transitivePeerDependencies:
@@ -11540,7 +11547,7 @@ snapshots:
       unist-util-visit: 5.1.0
       vfile: 6.0.3
 
-  mediabunny@1.61.1:
+  mediabunny@1.63.0:
     dependencies:
       '@types/dom-mediacapture-transform': 0.1.11
       '@types/dom-webcodecs': 0.1.13
