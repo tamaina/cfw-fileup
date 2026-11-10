@@ -2,7 +2,8 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "types": [
-      "@cloudflare/vitest-pool-workers/types"
+      "@cloudflare/vitest-pool-workers/types",
+      "vite/client"
     ],
     "noEmit": true
   },

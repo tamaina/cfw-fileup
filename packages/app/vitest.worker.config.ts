@@ -41,6 +41,9 @@ export default defineConfig({
 		}),
 	],
 	test: {
+		// Client/shared tests use Node APIs (including transferable MessagePorts)
+		// and run in vitest.config.ts. Only API/DB tests belong in workerd.
+		include: ['test/worker/**/*.test.ts'],
 		exclude: ['**/node_modules/**', 'test/e2e/**'],
 	},
 });

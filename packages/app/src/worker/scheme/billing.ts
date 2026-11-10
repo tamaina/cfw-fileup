@@ -112,6 +112,7 @@ export const cryptoPaymentOrders = sqliteTable('crypto_payment_orders', {
 	quoteCurrentPlanPriceDurationDays: integer('quote_current_plan_price_duration_days'),
 	quoteCurrentPlanPriceDurationUnit: text('quote_current_plan_price_duration_unit', { enum: ['days', 'months', 'years'] }),
 	quoteDiscountAssignmentIds: text('quote_discount_assignment_ids').notNull().default('[]'),
+	billingRevision: integer('billing_revision').notNull().default(0),
 	status: text('status', { enum: ['pending', 'paid', 'expired', 'failed'] }).notNull().default('pending'),
 	txHash: text('tx_hash'),
 	createdAt: integer('created_at').notNull(),

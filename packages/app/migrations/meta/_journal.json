@@ -29,6 +29,13 @@
       "when": 1784530426615,
       "tag": "0003_lazy_calypso",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1791982602645,
+      "tag": "0004_wild_silverclaw",
+      "breakpoints": true
     }
   ]
 }

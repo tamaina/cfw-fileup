@@ -11,6 +11,7 @@ import { getPublicAppUrl, reserveEmailNotification, sendAccountEmailLines } from
 import { getAppName } from './app-name';
 import { getBillingReceiptSeller } from './billing-tax';
 import { runBackgroundTask, type WaitUntil } from './background-task';
+import { applyFundedPurchase } from './billing-funding';
 
 const TRANSFER_EVENT = parseAbiItem('event Transfer(address indexed from, address indexed to, uint256 value)');
 const ORDER_TTL_MS = 30 * 60 * 1000;
@@ -207,79 +208,34 @@ export async function checkAnyCryptoPaymentOrderWithPreviousStatus(env: Env, ord
 	return { before, order };
 }
 
-export async function markZeroAmountCryptoPaymentOrderPaid(env: Env, userId: string, orderId: string, now = Date.now(), waitUntil?: WaitUntil): Promise<typeof cryptoPaymentOrders.$inferSelect> {
+export async function markZeroAmountCryptoPaymentOrderPaid(env: Env, userId: string, orderId: string, now = Date.now(), waitUntil?: WaitUntil): Promise<OrderForConfirmation> {
 	const db = getDb(env);
-	const order = await db
-		.select()
-		.from(cryptoPaymentOrders)
-		.where(and(eq(cryptoPaymentOrders.id, orderId), eq(cryptoPaymentOrders.userId, userId)))
-		.get();
-
+	const order = await db.select().from(cryptoPaymentOrders).where(and(eq(cryptoPaymentOrders.id, orderId), eq(cryptoPaymentOrders.userId, userId))).get();
 	if (!order) throw apiError(404, 'PAYMENT_ORDER_NOT_FOUND');
 	if (order.status === 'paid') return order;
 	if (order.status !== 'pending') throw apiError(400, 'PAYMENT_ORDER_EXPIRED');
 	if (BigInt(order.amountBaseUnits) !== 0n) throw apiError(400, 'PAYMENT_QUOTE_INVALID');
-
-	const effectivePeriod = getPaidOrderEffectivePeriod(order, now);
-	const claimedOrders = await db
-		.update(cryptoPaymentOrders)
-		.set({
-			status: 'paid',
-			paidAt: now,
-			quoteEffectiveStartsAt: effectivePeriod.startsAt,
-			quoteEffectiveExpiresAt: effectivePeriod.expiresAt,
-			updatedAt: now,
-		})
-		.where(and(eq(cryptoPaymentOrders.id, order.id), eq(cryptoPaymentOrders.status, 'pending')))
-		.returning();
-	if (claimedOrders.length === 0) throw apiError(400, 'PAYMENT_TRANSACTION_ALREADY_USED');
-	const claimedOrder = claimedOrders[0] as OrderForConfirmation;
-
-	await applyPaidOrderPlan(env, claimedOrder, now);
-	await refreshEffectiveQuotaForUser(env, order.userId, now, waitUntil);
-	runBackgroundTask(waitUntil, sendPurchaseReceiptNotification(env, claimedOrder, now), 'Failed to send purchase receipt notification:');
-
-	return claimedOrder;
+	return finishFundedPurchase(env, order, now, waitUntil);
 }
 
 async function markCryptoPaymentOrderFailed(db: ReturnType<typeof getDb>, orderId: string, now: number): Promise<void> {
-	await db.update(cryptoPaymentOrders)
-		.set({ status: 'failed', updatedAt: now })
-		.where(and(eq(cryptoPaymentOrders.id, orderId), eq(cryptoPaymentOrders.status, 'pending')));
+	await db.update(cryptoPaymentOrders).set({ status: 'failed', updatedAt: now }).where(and(eq(cryptoPaymentOrders.id, orderId), eq(cryptoPaymentOrders.status, 'pending')));
 }
 
 async function markCryptoPaymentOrderPaid(env: Env, order: OrderForConfirmation, normalizedTxHash: Hex, now: number, waitUntil?: WaitUntil): Promise<OrderForConfirmation> {
-	const db = getDb(env);
-	const effectivePeriod = getPaidOrderEffectivePeriod(order, now);
-	let claimedOrders: OrderForConfirmation[];
-	try {
-		claimedOrders = await db
-			.update(cryptoPaymentOrders)
-			.set({
-				status: 'paid',
-				txHash: normalizedTxHash,
-				paidAt: now,
-				quoteEffectiveStartsAt: effectivePeriod.startsAt,
-				quoteEffectiveExpiresAt: effectivePeriod.expiresAt,
-				updatedAt: now,
-			})
-			.where(and(eq(cryptoPaymentOrders.id, order.id), eq(cryptoPaymentOrders.status, 'pending')))
-			.returning();
-	} catch {
-		throw apiError(400, 'PAYMENT_TRANSACTION_ALREADY_USED');
-	}
-	if (claimedOrders.length === 0) throw apiError(400, 'PAYMENT_TRANSACTION_ALREADY_USED');
-	const claimedOrder = claimedOrders[0] as OrderForConfirmation;
+	return finishFundedPurchase(env, { ...order, txHash: normalizedTxHash }, now, waitUntil);
+}
 
-	await applyPaidOrderPlan(env, claimedOrder, now);
+async function finishFundedPurchase(env: Env, order: OrderForConfirmation, now: number, waitUntil?: WaitUntil): Promise<OrderForConfirmation> {
+	const period = getPaidOrderEffectivePeriod(order, now);
+	const paid = await applyFundedPurchase(env, { ...order, quoteEffectiveStartsAt: period.startsAt, quoteEffectiveExpiresAt: period.expiresAt }, now);
 	await refreshEffectiveQuotaForUser(env, order.userId, now, waitUntil);
-	runBackgroundTask(waitUntil, sendPurchaseReceiptNotification(env, claimedOrder, now), 'Failed to send purchase receipt notification:');
-
-	return claimedOrder;
+	runBackgroundTask(waitUntil, sendPurchaseReceiptNotification(env, paid, now), 'Failed to send purchase receipt notification:');
+	return paid;
 }
 
 function getPaidOrderEffectivePeriod(order: OrderForConfirmation, paidAt: number): { startsAt: number; expiresAt: number } {
-	if (order.quoteCurrentPlanId !== null) {
+	if (order.quoteCurrentPlanId !== null || order.quoteEffectiveStartsAt > order.quoteCreatedAt) {
 		return {
 			startsAt: order.quoteEffectiveStartsAt,
 			expiresAt: order.quoteEffectiveExpiresAt,
@@ -360,40 +316,6 @@ async function getConfirmationsRequired(env: Env, chainId: number): Promise<numb
 	const db = getDb(env);
 	const row = await db.select({ confirmationsRequired: paymentChains.confirmationsRequired }).from(paymentChains).where(eq(paymentChains.chainId, chainId)).get();
 	return row?.confirmationsRequired ?? 1;
-}
-
-async function applyPaidOrderPlan(env: Env, order: OrderForConfirmation, now: number): Promise<void> {
-	const db = getDb(env);
-	if (order.assetId == null) throw apiError(400, 'PAYMENT_ORDER_NOT_FOUND');
-
-	await expireDiscountedFuturePlanAssignment(env, {
-		userId: order.userId,
-		targetPlanId: order.planId,
-		quoteCurrentPlanId: order.quoteCurrentPlanId,
-		quoteCurrentPlanExpiresAt: order.quoteCurrentPlanExpiresAt,
-		quoteCreatedAt: order.quoteCreatedAt,
-		quoteDiscountBaseUnits: order.quoteDiscountBaseUnits,
-		quoteDiscountAssignmentIds: parseDiscountAssignmentIds(order.quoteDiscountAssignmentIds),
-		quoteEffectiveStartsAt: order.quoteEffectiveStartsAt,
-		quoteEffectiveExpiresAt: order.quoteEffectiveExpiresAt,
-		now,
-	});
-
-	await db
-		.insert(userPlanAssignments)
-		.values({
-			id: newPaymentId(now),
-			userId: order.userId,
-			planId: order.planId,
-			startsAt: order.quoteEffectiveStartsAt,
-			expiresAt: order.quoteEffectiveExpiresAt,
-			priceAssetId: order.assetId,
-			priceAmountBaseUnits: order.quoteBaseAmountBaseUnits,
-			priceDurationDays: order.durationDays,
-			priceDurationUnit: order.durationUnit,
-			createdAt: now,
-			updatedAt: now,
-		});
 }
 
 export async function expireDiscountedFuturePlanAssignment(env: Env, order: {

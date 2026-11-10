@@ -408,6 +408,6 @@ export const adminApiDef = {
 		summary: 'Delete user plan assignment',
 		tags: ['admin'],
 		req: v.object({ userId: IdString }),
-		res: { ...OkResponse, ...AdminErrors, 404: UserNotFound },
+		res: { ...OkResponse, ...AdminErrors, 404: UserNotFound, 409: errorResponse('Billing reservation or pending purchase', ['REFUND_CONFLICT']) },
 	},
 } as const satisfies ApiEndpointDefinitionRecord;

@@ -10,6 +10,7 @@ import { adminApiDef } from './admin.js';
 import { directoriesApiDef } from './directories.js';
 import { passkeyApiDef } from './passkey.js';
 import { billingApiDef } from './billing.js';
+import { refundsApiDef } from './refunds.js';
 import type { Context } from 'hono';
 import type { ApiEndpointResponseType } from '../api.types.js';
 
@@ -35,6 +36,7 @@ export const apiDef = {
 	...directoriesApiDef,
 	...passkeyApiDef,
 	...billingApiDef,
+	...refundsApiDef,
 };
 
 export type ApiDef = typeof apiDef;
